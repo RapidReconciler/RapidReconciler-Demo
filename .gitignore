@@ -1,0 +1,15 @@
+# Generated demo bundle (product snapshot + fixtures + recording). Build output,
+# never source. Rebuilt by publish/build-demo.
+/bundle/
+
+# Captured recordings staged outside the bundle (may be large and data-sensitive).
+/publish/_captures/
+*.har
+
+# Node tooling (if the capture harness uses it)
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
