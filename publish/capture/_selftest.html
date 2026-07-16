@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>record/replay self-test</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; color: #172033; }
+  h1 { font-size: 18px; }
+  #summary { font-size: 16px; font-weight: 700; padding: 8px 12px; border-radius: 6px; display: inline-block; }
+  .ok  { background: #e6f6ec; color: #0d6b2f; }
+  .bad { background: #fbe4e7; color: #8a1220; }
+  table { border-collapse: collapse; margin-top: 14px; width: 100%; max-width: 900px; }
+  td, th { border: 1px solid #d6dae2; padding: 5px 9px; text-align: left; vertical-align: top; font-size: 13px; }
+  th { background: #f2f4f8; }
+  .p { color: #0d6b2f; font-weight: 700; }
+  .f { color: #8a1220; font-weight: 700; }
+  code { background: #f2f4f8; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+</style>
+<!-- The SHARED signature module -- the exact file that ships in the bundle. -->
+<script src="../../bundle-runtime/request-signature.js"></script>
+</head>
+<body>
+<h1>RapidReconciler demo &mdash; record/replay self-test</h1>
+<p>Runs entirely in-memory (a fake network for the capture phase, the real replay
+shim for the replay phase). No product, no server, no live network. Works from
+<code>file://</code>.</p>
+<div id="summary">running&hellip;</div>
+<table id="results"><thead><tr><th>#</th><th>check</th><th>result</th><th>detail</th></tr></thead><tbody></tbody></table>
+
+<script>
+(function () {
+  var Sig = window.DemoSig;
+  var rows = [], pass = 0, fail = 0;
+  function check(name, cond, detail) {
+    if (cond) pass++; else fail++;
+    rows.push({ name: name, ok: !!cond, detail: detail || '' });
+  }
+  function render() {
+    var tb = document.querySelector('#results tbody');
+    tb.innerHTML = rows.map(function (r, i) {
+      return '<tr><td>' + (i + 1) + '</td><td>' + r.name + '</td><td class="' + (r.ok ? 'p' : 'f') +
+             '">' + (r.ok ? 'PASS' : 'FAIL') + '</td><td><code>' + String(r.detail).replace(/</g,'&lt;') + '</code></td></tr>';
+    }).join('');
+    var s = document.getElementById('summary');
+    s.textContent = (fail === 0 ? 'ALL PASS' : fail + ' FAILED') + '  (' + pass + '/' + (pass + fail) + ')';
+    s.className = fail === 0 ? 'ok' : 'bad';
+  }
+
+  function loadScript(src) {
+    return new Promise(function (res, rej) {
+      var s = document.createElement('script'); s.src = src;
+      s.onload = res; s.onerror = function () { rej(new Error('load ' + src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  // ---- a fake network, keyed by the SAME signature both shims use ----------
+  var enc = new TextEncoder();
+  var BIN = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00, 0x01, 0x02, 0xff]); // fake "xlsx" bytes
+  var TABLE = {};
+  function put(method, url, body, status, ct, payload, binary) {
+    TABLE[Sig.signature(method, url, body)] = { status: status, ct: ct, payload: payload, binary: !!binary };
+  }
+  put('GET',  '/inventory/status', null, 200, 'application/json', '{"ok":true,"companies":3}', false);
+  put('POST', '/inventory/integrity', JSON.stringify({ report: 'v6ui_itemrollintegritydialog' }), 200, 'application/json', '[{"Item":"A","AdjAmount":5.16}]', false);
+  put('POST', '/inventory/set-beginning-balance', JSON.stringify({ item: 'A', company: '100', qty: 2, amount: 9.5 }), 200, 'application/json', '{"ok":true,"adjustmentId":42}', false);
+  put('GET',  '/download-excel/system-status', null, 200, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', BIN, true);
+  put('GET',  '/xhr/ping', null, 200, 'text/plain', 'pong', false);
+  put('POST', '/xhr/echo', JSON.stringify({ a: 1 }), 200, 'application/json', '{"echoed":true}', false);
+
+  function lookupFake(method, url, body) { return TABLE[Sig.signature(method, url, body)] || null; }
+
+  function fakeFetch(input, init) {
+    init = init || {};
+    var url = (input && input.url) ? input.url : input;
+    var method = init.method || 'GET';
+    var body = init.body;
+    var e = lookupFake(method, url, body);
+    return Promise.resolve(e
+      ? new Response(e.binary ? e.payload : e.payload, { status: e.status, headers: { 'Content-Type': e.ct } })
+      : new Response('', { status: 404 }));
+  }
+
+  // Minimal fake XHR that implements exactly the surface record-shim consumes.
+  function FakeXHR() {
+    this.readyState = 0; this.status = 0; this.statusText = 'OK';
+    this.responseText = ''; this.response = null; this.responseType = '';
+    this._m = 'GET'; this._u = ''; this._h = {}; this._ct = ''; this._listeners = {};
+  }
+  FakeXHR.prototype.open = function (m, u) { this._m = m; this._u = u; this.readyState = 1; };
+  FakeXHR.prototype.setRequestHeader = function () {};
+  FakeXHR.prototype.getResponseHeader = function (n) { return String(n).toLowerCase() === 'content-type' ? this._ct : null; };
+  FakeXHR.prototype.getAllResponseHeaders = function () { return this._ct ? 'content-type: ' + this._ct + '\r\n' : ''; };
+  FakeXHR.prototype.addEventListener = function (t, fn) { (this._listeners[t] = this._listeners[t] || []).push(fn); };
+  FakeXHR.prototype.send = function (body) {
+    var self = this, e = lookupFake(self._m, self._u, body);
+    setTimeout(function () {
+      if (e) { self.status = e.status; self._ct = e.ct; self.responseText = e.binary ? '' : e.payload; self.response = self.responseText; }
+      else { self.status = 404; self.responseText = ''; }
+      self.readyState = 4;
+      if (typeof self.onreadystatechange === 'function') self.onreadystatechange();
+      (self._listeners.load || []).forEach(function (fn) { fn.call(self); });
+    }, 0);
+  };
+
+  function xhrGet(url, method, body) {
+    return new Promise(function (resolve) {
+      var x = new XMLHttpRequest();
+      x.open(method || 'GET', url);
+      x.addEventListener('load', function () { resolve({ status: x.status, text: x.responseText, ct: x.getResponseHeader('content-type') }); });
+      x.send(body);
+    });
+  }
+
+  function u8eq(a, b) { if (a.length !== b.length) return false; for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; }
+
+  // ===================== the test run =====================
+  (async function run() {
+    try {
+      // --- signature unit checks (pure) ---
+      check('sig drops origin/host', Sig.signature('GET', 'http://localhost:34537/inventory/status') === Sig.signature('GET', 'https://10.0.0.9:8080/inventory/status'), Sig.signature('GET', 'http://x/inventory/status'));
+      check('sig query order-invariant', Sig.signature('GET', '/x?b=2&a=1') === Sig.signature('GET', '/x?a=1&b=2'), Sig.signature('GET', '/x?a=1&b=2'));
+      check('sig body field-order-invariant', Sig.signature('POST', '/x', '{"b":2,"a":1}') === Sig.signature('POST', '/x', '{"a":1,"b":2}'), Sig.signature('POST', '/x', '{"a":1,"b":2}'));
+      check('sig different body -> different key', Sig.signature('POST', '/x', '{"a":1}') !== Sig.signature('POST', '/x', '{"a":2}'), 'ok');
+      check('sig GET ignores body', Sig.signature('GET', '/x', '{"a":1}') === Sig.signature('GET', '/x'), 'ok');
+
+      // --- PHASE 1: RECORD (fakes installed, then record-shim wraps them) ---
+      window.fetch = fakeFetch;
+      window.XMLHttpRequest = FakeXHR;
+      await loadScript('record-shim.js');
+      check('record-shim patched fetch', window.fetch.__isDemoRecordShim === true, '');
+      check('record-shim patched XHR', window.XMLHttpRequest.__isDemoRecordShim === true, '');
+
+      var rStatus = await (await fetch('http://localhost:34537/inventory/status')).json();
+      var rInteg  = await (await fetch('http://localhost:34537/inventory/integrity', { method: 'POST', body: JSON.stringify({ report: 'v6ui_itemrollintegritydialog' }) })).json();
+      var rWrite  = await (await fetch('http://localhost:34537/inventory/set-beginning-balance', { method: 'POST', body: JSON.stringify({ item: 'A', company: '100', qty: 2, amount: 9.5 }) })).json();
+      var rBinBuf = await (await fetch('http://localhost:34537/download-excel/system-status')).arrayBuffer();
+      var rPing   = await xhrGet('http://localhost:34537/xhr/ping', 'GET');
+      var rEcho   = await xhrGet('http://localhost:34537/xhr/echo', 'POST', JSON.stringify({ a: 1 }));
+
+      var rec = window.__demoCapture.dump();
+      check('captured 6 entries (fetch+xhr, get+post+write+binary)', rec.entries.length === 6, 'entries=' + rec.entries.length);
+      // `write` == non-GET method (POST/PUT/... ); only used to pick the MISS
+      // fallback. GET entries must be reads; the set-beginning-balance POST a write.
+      check('GET entries flagged read, POSTs flagged write', rec.entries.filter(function (e) { return e.method === 'GET' && !e.write; }).length === 3 && rec.entries.filter(function (e) { return e.method === 'POST' && e.write; }).length === 3, '');
+      check('capture recorded a base64 (binary) body', rec.entries.filter(function (e) { return e.encoding === 'base64'; }).length === 1, '');
+      check('capture recorded 2 xhr entries', rec.entries.filter(function (e) { return e.via === 'xhr'; }).length === 2, '');
+
+      // --- PHASE 2: REPLAY (replay-shim answers from the recording) ---
+      await loadScript('../../bundle-runtime/replay-shim.js');
+      check('replay-shim patched fetch', window.fetch.__isDemoReplayShim === true, '');
+      check('replay-shim patched XHR', window.XMLHttpRequest.__isDemoReplayShim === true, '');
+      window.__demoReplay.init(rec);
+      check('replay index built', window.__demoReplay.ready() && window.__demoReplay.stats().entries === 6, JSON.stringify(window.__demoReplay.stats()));
+
+      // GET read round-trips (note: a DIFFERENT origin than capture -> proves host-independence)
+      var pStatus = await (await fetch('https://demo.example/inventory/status')).json();
+      check('replay GET fetch round-trips', pStatus && pStatus.ok === true && pStatus.companies === 3, JSON.stringify(pStatus));
+
+      // POST read round-trips
+      var pInteg = await (await fetch('https://demo.example/inventory/integrity', { method: 'POST', body: JSON.stringify({ report: 'v6ui_itemrollintegritydialog' }) })).json();
+      check('replay POST-read fetch round-trips', Array.isArray(pInteg) && pInteg[0].AdjAmount === 5.16, JSON.stringify(pInteg));
+
+      // WRITE replays the recorded success
+      var pWrite = await (await fetch('https://demo.example/inventory/set-beginning-balance', { method: 'POST', body: JSON.stringify({ item: 'A', company: '100', qty: 2, amount: 9.5 }) })).json();
+      check('replay WRITE returns recorded success', pWrite && pWrite.ok === true && pWrite.adjustmentId === 42, JSON.stringify(pWrite));
+
+      // BINARY replays byte-identical
+      var pBinBuf = await (await fetch('https://demo.example/download-excel/system-status')).arrayBuffer();
+      check('replay BINARY byte-identical', u8eq(new Uint8Array(pBinBuf), BIN), 'len=' + pBinBuf.byteLength);
+
+      // XHR read round-trips
+      var pPing = await xhrGet('https://demo.example/xhr/ping', 'GET');
+      check('replay GET xhr round-trips', pPing.status === 200 && pPing.text === 'pong', JSON.stringify(pPing));
+      var pEcho = await xhrGet('https://demo.example/xhr/echo', 'POST', JSON.stringify({ a: 1 }));
+      check('replay POST xhr round-trips', pEcho.status === 200 && JSON.parse(pEcho.text).echoed === true, pEcho.text);
+
+      // MISS: read -> neutral 200 null; write -> canned {ok:true}; overlay records both
+      var pReadMiss = await (await fetch('https://demo.example/inventory/never-captured')).json();
+      check('replay READ miss degrades to neutral null (no crash)', pReadMiss === null, JSON.stringify(pReadMiss));
+      var pWriteMiss = await (await fetch('https://demo.example/inventory/undo-adjustment', { method: 'POST', body: JSON.stringify({ id: 7 }) })).json();
+      check('replay WRITE miss degrades to canned ok', pWriteMiss && pWriteMiss.ok === true, JSON.stringify(pWriteMiss));
+      var misses = window.__demoReplay.misses();
+      check('replay miss surfaced in dev overlay/miss list', Object.keys(misses).length === 2, JSON.stringify(Object.keys(misses)));
+
+      // Sequence-aware: same GET signature repeats -> exhausted queue keeps last
+      var pStatus2 = await (await fetch('https://demo.example/inventory/status')).json();
+      check('replay repeat read still answers (reset=reload safe)', pStatus2 && pStatus2.companies === 3, JSON.stringify(pStatus2));
+
+    } catch (err) {
+      check('run completed without throwing', false, String(err && err.stack || err));
+    }
+    render();
+  })();
+})();
+</script>
+</body>
+</html>
