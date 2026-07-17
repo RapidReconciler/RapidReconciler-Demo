@@ -44,7 +44,11 @@ Copy-Item (Join-Path $Capture 'record-shim.js')       -Destination (Join-Path $S
 
 # Inject record-shim (DemoSig first) at the top of every <head> so it wraps
 # fetch/XHR before any product code runs.
-$boot = '<script src="/request-signature.js"></script><script src="/record-shim.js"></script>'
+# Inline config sets the stop URL BEFORE the shim loads, so the Save button can
+# tell VALC to stop capture + restore the RR App (one-and-done). VALC's CORS
+# allows the :8765 origin on /api/**. Only capture-staging gets this global, so
+# record-shim.js stays reusable (no auto-stop) for other record/replay uses.
+$boot = '<script>window.__rrCaptureStopUrl="http://localhost:8080/api/services/capture/stop";</script><script src="/request-signature.js"></script><script src="/record-shim.js"></script>'
 $n = 0
 # Match ONLY the real <head> tag, injecting exactly once. "<head[^>]*>" also
 # matches "<header ...>" (prefix), and [regex]::Replace(...,1) treats the 4th

@@ -184,4 +184,52 @@
       setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
     }
   };
+
+  // ---- floating Save button (capture staging only) -----------------------
+  // The shim is injected only into the capture-staging bundle, so this button
+  // only ever appears during a capture walk -- no product impact. It removes
+  // the console step (window.__demoCapture.download()): the analyst walks the
+  // screens and clicks to save recording.json. The label carries the live
+  // request/response pair count so progress is visible without the console.
+  function mountSaveButton() {
+    var doc = root.document;
+    if (!doc || !doc.body) { root.setTimeout(mountSaveButton, 200); return; }
+    if (doc.getElementById('demo-capture-save')) return;
+    var btn = doc.createElement('button');
+    btn.id = 'demo-capture-save';
+    btn.type = 'button';
+    btn.title = 'Save the captured request/response pairs to recording.json';
+    // High-contrast, fixed bottom-right, above everything. Kept compact so it
+    // does not cover product controls; nudged up-left off the very corner.
+    btn.style.cssText = [
+      'position:fixed', 'right:18px', 'bottom:18px', 'z-index:2147483647',
+      'padding:10px 16px', 'border:0', 'border-radius:999px',
+      'background:#c62828', 'color:#fff',
+      'font:600 13px/1.2 -apple-system,Segoe UI,Roboto,sans-serif',
+      'box-shadow:0 4px 14px rgba(0,0,0,.35)', 'cursor:pointer',
+      'display:inline-flex', 'align-items:center', 'gap:6px'
+    ].join(';');
+    // Label uses \u2b07 (DOWNWARDS BLACK ARROW) so the source stays pure ASCII.
+    function label() { return '\u2b07 Save recording (' + recording.entries.length + ')'; }
+    btn.textContent = label();
+    btn.addEventListener('click', function () {
+      root.__demoCapture.download();                       // 1. snapshot -> recording.json (client-side blob; server not needed)
+      btn.disabled = true; btn.textContent = 'Saved — stopping…';
+      // 2. One-and-done: ask VALC to stop capture + restore the RR App on :8765.
+      //    The staging origin is CORS-allowed on VALC /api/**. Gated on
+      //    __rrCaptureStopUrl (injected only in capture-staging) so this shim stays
+      //    reusable for non-capture record/replay uses (REC-1) with no auto-stop.
+      var stopUrl = root.__rrCaptureStopUrl;
+      if (stopUrl && root.fetch) { try { root.fetch(stopUrl, { method: 'POST' }).catch(function () {}); } catch (_) {} }
+      // 3. Close this (script-opened) tab after the download has a beat to flush.
+      root.setTimeout(function () { try { root.close(); } catch (_) {} }, 900);
+    });
+    doc.body.appendChild(btn);
+    // Refresh the count live (cheap; the walk fires calls continuously).
+    root.setInterval(function () {
+      var next = label();
+      if (btn.textContent !== next) btn.textContent = next;
+    }, 1000);
+  }
+  mountSaveButton();
 })(typeof window !== 'undefined' ? window : this);
