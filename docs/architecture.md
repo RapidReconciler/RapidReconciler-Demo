@@ -40,12 +40,29 @@ Instead the bundle uses a record/replay network layer:
 New features work in the demo with no per-page demo code, as long as the capture
 walk visits them.
 
-## The AI goes canned
+## Capture scope: full free-roam across all three DBs (owner, 2026-07-17)
 
-The product's assistants call the model live today. Air-gapped means pre-captured
-answers for the scripted prompts, which is better for a demo anyway: deterministic,
-instant, no hallucination, no key to manage. A prospect asking an off-script
-question gets a live answer only if the demo is allowed a network call to the model.
+The demo is built for free-roam, not a narrow scripted rail. The presenter can
+switch between all three demo DBs, switch companies, and click through every
+period on every screen, and it behaves like the live product — because the
+capture walk visits the whole matrix: every DB x every company x every period x
+every screen and its drills. Whatever the walk skips replays as a miss, so
+coverage IS the demo. This is why the walk must be automated (a hand walk of that
+matrix does not stay current). The dev token already carries all three demo DBs,
+so the DB switcher offers them offline.
+
+## The AI goes canned (owner, 2026-07-17: canned-only for now)
+
+Scripted prompts replay from a captured answer: deterministic, instant, no
+hallucination, no key to manage — the right behavior for the demo's centerpiece
+moments, and it keeps the bundle fully offline. An off-script question a prospect
+types is a replay MISS; the assistant handles it gracefully (a short "that's
+outside this guided demo" style reply), it does not answer live.
+
+A live-model fallback for off-script questions was considered and **parked** — it
+would reintroduce a network dependency and a key-holding gateway (the key can't
+ship in a static bundle). Revisit only if a prospect's free-form AI Q&A becomes a
+must-have; until then the demo stays air-gapped.
 
 ## Reset is a reload
 

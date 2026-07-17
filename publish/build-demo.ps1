@@ -100,11 +100,18 @@ if ($Recording -and (Test-Path $Recording)) {
 #     patches fetch/XHR BEFORE any product code runs. The snapshot is generated,
 #     not hand-edited, so a mechanical injection here is the intended pattern.
 $boot = '<script src="/request-signature.js"></script><script src="/replay-shim.js"></script>'
+# Match ONLY the real <head> tag -- NOT <header ...> (which "<head[^>]*>" would
+# also match, since "<head" is a prefix of "<header"). The pattern requires the
+# char after "head" to be ">" or whitespace, so <header> can never match. Inject
+# exactly once (a double-injected replay-shim re-patches fetch and its second
+# copy captures the FIRST shim as "native", so recording.json autoload loops back
+# into the shim -> MISS -> no recording ever loads).
 Get-ChildItem -Path $BundleDir -Filter '*.html' -Recurse | ForEach-Object {
   $html = Get-Content $_.FullName -Raw -Encoding UTF8
   if ($html -notmatch [regex]::Escape($boot)) {
-    # Insert right after the first <head ...> tag.
-    $html = [regex]::Replace($html, '(?i)(<head[^>]*>)', "`$1$boot", 1)
+    # Insert right after the first <head ...> tag only.
+    $rx = New-Object System.Text.RegularExpressions.Regex '(?i)(<head(?:\s[^>]*)?>)'
+    $html = $rx.Replace($html, "`$1$boot", 1)   # 3rd arg = count (replace FIRST only)
     Set-Content -Path $_.FullName -Value $html -Encoding UTF8
   }
 }

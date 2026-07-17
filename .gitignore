@@ -2,6 +2,11 @@
 # never source. Rebuilt by publish/build-demo.
 /bundle/
 
+# Capture-walk staging (live product + record-shim). Build output, never source.
+# Rebuilt by publish/capture/build-capture-staging.ps1. May hold a recording.json
+# with demo data.
+/capture-staging/
+
 # Captured recordings staged outside the bundle (may be large and data-sensitive).
 /publish/_captures/
 *.har

@@ -34,6 +34,7 @@
   var Sig = root.DemoSig;
 
   var nativeFetch = root.fetch ? root.fetch.bind(root) : null;
+  var NativeXHR = root.XMLHttpRequest;   // captured BEFORE we patch it, for the sync recording load
 
   // sig -> { entries: [entry,...], ptr: n }
   var index = {};
@@ -247,9 +248,30 @@
     signature: Sig.signature
   };
 
+  // Load the recording SYNCHRONOUSLY at shim-init. The shim is injected at the
+  // TOP of <head>, so a blocking load here guarantees the index is built BEFORE
+  // any product code runs its on-load fetches. An async load races: product
+  // pages fire their data calls immediately, and a large recording.json (MBs)
+  // may not have parsed yet -> those early calls MISS with no retry. A sync XHR
+  // on a same-origin static file is a sub-second, one-time cost at page load.
+  function loadRecordingSync() {
+    if (!NativeXHR) return false;
+    try {
+      var xhr = new NativeXHR();
+      xhr.open('GET', 'recording.json', false);   // false = synchronous
+      xhr.send(null);
+      if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
+        buildIndex(JSON.parse(xhr.responseText));
+        return true;
+      }
+    } catch (e) { /* fall through to async */ }
+    return false;
+  }
+
   function autoload() {
     if (root.__DEMO_RECORDING) { buildIndex(root.__DEMO_RECORDING); return; }
-    if (nativeFetch) {
+    if (loadRecordingSync()) return;              // primary: race-free
+    if (nativeFetch) {                            // fallback: async (best-effort)
       nativeFetch('recording.json', { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (rec) { if (rec) buildIndex(rec); else console.warn('[demo replay] no recording.json found'); })
