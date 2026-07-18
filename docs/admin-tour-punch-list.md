@@ -66,19 +66,24 @@ Status per wart: ☐ open · ◐ fixing · ✅ fixed (owner-verified live)
 ---
 
 ## Cross-cutting / structural
-- ☐ **BLOCKER — AI replay key is the whole prompt hash → brittle.** `request-signature.js`
-  keys a POST on `FNV1a(entire body)`; for `ai/explain` that's a hash of the full prompt,
-  which bakes in the GENERATED grounding + every live card value (renewal days, storage,
-  uptime "23h 13m", activity "1d ago"). ANY drift → hash miss → "No answer came back"
-  (seen live on the license pill; briefing also misses on load). Current miss = pre-#366
-  grounding. **Freezing the date alone will NOT hold** — grounding/storage/uptime/relative-
-  times all break it within a day. **Root fix (rec): re-key `ai/explain` replay on the
-  SEMANTIC request (question + tier), not the prompt hash** — matches the original
-  "pill text = capture key" intent; survives grounding regen + card drift + the clock.
-  Harness change (request-signature.js + record/replay shims), not product. Wrinkle: the
-  auto-briefing call has no "Question:" line → needs its own per-tier key. THEN re-walk
-  once (6 pills × 3 tiers = 18) + freeze the clock for non-AI relative-time displays.
-  **Owner deciding: semantic re-key (rec) vs freeze-entire-demo-clock+state.**
+- ✅ **AI replay key re-keyed to (question + tier) — FIXED + VERIFIED (commit `857371d`).**
+  Root cause: `request-signature.js` hashed the WHOLE `ai/explain` prompt, baking in the
+  generated grounding + drifting live values (uptime "23h 13m" changes every minute,
+  storage, renewal days, "1d ago") → the key rotted within a day → "No answer came back."
+  Fix: path-scoped semantic key for `/api/v1/ai/explain` = `tier=<t>|q=<question>`;
+  briefing (no Question line) keys per tier; every other call still whole-body hashed.
+  `record-shim` now stamps a readable `aiKey` per AI entry for capture-completeness
+  eyeballing. `_selftest.html` +6 checks → **30/30 PASS** incl. grounding/uptime/days
+  drift → same key, and no regression. All 3 sig copies + both record-shim copies in sync
+  (bundle/ + capture-staging/ are gitignored build artifacts; regen from bundle-runtime/).
+  - ⚠ **The existing recording can't be re-keyed in place** (request prompts aren't stored,
+    only their hash). So the CURRENT bundle AI still misses until a **re-walk** regenerates
+    `recording-admin.json` with the new durable keys. That re-walk is the owner's hands
+    (live product + fresh login + fire the 18 pill×tier combos), and is needed for PII +
+    freeze-date anyway. After the re-walk the AI survives drift permanently.
+  - ☐ **Future (when analyst/accountant tours are built):** confirm their `ai/explain`
+    prompts carry an extractable "Question:" + "DATA ACCESS — <tier>" so the semantic key
+    discriminates them too; otherwise their calls collide to `tier=na|q=(briefing)`.
 - ◐ **AI answer "types" instead of pasting.** Product change in `RapidReconciler-AI/RRV8/home.html`:
   new `_aiTypeReveal()` helper + wired into `askAdmin()` — after the Thinking… beat the
   answer types in (gen-guarded, reduced-motion safe, ~1.8s cap). Render-time over the
