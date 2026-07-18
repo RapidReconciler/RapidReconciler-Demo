@@ -116,11 +116,68 @@ Get-ChildItem -Path $BundleDir -Filter '*.html' -Recurse | ForEach-Object {
   }
 }
 
+# 5e-help. Help panel closure (the "?" companion). Admin pages carry
+#   <body data-help-src="../RRUniversity/...">; Tools/help-sidebar.js injects the
+#   dark "?" circle and opens an iframe of that help doc in ?embed=1 mode. RRV8/*
+#   is flattened to the bundle root, so a root page's "../Tools/x" /
+#   "../RRUniversity/y" refs clamp (RFC 3986) to "/Tools/x" / "/RRUniversity/y" at
+#   the served root; the docs (one level deep) resolve "../Tools/" and "../Images/"
+#   to the same root. Stage that closure so nothing 404s. Done AFTER the shim
+#   injection above on purpose: the help docs are static (no fetch/XHR), so they
+#   must NOT get request-signature.js / replay-shim.js injected.
+#   OFFLINE NOTE: these help docs <link> Google Fonts (fonts.googleapis.com) in
+#   their <head>. That CDN is unreachable in true-offline replay -- the docs fall
+#   back to system fonts and the panel still renders. Not vendored here (flagged).
+# admin-grid.css + gsi-logo.png aren't the "?" panel itself -- they're chrome the
+# help-bearing admin pages pull via the SAME ../Tools//../Images root-clamp, and
+# were 404ing in the flattened bundle already (missing topbar logo on every admin
+# page; unstyled grid on admin-users). Staged here so the page hosting the panel
+# renders correctly.
+$HelpTools = @('help-sidebar.js','help-sidebar.css','doc-chrome.js','doc-header.css','doc-print.css','admin-grid.css','home-search.js')
+$HelpDocs  = @('administrator-start-here.html','administrator-managing-companies.html','administrator-complex-password.html','administrator-managing-users.html','getting-started-with-rapidreconciler.html')
+$HelpImgs  = @('rr-collapse-navigation-bar.png','rr-full-screen.png','rr-help-panel.png','rr-log-out.png','rr-login-screen.png','rr-main-navigation.png','rr-module-status-bar.png','rr-password-reset.png','rr-personal-data.png','rr-system-alerts.png','rr-web-page-banner.png','gsi-logo.png')
+if (Test-Path $SrcApp) {
+  $dstTools = Join-Path $BundleDir 'Tools'
+  $dstDocs  = Join-Path $BundleDir 'RRUniversity'
+  $dstImgs  = Join-Path $BundleDir 'Images'
+  New-Item -ItemType Directory -Path $dstTools, $dstDocs, $dstImgs -Force | Out-Null
+  foreach ($f in $HelpTools) { Copy-Item (Join-Path $UiRepo "Tools\$f")        -Destination (Join-Path $dstTools $f) -Force }
+  foreach ($f in $HelpDocs)  { Copy-Item (Join-Path $UiRepo "RRUniversity\$f") -Destination (Join-Path $dstDocs  $f) -Force }
+  foreach ($f in $HelpImgs)  { Copy-Item (Join-Path $UiRepo "Images\$f")       -Destination (Join-Path $dstImgs  $f) -Force }
+  Write-Host ("  staged help panel closure: {0} Tools + {1} docs + {2} images" -f $HelpTools.Count, $HelpDocs.Count, $HelpImgs.Count) -ForegroundColor Green
+}
+
+# 5e-tour. The presenter layer (the ONLY hand-written part of the demo, see
+#   tour/README.md). The tour pages iframe the flattened product pages (home.html
+#   and the admin sub-pages) as SIBLINGS at the bundle root, so their same-origin
+#   relative iframe srcs resolve and the product's absolute /request-signature.js
+#   + root recording.json load correctly. Staged AFTER the shim injection (5e) ON
+#   PURPOSE: the tour shell makes no product network calls of its own -- it seeds
+#   the demo session in localStorage and drives the real product in the iframe --
+#   so it must NOT get request-signature.js / replay-shim.js injected (a shimmed
+#   tour shell would try to replay its own static asset reads). Its assets/ (the
+#   meeting-room background) come along to the bundle root.
+$TourDir = Join-Path $DemoRepo 'tour'
+if (Test-Path $TourDir) {
+  Get-ChildItem -Path $TourDir -Filter '*.html' | ForEach-Object {
+    Copy-Item $_.FullName -Destination (Join-Path $BundleDir $_.Name) -Force
+  }
+  $tourAssets = Join-Path $TourDir 'assets'
+  if (Test-Path $tourAssets) {
+    $dstAssets = Join-Path $BundleDir 'assets'
+    New-Item -ItemType Directory -Path $dstAssets -Force | Out-Null
+    Copy-Item (Join-Path $tourAssets '*') -Destination $dstAssets -Recurse -Force
+  }
+  Write-Host "  staged presenter tour: $((Get-ChildItem -Path $TourDir -Filter '*.html').Count) pages + assets" -ForegroundColor Green
+}
+
 # 5f. Entry page. launch.ps1 opens index.html by default; point it at the demo
-#     start page. Until the tour intro exists, alias home.html as index.html.
-$homeSrc = Join-Path $BundleDir 'home.html'
+#     start page. The tour front door (tour/index.html, staged above) is the demo
+#     entry when present; otherwise fall back to aliasing home.html as index.html
+#     so a shim-only / tourless bundle still launches straight into the product.
 $indexDst = Join-Path $BundleDir 'index.html'
-if ((Test-Path $homeSrc) -and (-not (Test-Path $indexDst))) {
+$homeSrc  = Join-Path $BundleDir 'home.html'
+if (-not (Test-Path $indexDst) -and (Test-Path $homeSrc)) {
   Copy-Item $homeSrc -Destination $indexDst -Force
 }
 

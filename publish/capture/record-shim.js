@@ -40,7 +40,18 @@
   var nativeFetch = root.fetch ? root.fetch.bind(root) : null;
   var NativeXHR = root.XMLHttpRequest;
 
-  var recording = { version: 1, createdAt: new Date().toISOString(), entries: [] };
+  // Recording persists to sessionStorage so it ACCUMULATES across page
+  // navigations within one capture walk (same :8765 origin). Without this the
+  // in-memory recording reset on every navigation and only the last page was
+  // saved. Re-hydrate on load; a full re-serialize on each record() is fine for
+  // capture (not a hot path); a quota/disabled failure degrades to in-memory.
+  var SS_KEY = '__demoCaptureRecording';
+  var recording = null;
+  try { var _saved = root.sessionStorage && root.sessionStorage.getItem(SS_KEY); if (_saved) recording = JSON.parse(_saved); } catch (e) { recording = null; }
+  if (!recording || !recording.entries) recording = { version: 1, createdAt: new Date().toISOString(), entries: [] };
+  function persist() {
+    try { if (root.sessionStorage) root.sessionStorage.setItem(SS_KEY, JSON.stringify(recording)); } catch (e) { /* quota/disabled: keep recording in-memory */ }
+  }
 
   // ---- binary helpers ----------------------------------------------------
   function isTextual(contentType) {
@@ -79,6 +90,7 @@
       write:       Sig.isWriteMethod(rec.method),
       via:         rec.via
     });
+    persist();
   }
 
   // ---- fetch -------------------------------------------------------------
@@ -174,7 +186,7 @@
     dump: function () { return recording; },
     toJson: function (pretty) { return JSON.stringify(recording, null, pretty ? 2 : 0); },
     count: function () { return recording.entries.length; },
-    clear: function () { recording.entries.length = 0; recording.createdAt = new Date().toISOString(); },
+    clear: function () { recording.entries.length = 0; recording.createdAt = new Date().toISOString(); try { if (root.sessionStorage) root.sessionStorage.removeItem(SS_KEY); } catch (e) {} },
     download: function (filename) {
       filename = filename || 'recording.json';
       var blob = new Blob([this.toJson(true)], { type: 'application/json' });

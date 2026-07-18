@@ -63,6 +63,34 @@ Get-ChildItem -Path $Staging -Filter '*.html' -Recurse | ForEach-Object {
   }
 }
 Write-Host "  injected record-shim into $n page(s)" -ForegroundColor Green
+
+# --- Help panel closure (the "?" companion) --------------------------------
+# Admin pages carry <body data-help-src="../RRUniversity/...">; Tools/help-sidebar.js
+# injects the dark "?" circle and opens an iframe of that help doc in ?embed=1 mode.
+# RRV8/* is flattened to the staging root, so a root page's "../Tools/x" and
+# "../RRUniversity/y" refs clamp (RFC 3986) to "/Tools/x" and "/RRUniversity/y" at
+# the served root; the help docs (one level deep) resolve "../Tools/" and
+# "../Images/" to the same root. Stage that closure here so nothing 404s.
+# Done AFTER shim injection on purpose: the help docs are static (no fetch/XHR),
+# so they must NOT get request-signature.js / record-shim.js injected.
+# admin-grid.css + gsi-logo.png aren't the "?" panel itself -- they're chrome the
+# help-bearing admin pages pull via the SAME ../Tools//../Images root-clamp, and
+# were 404ing in the flattened bundle already (missing topbar logo on every admin
+# page; unstyled grid on admin-users). Staged here so the page hosting the panel
+# renders correctly.
+$HelpTools = @('help-sidebar.js','help-sidebar.css','doc-chrome.js','doc-header.css','doc-print.css','admin-grid.css')
+$HelpDocs  = @('administrator-start-here.html','administrator-managing-companies.html','administrator-complex-password.html','administrator-managing-users.html','getting-started-with-rapidreconciler.html')
+$HelpImgs  = @('rr-collapse-navigation-bar.png','rr-full-screen.png','rr-help-panel.png','rr-log-out.png','rr-login-screen.png','rr-main-navigation.png','rr-module-status-bar.png','rr-password-reset.png','rr-personal-data.png','rr-system-alerts.png','rr-web-page-banner.png','gsi-logo.png')
+
+$dstTools = Join-Path $Staging 'Tools'
+$dstDocs  = Join-Path $Staging 'RRUniversity'
+$dstImgs  = Join-Path $Staging 'Images'
+New-Item -ItemType Directory -Path $dstTools, $dstDocs, $dstImgs -Force | Out-Null
+foreach ($f in $HelpTools) { Copy-Item (Join-Path $UiRepo "Tools\$f")        -Destination (Join-Path $dstTools $f) -Force }
+foreach ($f in $HelpDocs)  { Copy-Item (Join-Path $UiRepo "RRUniversity\$f") -Destination (Join-Path $dstDocs  $f) -Force }
+foreach ($f in $HelpImgs)  { Copy-Item (Join-Path $UiRepo "Images\$f")       -Destination (Join-Path $dstImgs  $f) -Force }
+Write-Host ("  staged help panel closure: {0} Tools + {1} docs + {2} images" -f $HelpTools.Count, $HelpDocs.Count, $HelpImgs.Count) -ForegroundColor Green
+
 Write-Host ""
 Write-Host "  NEXT: serve capture-staging and walk the tour screens, then run" -ForegroundColor Yellow
 Write-Host "        window.__demoCapture.download() to save recording.json." -ForegroundColor Yellow

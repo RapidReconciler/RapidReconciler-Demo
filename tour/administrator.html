@@ -3,157 +3,521 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RapidReconciler AI — Administrator walk</title>
+<title>RapidReconciler AI &mdash; Administrator walk</title>
 <style>
   :root{
     --navy:#1f2d4a; --navy-deep:#16223b; --ink:#1d2431; --muted:#5b6472;
     --card:#ffffff; --orange:#f08a24; --orange-deep:#d97316;
     --on-dark:#f2f6fd; --on-dark-muted:#c9d4e8;
+    --line-dark:rgba(255,255,255,.14);
     --shadow:0 2px 6px rgba(0,0,0,.20), 0 14px 40px rgba(0,0,0,.28);
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --rail-w:400px;
   }
   *{box-sizing:border-box}
-  html,body{margin:0}
-  body{font-family:var(--sans); color:var(--on-dark); line-height:1.5; -webkit-font-smoothing:antialiased; min-height:100vh;
-    display:flex; flex-direction:column;
+  html,body{margin:0; height:100%}
+  body{font-family:var(--sans); color:var(--on-dark); -webkit-font-smoothing:antialiased;
+    display:flex; height:100vh; overflow:hidden;
     background:
-      linear-gradient(rgba(16,26,46,.50), rgba(16,26,46,.74)),
+      linear-gradient(rgba(16,26,46,.55), rgba(16,26,46,.80)),
       #0f1c33 url("assets/meeting-bg.png") center top / cover no-repeat fixed;
   }
   .spark{display:inline-block; color:var(--orange)}
   .spark svg{width:.78em; height:.78em; margin-left:.1em; filter:drop-shadow(0 0 6px rgba(240,138,36,.5))}
 
-  .topbar{display:flex; align-items:center; gap:14px; padding:20px 30px}
-  .wordmark{font-weight:800; font-size:18px; color:#fff}
-  .role-tag{font-size:12px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; color:var(--orange);
-    border:1px solid rgba(240,138,36,.5); border-radius:999px; padding:4px 11px}
-  .back{margin-left:auto; background:none; border:0; color:var(--on-dark-muted); font-weight:700; font-size:14px;
-    cursor:pointer; font-family:inherit; text-decoration:none}
-  .back:hover{color:#fff}
+  /* ===================== PRESENTER RAIL ===================== */
+  .rail{flex:0 0 var(--rail-w); width:var(--rail-w); height:100%; display:flex; flex-direction:column;
+    background:rgba(16,26,46,.62); border-right:1px solid var(--line-dark);
+    -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+    transition:flex-basis .22s ease, width .22s ease;}
+  body.rail-collapsed .rail{flex-basis:0; width:0; border-right:0; overflow:hidden}
 
-  .stage{flex:1; display:flex; align-items:center; justify-content:center; padding:10px 30px 20px}
-  .step{display:none; width:100%; max-width:1000px}
-  .step.active{display:grid; grid-template-columns:1.1fr .9fr; gap:40px; align-items:center; animation:rise .3s ease}
-  @media(max-width:820px){ .step.active{grid-template-columns:1fr; gap:26px} }
-  @keyframes rise{from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:none}}
+  .rail-top{display:flex; align-items:center; gap:12px; padding:20px 22px 14px; border-bottom:1px solid var(--line-dark)}
+  .wordmark{font-weight:800; font-size:18px; color:#fff; white-space:nowrap}
+  .role-tag{font-size:11.5px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; color:var(--orange);
+    border:1px solid rgba(240,138,36,.5); border-radius:999px; padding:4px 10px; white-space:nowrap}
+  .rail-exit{margin-left:auto; color:var(--on-dark-muted); font-weight:700; font-size:13.5px; text-decoration:none; white-space:nowrap}
+  .rail-exit:hover{color:#fff}
 
-  .lead h1{font-size:36px; line-height:1.15; letter-spacing:-.02em; margin:0 0 18px; color:#fff; text-shadow:0 1px 20px rgba(0,0,0,.25)}
-  .lead p{font-size:20px; line-height:1.5; color:var(--on-dark-muted); margin:0}
-  .lead .kicker{font-size:19px; font-weight:800; color:var(--orange); margin:0 0 10px}
-
-  .panel{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.16); border-radius:18px; padding:28px 30px;
-    -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px)}
-  .panel h2{margin:0 0 16px; font-size:14px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--orange)}
-  .panel ul{list-style:none; margin:0; padding:0}
-  .panel li{position:relative; padding:12px 0 12px 26px; font-size:19px; color:var(--on-dark); border-top:1px solid rgba(255,255,255,.08)}
-  .panel li:first-child{border-top:0}
-  .panel li::before{content:""; position:absolute; left:2px; top:20px; width:8px; height:8px; border-radius:50%; background:var(--orange)}
-
-  .footer{display:flex; align-items:center; gap:16px; padding:18px 30px 26px; max-width:1060px; margin:0 auto; width:100%}
-  .dots{display:flex; gap:9px}
-  .dot{width:10px; height:10px; border-radius:50%; background:rgba(255,255,255,.22)}
+  /* progress */
+  .progress{padding:16px 22px 6px}
+  .progress-meta{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px}
+  .progress-step{font-size:13px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--orange)}
+  .progress-of{font-size:13px; color:var(--on-dark-muted)}
+  .dots{display:flex; gap:7px; flex-wrap:wrap}
+  .dot{width:9px; height:9px; border-radius:50%; background:rgba(255,255,255,.20); cursor:pointer; transition:background .15s, transform .15s}
+  .dot:hover{transform:scale(1.25)}
   .dot.on{background:var(--orange)}
-  .spacer{flex:1}
-  .btn{border:0; border-radius:11px; font-weight:700; font-size:15px; padding:12px 20px; cursor:pointer; font-family:inherit}
+  .dot.done{background:rgba(240,138,36,.55)}
+
+  /* step body (scrolls) */
+  .rail-body{flex:1; overflow-y:auto; padding:14px 22px 8px}
+  .eyebrow{font-size:14px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--orange); margin:6px 0 8px}
+  .rail-body h1{font-size:27px; line-height:1.18; letter-spacing:-.01em; margin:0 0 16px; color:#fff}
+
+  /* SAY block — the presenter's line, big + quotable */
+  .say{background:rgba(240,138,36,.12); border:1px solid rgba(240,138,36,.34); border-left:4px solid var(--orange);
+    border-radius:12px; padding:15px 17px; margin:0 0 16px}
+  .say-label{display:block; font-size:11.5px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; color:var(--orange); margin-bottom:7px}
+  .say p{margin:0; font-size:18px; line-height:1.5; color:#fff; font-weight:600}
+  .say p + p{margin-top:10px}
+
+  /* PROVE bullets — what the prospect should take away */
+  .prove{margin:0 0 16px}
+  .prove-label{display:block; font-size:11.5px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; color:var(--on-dark-muted); margin-bottom:8px}
+  .prove ul{list-style:none; margin:0; padding:0}
+  .prove li{position:relative; padding:7px 0 7px 24px; font-size:16px; line-height:1.45; color:var(--on-dark)}
+  .prove li + li{border-top:1px solid rgba(255,255,255,.07)}
+  .prove li::before{content:""; position:absolute; left:3px; top:15px; width:8px; height:8px; border-radius:50%; background:var(--orange)}
+
+  /* DO hint — the concrete action */
+  .do{display:flex; gap:10px; align-items:flex-start; font-size:14.5px; line-height:1.45; color:var(--on-dark-muted); margin:0 0 16px}
+  .do svg{flex:0 0 18px; width:18px; height:18px; margin-top:1px; color:var(--orange)}
+  .do b{color:#fff; font-weight:700}
+
+  /* contextual controls (tier ladder + ask buttons) */
+  .controls{border-top:1px solid var(--line-dark); padding-top:15px; margin-top:4px}
+  .controls[hidden]{display:none}
+  .controls-label{display:block; font-size:11.5px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; color:var(--on-dark-muted); margin-bottom:10px}
+
+  .ask-row{display:flex; flex-direction:column; gap:8px; margin-bottom:16px}
+  .ask-btn{font-family:inherit; text-align:left; font-size:15px; font-weight:600; color:#eaf1ff;
+    background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.22); border-radius:10px;
+    padding:11px 14px; cursor:pointer; line-height:1.35; transition:background .12s, border-color .12s}
+  .ask-btn:hover{background:rgba(255,255,255,.18); border-color:rgba(255,255,255,.42)}
+  .ask-btn::before{content:"Ask \2192  "; color:var(--orange); font-weight:800}
+
+  /* tier ladder */
+  .tier-wrap{margin-bottom:8px}
+  .tier-seg{display:flex; gap:6px; background:rgba(0,0,0,.22); border:1px solid var(--line-dark); border-radius:12px; padding:6px}
+  .tier-opt{flex:1; font-family:inherit; font-size:15px; font-weight:700; color:var(--on-dark-muted);
+    background:transparent; border:0; border-radius:8px; padding:11px 6px; cursor:pointer; transition:background .12s, color .12s}
+  .tier-opt:hover{color:#fff}
+  .tier-opt.is-active{background:var(--orange); color:#fff}
+  .tier-blurb{font-size:14.5px; line-height:1.45; color:var(--on-dark); margin:11px 2px 0; min-height:42px}
+  .tier-blurb b{color:#fff}
+
+  /* nav */
+  .rail-nav{display:flex; align-items:center; gap:12px; padding:14px 22px 18px; border-top:1px solid var(--line-dark)}
+  .btn{border:0; border-radius:11px; font-family:inherit; font-weight:700; font-size:15.5px; padding:12px 18px; cursor:pointer}
   .btn.prev{background:rgba(255,255,255,.10); color:var(--on-dark)}
   .btn.prev:hover{background:rgba(255,255,255,.18)}
   .btn.prev[disabled]{opacity:.35; cursor:default}
-  .btn.next{background:var(--orange); color:#fff}
+  .btn.next{margin-left:auto; background:var(--orange); color:#fff}
   .btn.next:hover{background:var(--orange-deep)}
+
+  /* ===================== STAGE (live product) ===================== */
+  .stage{flex:1; height:100%; display:flex; flex-direction:column; min-width:0; padding:14px 14px 14px 0}
+  body.rail-collapsed .stage{padding-left:14px}
+  .stage-head{display:flex; align-items:center; gap:12px; padding:0 4px 12px}
+  .rail-toggle{display:inline-flex; align-items:center; gap:8px; font-family:inherit; font-size:13.5px; font-weight:700;
+    color:var(--on-dark); background:rgba(255,255,255,.10); border:1px solid var(--line-dark); border-radius:999px;
+    padding:8px 14px; cursor:pointer}
+  .rail-toggle:hover{background:rgba(255,255,255,.18)}
+  .live-ribbon{display:inline-flex; align-items:center; gap:8px; font-size:12.5px; font-weight:800; letter-spacing:.05em;
+    text-transform:uppercase; color:#eafff2; background:rgba(46,138,85,.28); border:1px solid rgba(46,138,85,.55);
+    border-radius:999px; padding:6px 13px}
+  .live-dot{width:8px; height:8px; border-radius:50%; background:#3ddc84; box-shadow:0 0 0 3px rgba(61,220,132,.25)}
+  .stage-caption{font-size:13.5px; color:var(--on-dark-muted); margin-left:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+  .frame-wrap{flex:1; min-height:0; border-radius:14px; overflow:hidden; background:#f4f6fb; box-shadow:var(--shadow); position:relative}
+  iframe#stageFrame{width:100%; height:100%; border:0; display:block; background:#fff}
+  .frame-loading{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--muted); font-size:15px; background:#f4f6fb; transition:opacity .3s; pointer-events:none}
+  .frame-loading[hidden]{opacity:0}
+
+  @media (max-width:1180px){
+    :root{--rail-w:360px}
+    .rail-body h1{font-size:24px}
+    .say p{font-size:16.5px}
+  }
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <span class="wordmark">RapidReconciler AI<span class="spark"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6l1.9 5.1a5 5 0 0 0 2.9 2.9l5.1 1.9-5.1 1.9a5 5 0 0 0-2.9 2.9L12 21.4l-1.9-5.1a5 5 0 0 0-2.9-2.9L2.1 11.5l5.1-1.9a5 5 0 0 0 2.9-2.9z"/></svg></span></span>
-  <span class="role-tag">Administrator</span>
-  <a class="back" href="index.html">&larr; Back to roles</a>
-</div>
+<!-- Seed the offline session BEFORE the product iframe boots. Same origin as the
+     bundled product, so localStorage is shared. The product runs in staging mode
+     (real request paths) and the replay shim answers every call from the recording;
+     this synthetic session just tells the product WHICH database + role to render
+     (Summit Industrial / RapidReconciler_Demo1, Administrator). No signature is
+     verified anywhere — the shim intercepts the network — so an unsigned token is
+     the honest, dependency-free way to establish the demo session offline. -->
+<script>
+(function seedSession(){
+  function b64url(o){ return btoa(JSON.stringify(o)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_'); }
+  var payload = {
+    user: { fn: 'Demo Administrator', u: 'admin@summit-demo.example' },
+    dbs: [ { n:'RapidReconciler_Demo1', ip:'localhost:34537', t:{ adm:true }, perms:{ dm:true }, i:['80002','80008'] } ],
+    exp: 2082758400
+  };
+  try {
+    localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
+    localStorage.setItem('rrv8.activeDb', 'RapidReconciler_Demo1');
+    localStorage.setItem('rrv8.viewRole', 'admin');
+    localStorage.setItem('rrv8.aiTier', 'grounded');   // start on Basic — the safe, always-answering tier
+  } catch (e) {}
+})();
+</script>
 
-<div class="stage">
-
-  <section class="step active" data-step="1">
-    <div class="lead">
-      <h1>This role is yours to own</h1>
-      <p>The Administrator belongs to your team, not to GSI. You decide who gets access and what they can do, and you keep RapidReconciler running. We support the software &mdash; your administrator runs your instance.</p>
-    </div>
-    <div class="panel">
-      <h2>What the Administrator owns</h2>
-      <ul>
-        <li>Users and their access</li>
-        <li>Keeping the data current</li>
-        <li>The health of your instance</li>
-      </ul>
-    </div>
-  </section>
-
-  <section class="step" data-step="2">
-    <div class="lead">
-      <p class="kicker">Managing users and access</p>
-      <h1>You decide who gets in</h1>
-      <p>Add your people, give each the right access, and remove them when they move on. It takes minutes, and it stays entirely in your hands.</p>
-    </div>
-    <div class="panel">
-      <h2>What you control here</h2>
-      <ul>
-        <li>Who can sign in</li>
-        <li>What each role can see and do</li>
-        <li>Adding and removing people</li>
-      </ul>
-    </div>
-  </section>
-
-  <section class="step" data-step="3">
-    <div class="lead">
-      <p class="kicker">Keeping it current</p>
-      <h1>Light to run, yours to own</h1>
-      <p>Reconciliation is only as fresh as the last data refresh. Set a schedule &mdash; nightly is typical &mdash; and RapidReconciler keeps itself up to date. That is most of the upkeep.</p>
-    </div>
-    <div class="panel">
-      <h2>The upkeep, in full</h2>
-      <ul>
-        <li>Refresh on a schedule</li>
-        <li>A quick health check when you sign in</li>
-        <li>That is genuinely it</li>
-      </ul>
-    </div>
-  </section>
-
-</div>
-
-<div class="footer">
-  <div class="dots">
-    <span class="dot on"></span><span class="dot"></span><span class="dot"></span>
+<!-- ===================== PRESENTER RAIL ===================== -->
+<aside class="rail" id="rail">
+  <div class="rail-top">
+    <span class="wordmark">RapidReconciler AI<span class="spark"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6l1.9 5.1a5 5 0 0 0 2.9 2.9l5.1 1.9-5.1 1.9a5 5 0 0 0-2.9 2.9L12 21.4l-1.9-5.1a5 5 0 0 0-2.9-2.9L2.1 11.5l5.1-1.9a5 5 0 0 0 2.9-2.9z"/></svg></span></span>
+    <span class="role-tag">Administrator</span>
+    <a class="rail-exit" href="index.html">Exit</a>
   </div>
-  <div class="spacer"></div>
-  <button class="btn prev" id="prev" disabled>&larr; Back</button>
-  <button class="btn next" id="next">Next &rarr;</button>
-</div>
+
+  <div class="progress">
+    <div class="progress-meta">
+      <span class="progress-step" id="stepLabel">Step 1</span>
+      <span class="progress-of" id="stepOf"></span>
+    </div>
+    <div class="dots" id="dots"></div>
+  </div>
+
+  <div class="rail-body" id="railBody"><!-- filled by render() --></div>
+
+  <div class="rail-nav">
+    <button class="btn prev" id="prev" disabled>&larr; Back</button>
+    <button class="btn next" id="next">Next &rarr;</button>
+  </div>
+</aside>
+
+<!-- ===================== STAGE ===================== -->
+<main class="stage">
+  <div class="stage-head">
+    <button class="rail-toggle" id="railToggle" title="Show or hide the presenter notes">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+      <span id="railToggleLabel">Hide notes</span>
+    </button>
+    <span class="live-ribbon"><span class="live-dot"></span>Live product &middot; running offline</span>
+    <span class="stage-caption" id="stageCaption">Administrator home</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame-loading" id="frameLoading">Loading the live product&hellip;</div>
+    <iframe id="stageFrame" title="RapidReconciler live product"></iframe>
+  </div>
+</main>
 
 <script>
 (function(){
   'use strict';
-  var steps = [].slice.call(document.querySelectorAll('.step'));
-  var dots  = [].slice.call(document.querySelectorAll('.dot'));
-  var prev  = document.getElementById('prev');
-  var next  = document.getElementById('next');
-  var i = 0;
 
-  function render(){
-    steps.forEach(function(s,n){ s.classList.toggle('active', n===i); });
-    dots.forEach(function(d,n){ d.classList.toggle('on', n<=i); });
-    prev.disabled = (i===0);
-    next.textContent = (i===steps.length-1) ? 'Back to the roles' : 'Next →';
+  // ---- the walk definition -------------------------------------------------
+  // Each step drives the REAL bundled admin product in the iframe. `frame` loads
+  // a bundled page (null = keep the current one). `onEnter` runs an action inside
+  // the iframe (fire a pill, open the help panel, flip a tier) once it's ready.
+  var HOME = 'home.html';
+  var steps = [
+    {
+      key:'own', caption:'Administrator home',
+      frame:HOME,
+      eyebrow:'The administrator role',
+      title:'This role is yours to own',
+      say:['<p>Everything on this screen is run by <b>your</b> team &mdash; not by us.</p>',
+           '<p>We support the software. Your administrator runs your instance.</p>'],
+      prove:['You decide who signs in and what they can do',
+             'You keep the data current &mdash; a nightly refresh does it',
+             'A glance at sign-in tells you the instance is healthy'],
+      do:'This is the real product, filled with Summit Industrial&rsquo;s data &mdash; running with no server behind it.'
+    },
+    {
+      key:'ai', caption:'RapidReconciler AI',
+      frame:HOME,
+      eyebrow:'RapidReconciler AI',
+      title:'Answers grounded in your own install',
+      say:['<p>Ask a plain question. The answer comes from <b>this install&rsquo;s real state</b> &mdash; not a canned script.</p>'],
+      prove:['Six starter questions, no typing required',
+             'Every answer reads live licensing, users, and activity',
+             'It tells you where to look first, in plain English'],
+      do:'Use an <b>Ask</b> button below &mdash; the question fires on the live screen and the answer appears under the pills.',
+      controls:{ label:'Fire a question on the live screen', asks:[0,4,5] }
+    },
+    {
+      key:'tiers', caption:'RapidReconciler AI &middot; data control',
+      frame:HOME,
+      eyebrow:'You hold the dial',
+      title:'You control how much the AI sees',
+      say:['<p>Same question &mdash; watch the answer change as you open the dial.</p>',
+           '<p><b>Basic</b> sees only the figures on screen. <b>Enhanced</b> adds masked detail. <b>Full</b> uses your real names and dates.</p>'],
+      prove:['Data exposure is your choice, per feature',
+             'Off is the default &mdash; nothing leaves until you allow it',
+             'Flip the dial and the same answer re-reasons at the new level'],
+      do:'Fire the question once, then flip <b>Basic &rarr; Enhanced</b> and watch the same answer re-reason.',
+      controls:{ label:'Ask once, then flip the dial', asks:[0], tiers:true }
+    },
+    {
+      key:'cards', caption:'Administrator home &middot; task cards',
+      frame:HOME,
+      eyebrow:'The daily glance',
+      title:'Four cards, one health strip',
+      say:['<p>This is the whole job, at a glance. Colour only appears where something wants a look.</p>'],
+      prove:['Licensing leads with days-to-renewal',
+             'Team &amp; access rolls up users, review, and password policy',
+             'Report Engine and the Activity log sit right beside them',
+             'A quiet strip below carries data freshness and storage'],
+      do:'Point at each card &mdash; note that a calm instance stays calm; nothing shouts for attention.'
+    },
+    {
+      key:'team', caption:'Team &amp; access &middot; Users',
+      frame:'admin-users.html',
+      eyebrow:'Users and access',
+      title:'You decide who gets in',
+      say:['<p>Add your people, give each the right role, remove them when they move on. Minutes, and it stays in your hands.</p>'],
+      prove:['Every sign-in and role lives here',
+             'Roles decide what each person can see and do',
+             'Adding or removing someone takes a moment'],
+      do:'This is the real Users page for Summit Industrial &mdash; scroll the list, open a person.'
+    },
+    {
+      key:'companies', caption:'Licensing &middot; Companies',
+      frame:'admin-companies.html',
+      eyebrow:'Licensing and companies',
+      title:'Your entities, your licence',
+      say:['<p>Both Summit entities &mdash; the US company and the UK company &mdash; sit under one licence you can see at any time.</p>'],
+      prove:['Every licensed company is listed with its settings',
+             'Renewal is a Sales step &mdash; you always know where you stand',
+             'No hidden seat maths &mdash; it is all on the page'],
+      do:'Walk the company list &mdash; note the two currencies (USD and GBP) handled side by side.'
+    },
+    {
+      key:'aiplan', caption:'AI Assistant &middot; the data story',
+      frame:'admin-claude-assistant.html',
+      eyebrow:'The data &amp; policy story',
+      title:'Optional AI, on your terms',
+      say:['<p>Here is where the dial from earlier is set &mdash; per feature, from help-docs-only up to your real data.</p>',
+           '<p>Open the <b>?</b> panel: the same story, in the help text, for whoever inherits this role.</p>'],
+      prove:['Off is the default; you turn on only what you want',
+             'Each feature has its own exposure level',
+             'The built-in help panel explains it in plain terms'],
+      do:'Use the button below to open the <b>?</b> help panel &mdash; it reflows beside the page, it does not cover it.',
+      controls:{ label:'Open the built-in help', help:true }
+    },
+    {
+      key:'activity', caption:'Activity log',
+      frame:'admin-activity-log.html',
+      eyebrow:'The audit trail',
+      title:'Every change, on the record',
+      say:['<p>Restarts, data reloads, corrections &mdash; each one is logged, newest first. Nothing happens off the books.</p>'],
+      prove:['A dated trail of what the instance did',
+             'Corrections note that they are reversible',
+             'The Home card shows the latest few; the full log lives here'],
+      do:'Scroll the log &mdash; point out that a correction records itself as reversible.'
+    },
+    {
+      key:'handoff', caption:'Administrator home',
+      frame:HOME,
+      eyebrow:'The hand-off',
+      title:'GSI supports it. You run it.',
+      say:['<p>That is the whole role. Light to run, and yours from day one.</p>',
+           '<p>Name your administrator before go-live &mdash; and the instance is theirs.</p>'],
+      prove:['User administration &mdash; yours',
+             'The refresh schedule &mdash; yours',
+             'The health check &mdash; yours',
+             'The software itself &mdash; fixes, upgrades, escalations &mdash; stays with GSI'],
+      do:'Close here: a named owner before go-live is the difference between running it and leaning on us.'
+    }
+  ];
+
+  var TIER_BLURB = {
+    grounded: '<b>Basic.</b> The AI sees only the figures already on your screen &mdash; nothing else leaves the page.',
+    scrubbed: '<b>Enhanced.</b> The AI sees fuller detail, but names and accounts are masked to roles first.',
+    full:     '<b>Full.</b> The AI uses your real data &mdash; actual names, accounts, and dates.'
+  };
+  var TIER_LABEL = { grounded:'Basic', scrubbed:'Enhanced', full:'Full' };
+
+  // ---- element handles -----------------------------------------------------
+  var frame     = document.getElementById('stageFrame');
+  var frameLoad = document.getElementById('frameLoading');
+  var railBody  = document.getElementById('railBody');
+  var dotsEl    = document.getElementById('dots');
+  var stepLabel = document.getElementById('stepLabel');
+  var stepOf    = document.getElementById('stepOf');
+  var prevBtn   = document.getElementById('prev');
+  var nextBtn   = document.getElementById('next');
+  var caption   = document.getElementById('stageCaption');
+
+  var i = 0;
+  var currentFrameSrc = '';
+
+  // ---- iframe helpers ------------------------------------------------------
+  function fwin(){ try { return frame.contentWindow; } catch(e){ return null; } }
+  function fdoc(){ try { return frame.contentDocument || (fwin() && fwin().document); } catch(e){ return null; } }
+
+  // Run fn once the iframe's product has booted (admin pills present, or a short
+  // grace period for non-home pages). Polls briefly; never throws.
+  function whenReady(fn, tries){
+    tries = tries || 0;
+    var d = fdoc();
+    var ready = d && d.body && (d.querySelector('.admin-ask-pill') || d.querySelector('.topbar-help') || tries > 12);
+    if (ready) { try { fn(); } catch(e){} return; }
+    if (tries > 40) return;
+    setTimeout(function(){ whenReady(fn, tries + 1); }, 150);
   }
-  next.addEventListener('click', function(){
-    if(i < steps.length-1){ i++; render(); }
-    else { window.location.href = 'index.html'; }
+
+  function loadFrame(src, after){
+    if (src && src !== currentFrameSrc){
+      currentFrameSrc = src;
+      frameLoad.hidden = false;
+      frame.onload = function(){ frameLoad.hidden = true; whenReady(after || function(){}); };
+      frame.src = src;
+    } else {
+      whenReady(after || function(){});
+    }
+  }
+
+  function firePill(idx){
+    whenReady(function(){
+      var d = fdoc(); if (!d) return;
+      var pills = d.querySelectorAll('.admin-ask-pill');
+      if (pills[idx]){ pills[idx].click(); pills[idx].scrollIntoView({behavior:'smooth', block:'center'}); }
+    });
+  }
+  function setTier(tier){
+    var w = fwin(), d = fdoc();
+    if (!w || !w.RRAI) return;
+    if (tier === 'full'){
+      // KNOWN RECORDING GAP (2026-07-18): the six admin pills were captured clean
+      // at Basic + Enhanced, but the Full-tier prompt embeds real names + exact
+      // sign-in dates, so a Full re-fire is a replay MISS ("No answer came back").
+      // Flip the product to Full for the data-exposure STORY (labels + the ? panel
+      // reflect it), but clear the on-screen answer first so a prospect never sees
+      // a miss. Remove this guard once the recording is re-walked at Full tier and
+      // the inactivity line is made capture-stable. See handoff notes.
+      var dm = d && d.getElementById('adminAnsDismiss');
+      if (dm) dm.click();
+      w.RRAI.set('full');
+    } else {
+      w.RRAI.set(tier);                                   // re-fires the active pill at the new level
+      var panel = d && d.getElementById('adminAnsPanel'); // if the panel was cleared (returning from Full), re-ask
+      if (panel && panel.hidden) firePill(0);
+    }
+  }
+  function openHelp(){
+    whenReady(function(){
+      var d = fdoc(); if (!d) return;
+      var b = d.querySelector('.topbar-help');
+      if (b) b.click();
+    });
+  }
+
+  // ---- render --------------------------------------------------------------
+  function render(){
+    var s = steps[i];
+
+    stepLabel.textContent = 'Step ' + (i + 1);
+    stepOf.textContent = 'of ' + steps.length;
+    caption.textContent = (s.caption || '').replace(/&middot;/g,'·').replace(/&amp;/g,'&');
+
+    // dots
+    dotsEl.innerHTML = '';
+    steps.forEach(function(_, n){
+      var dot = document.createElement('span');
+      dot.className = 'dot' + (n === i ? ' on' : (n < i ? ' done' : ''));
+      dot.title = 'Step ' + (n + 1);
+      dot.addEventListener('click', function(){ i = n; render(); });
+      dotsEl.appendChild(dot);
+    });
+
+    // body
+    var html = '';
+    html += '<div class="eyebrow">' + s.eyebrow + '</div>';
+    html += '<h1>' + s.title + '</h1>';
+    html += '<div class="say"><span class="say-label">Say this</span>' + s.say.join('') + '</div>';
+    if (s.prove && s.prove.length){
+      html += '<div class="prove"><span class="prove-label">What it proves</span><ul>';
+      s.prove.forEach(function(p){ html += '<li>' + p + '</li>'; });
+      html += '</ul></div>';
+    }
+    if (s.do){
+      html += '<div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg><span>' + s.do + '</span></div>';
+    }
+
+    // contextual controls
+    if (s.controls){
+      html += '<div class="controls"><span class="controls-label">' + (s.controls.label || 'On the live screen') + '</span>';
+      if (s.controls.asks){
+        html += '<div class="ask-row">';
+        s.controls.asks.forEach(function(idx){
+          html += '<button type="button" class="ask-btn" data-ask="' + idx + '">' + PILL_TEXT[idx] + '</button>';
+        });
+        html += '</div>';
+      }
+      if (s.controls.tiers){
+        html += '<div class="tier-wrap"><div class="tier-seg" id="tierSeg">';
+        ['grounded','scrubbed','full'].forEach(function(t){
+          html += '<button type="button" class="tier-opt" data-tier="' + t + '">' + TIER_LABEL[t] + '</button>';
+        });
+        html += '</div><div class="tier-blurb" id="tierBlurb"></div></div>';
+      }
+      if (s.controls.help){
+        html += '<div class="ask-row"><button type="button" class="ask-btn" id="helpBtn" style="text-align:center">Open the ? help panel</button></div>';
+      }
+      html += '</div>';
+    }
+    railBody.innerHTML = html;
+    railBody.scrollTop = 0;
+
+    // wire controls
+    railBody.querySelectorAll('[data-ask]').forEach(function(b){
+      b.addEventListener('click', function(){ firePill(parseInt(b.getAttribute('data-ask'), 10)); });
+    });
+    var seg = document.getElementById('tierSeg');
+    if (seg){
+      var syncTier = function(){
+        var w = fwin(); var cur = (w && w.RRAI) ? w.RRAI.get() : 'grounded';
+        seg.querySelectorAll('.tier-opt').forEach(function(o){ o.classList.toggle('is-active', o.getAttribute('data-tier') === cur); });
+        var bl = document.getElementById('tierBlurb'); if (bl) bl.innerHTML = TIER_BLURB[cur] || '';
+      };
+      seg.querySelectorAll('.tier-opt').forEach(function(o){
+        o.addEventListener('click', function(){ setTier(o.getAttribute('data-tier')); setTimeout(syncTier, 60); });
+      });
+      whenReady(syncTier);
+    }
+    var hb = document.getElementById('helpBtn');
+    if (hb) hb.addEventListener('click', openHelp);
+
+    // nav state
+    prevBtn.disabled = (i === 0);
+    nextBtn.textContent = (i === steps.length - 1) ? 'Restart ↺' : 'Next →';
+
+    // drive the product, then run the step's onEnter action
+    loadFrame(s.frame, function(){
+      if (s.key === 'tiers'){ firePill(0); }   // seed an answer so the dial has something to re-reason
+    });
+  }
+
+  // The exact pill text — must match the product's data-q verbatim (it is the
+  // capture key). Kept here only for the presenter buttons' labels.
+  var PILL_TEXT = [
+    'What needs my attention right now?',
+    'When does our license expire, and what is the renewal step?',
+    'Who has not signed in lately, and should I remove them?',
+    'How do I add a new team member?',
+    'Is the instance healthy, or is anything starting to degrade?',
+    'What does the activity log tell me?'
+  ];
+
+  // ---- nav -----------------------------------------------------------------
+  nextBtn.addEventListener('click', function(){
+    if (i < steps.length - 1){ i++; render(); }
+    else { i = 0; render(); }
   });
-  prev.addEventListener('click', function(){ if(i>0){ i--; render(); } });
+  prevBtn.addEventListener('click', function(){ if (i > 0){ i--; render(); } });
   document.addEventListener('keydown', function(e){
-    if(e.key==='ArrowRight') next.click();
-    else if(e.key==='ArrowLeft' && i>0){ i--; render(); }
+    if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowRight'){ nextBtn.click(); }
+    else if (e.key === 'ArrowLeft'){ prevBtn.click(); }
   });
+
+  // rail collapse (give the product full width when demonstrating)
+  var toggle = document.getElementById('railToggle');
+  var toggleLbl = document.getElementById('railToggleLabel');
+  toggle.addEventListener('click', function(){
+    document.body.classList.toggle('rail-collapsed');
+    toggleLbl.textContent = document.body.classList.contains('rail-collapsed') ? 'Show notes' : 'Hide notes';
+  });
+
   render();
 })();
 </script>
