@@ -41,6 +41,7 @@
 
   /* progress */
   .progress{padding:16px 22px 6px}
+  .rail-kicker{font-size:11px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:var(--on-dark-muted); margin-bottom:10px}
   .progress-meta{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px}
   .progress-step{font-size:13px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--orange)}
   .progress-of{font-size:13px; color:var(--on-dark-muted)}
@@ -55,25 +56,10 @@
   .eyebrow{font-size:14px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--orange); margin:6px 0 8px}
   .rail-body h1{font-size:27px; line-height:1.18; letter-spacing:-.01em; margin:0 0 16px; color:#fff}
 
-  /* SAY block — the presenter's line, big + quotable */
-  .say{background:rgba(240,138,36,.12); border:1px solid rgba(240,138,36,.34); border-left:4px solid var(--orange);
-    border-radius:12px; padding:15px 17px; margin:0 0 16px}
-  .say-label{display:block; font-size:11.5px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; color:var(--orange); margin-bottom:7px}
-  .say p{margin:0; font-size:18px; line-height:1.5; color:#fff; font-weight:600}
-  .say p + p{margin-top:10px}
-
-  /* PROVE bullets — what the prospect should take away */
-  .prove{margin:0 0 16px}
-  .prove-label{display:block; font-size:11.5px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; color:var(--on-dark-muted); margin-bottom:8px}
-  .prove ul{list-style:none; margin:0; padding:0}
-  .prove li{position:relative; padding:7px 0 7px 24px; font-size:16px; line-height:1.45; color:var(--on-dark)}
-  .prove li + li{border-top:1px solid rgba(255,255,255,.07)}
-  .prove li::before{content:""; position:absolute; left:3px; top:15px; width:8px; height:8px; border-radius:50%; background:var(--orange)}
-
-  /* DO hint — the concrete action */
-  .do{display:flex; gap:10px; align-items:flex-start; font-size:14.5px; line-height:1.45; color:var(--on-dark-muted); margin:0 0 16px}
-  .do svg{flex:0 0 18px; width:18px; height:18px; margin-top:1px; color:var(--orange)}
-  .do b{color:#fff; font-weight:700}
+  /* LEAD — the one "why we're here / what you'll see" line. The guide is visible
+     to the prospect, so it reads as tour narration, not a script or a cue card. */
+  .lead{font-size:17px; line-height:1.55; color:var(--on-dark); margin:0 0 18px; font-weight:500}
+  .lead b{color:#fff; font-weight:700}
 
   /* contextual controls (tier ladder + ask buttons) */
   .controls{border-top:1px solid var(--line-dark); padding-top:15px; margin-top:4px}
@@ -129,7 +115,7 @@
   @media (max-width:1180px){
     :root{--rail-w:360px}
     .rail-body h1{font-size:24px}
-    .say p{font-size:16.5px}
+    .lead{font-size:16px}
   }
 </style>
 </head>
@@ -168,6 +154,7 @@
   </div>
 
   <div class="progress">
+    <div class="rail-kicker">Guided tour</div>
     <div class="progress-meta">
       <span class="progress-step" id="stepLabel">Step 1</span>
       <span class="progress-of" id="stepOf"></span>
@@ -186,9 +173,9 @@
 <!-- ===================== STAGE ===================== -->
 <main class="stage">
   <div class="stage-head">
-    <button class="rail-toggle" id="railToggle" title="Show or hide the presenter notes">
+    <button class="rail-toggle" id="railToggle" title="Show or hide the guide">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
-      <span id="railToggleLabel">Hide notes</span>
+      <span id="railToggleLabel">Hide guide</span>
     </button>
     <span class="live-ribbon"><span class="live-dot"></span>Live product &middot; running offline</span>
     <span class="stage-caption" id="stageCaption">Administrator home</span>
@@ -210,112 +197,60 @@
   var HOME = 'home.html';
   var steps = [
     {
-      key:'own', caption:'Administrator home',
-      frame:HOME,
+      key:'own', caption:'Administrator home', frame:HOME,
       eyebrow:'The administrator role',
       title:'This role is yours to own',
-      say:['<p>Everything on this screen is run by <b>your</b> team &mdash; not by us.</p>',
-           '<p>We support the software. Your administrator runs your instance.</p>'],
-      prove:['You decide who signs in and what they can do',
-             'You keep the data current &mdash; a nightly refresh does it',
-             'A glance at sign-in tells you the instance is healthy'],
-      do:'This is the real product, filled with Summit Industrial&rsquo;s data &mdash; running with no server behind it.'
+      lead:'Your live instance, running on Summit Industrial&rsquo;s real data. Your team owns the day-to-day; GSI keeps the software behind it.'
     },
     {
-      key:'ai', caption:'RapidReconciler AI',
-      frame:HOME,
+      key:'ai', caption:'RapidReconciler AI', frame:HOME,
       eyebrow:'RapidReconciler AI',
-      title:'Answers grounded in your own install',
-      say:['<p>Ask a plain question. The answer comes from <b>this install&rsquo;s real state</b> &mdash; not a canned script.</p>'],
-      prove:['Six starter questions, no typing required',
-             'Every answer reads live licensing, users, and activity',
-             'It tells you where to look first, in plain English'],
-      do:'Use an <b>Ask</b> button below &mdash; the question fires on the live screen and the answer appears under the pills.',
-      controls:{ label:'Fire a question on the live screen', asks:[0,4,5] }
+      title:'Ask a question, then open the dial',
+      lead:'Every answer comes from this install&rsquo;s real state &mdash; licensing, users, activity. Ask one, then flip the tier and watch the same answer re-reason with more of your data.',
+      controls:{ label:'Ask on the live screen, then flip the dial', asks:[0,4,5], tiers:true }
     },
     {
-      key:'tiers', caption:'RapidReconciler AI &middot; data control',
-      frame:HOME,
-      eyebrow:'You hold the dial',
-      title:'You control how much the AI sees',
-      say:['<p>Same question &mdash; watch the answer change as you open the dial.</p>',
-           '<p><b>Basic</b> sees only the figures on screen. <b>Enhanced</b> adds masked detail. <b>Full</b> uses your real names and dates.</p>'],
-      prove:['Data exposure is your choice, per feature',
-             'Off is the default &mdash; nothing leaves until you allow it',
-             'Flip the dial and the same answer re-reasons at the new level'],
-      do:'Fire the question once, then flip <b>Basic &rarr; Enhanced</b> and watch the same answer re-reason.',
-      controls:{ label:'Ask once, then flip the dial', asks:[0], tiers:true }
-    },
-    {
-      key:'cards', caption:'Administrator home &middot; task cards',
-      frame:HOME,
+      key:'cards', caption:'Administrator home &middot; task cards', frame:HOME,
       eyebrow:'The daily glance',
       title:'Four cards, one health strip',
-      say:['<p>This is the whole job, at a glance. Colour only appears where something wants a look.</p>'],
-      prove:['Licensing leads with days-to-renewal',
-             'Team &amp; access rolls up users, review, and password policy',
-             'Report Engine and the Activity log sit right beside them',
-             'A quiet strip below carries data freshness and storage'],
-      do:'Point at each card &mdash; note that a calm instance stays calm; nothing shouts for attention.'
+      lead:'The whole admin job at a glance. Colour shows up only where something actually wants attention &mdash; a calm instance stays calm.'
     },
     {
-      key:'team', caption:'Team &amp; access &middot; Users',
-      frame:'admin-users.html',
+      key:'team', caption:'Team &amp; access &middot; Users', frame:'admin-users.html',
       eyebrow:'Users and access',
-      title:'You decide who gets in',
-      say:['<p>Add your people, give each the right role, remove them when they move on. Minutes, and it stays in your hands.</p>'],
-      prove:['Every sign-in and role lives here',
-             'Roles decide what each person can see and do',
-             'Adding or removing someone takes a moment'],
-      do:'This is the real Users page for Summit Industrial &mdash; scroll the list, open a person.'
+      title:'Add a team member',
+      lead:'Add a person, set their role, remove them when they move on &mdash; each takes a moment, and access stays in your hands.'
     },
     {
-      key:'companies', caption:'Licensing &middot; Companies',
-      frame:'admin-companies.html',
-      eyebrow:'Licensing and companies',
-      title:'Your entities, your licence',
-      say:['<p>Both Summit entities &mdash; the US company and the UK company &mdash; sit under one licence you can see at any time.</p>'],
-      prove:['Every licensed company is listed with its settings',
-             'Renewal is a Sales step &mdash; you always know where you stand',
-             'No hidden seat maths &mdash; it is all on the page'],
-      do:'Walk the company list &mdash; note the two currencies (USD and GBP) handled side by side.'
+      key:'renew', caption:'Licensing &middot; Renewal', frame:'admin-companies.html',
+      eyebrow:'Your licence',
+      title:'Renew the licence',
+      lead:'You always know where you stand on renewal &mdash; and requesting an invoice is a single self-serve step, no ticket to us.'
     },
     {
-      key:'aiplan', caption:'AI Assistant &middot; the data story',
-      frame:'admin-claude-assistant.html',
-      eyebrow:'The data &amp; policy story',
-      title:'Optional AI, on your terms',
-      say:['<p>Here is where the dial from earlier is set &mdash; per feature, from help-docs-only up to your real data.</p>',
-           '<p>Open the <b>?</b> panel: the same story, in the help text, for whoever inherits this role.</p>'],
-      prove:['Off is the default; you turn on only what you want',
-             'Each feature has its own exposure level',
-             'The built-in help panel explains it in plain terms'],
-      do:'Use the button below to open the <b>?</b> help panel &mdash; it reflows beside the page, it does not cover it.',
+      key:'companies', caption:'Licensing &middot; Companies', frame:'admin-companies.html',
+      eyebrow:'Your entities',
+      title:'Two companies, one licence',
+      lead:'Both Summit entities &mdash; the US company in USD and the UK company in GBP &mdash; sit under one licence, with no hidden seat maths.'
+    },
+    {
+      key:'aiplan', caption:'AI Assistant &middot; your plan', frame:'admin-claude-assistant.html',
+      eyebrow:'Your AI plan',
+      title:'Manage your AI plan',
+      lead:'This is where the dial from earlier is set &mdash; per feature, from help-docs-only up to your real data. Off is the default; you open only what you want.',
       controls:{ label:'Open the built-in help', help:true }
     },
     {
-      key:'activity', caption:'Activity log',
-      frame:'admin-activity-log.html',
+      key:'activity', caption:'Activity log', frame:'admin-activity-log.html',
       eyebrow:'The audit trail',
       title:'Every change, on the record',
-      say:['<p>Restarts, data reloads, corrections &mdash; each one is logged, newest first. Nothing happens off the books.</p>'],
-      prove:['A dated trail of what the instance did',
-             'Corrections note that they are reversible',
-             'The Home card shows the latest few; the full log lives here'],
-      do:'Scroll the log &mdash; point out that a correction records itself as reversible.'
+      lead:'Restarts, reloads, corrections &mdash; each one logged, newest first, and a correction notes that it is reversible. Nothing happens off the books.'
     },
     {
-      key:'handoff', caption:'Administrator home',
-      frame:HOME,
+      key:'handoff', caption:'Administrator home', frame:HOME,
       eyebrow:'The hand-off',
       title:'GSI supports it. You run it.',
-      say:['<p>That is the whole role. Light to run, and yours from day one.</p>',
-           '<p>Name your administrator before go-live &mdash; and the instance is theirs.</p>'],
-      prove:['User administration &mdash; yours',
-             'The refresh schedule &mdash; yours',
-             'The health check &mdash; yours',
-             'The software itself &mdash; fixes, upgrades, escalations &mdash; stays with GSI'],
-      do:'Close here: a named owner before go-live is the difference between running it and leaning on us.'
+      lead:'Light to run, and yours from day one. Name an administrator before go-live and the instance is theirs &mdash; GSI stays on the software itself.'
     }
   ];
 
@@ -423,15 +358,7 @@
     var html = '';
     html += '<div class="eyebrow">' + s.eyebrow + '</div>';
     html += '<h1>' + s.title + '</h1>';
-    html += '<div class="say"><span class="say-label">Say this</span>' + s.say.join('') + '</div>';
-    if (s.prove && s.prove.length){
-      html += '<div class="prove"><span class="prove-label">What it proves</span><ul>';
-      s.prove.forEach(function(p){ html += '<li>' + p + '</li>'; });
-      html += '</ul></div>';
-    }
-    if (s.do){
-      html += '<div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg><span>' + s.do + '</span></div>';
-    }
+    if (s.lead){ html += '<p class="lead">' + s.lead + '</p>'; }
 
     // contextual controls
     if (s.controls){
@@ -515,7 +442,7 @@
   var toggleLbl = document.getElementById('railToggleLabel');
   toggle.addEventListener('click', function(){
     document.body.classList.toggle('rail-collapsed');
-    toggleLbl.textContent = document.body.classList.contains('rail-collapsed') ? 'Show notes' : 'Hide notes';
+    toggleLbl.textContent = document.body.classList.contains('rail-collapsed') ? 'Show guide' : 'Hide guide';
   });
 
   render();

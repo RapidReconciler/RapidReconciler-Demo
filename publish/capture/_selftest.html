@@ -124,6 +124,24 @@ shim for the replay phase). No product, no server, no live network. Works from
       check('sig different body -> different key', Sig.signature('POST', '/x', '{"a":1}') !== Sig.signature('POST', '/x', '{"a":2}'), 'ok');
       check('sig GET ignores body', Sig.signature('GET', '/x', '{"a":1}') === Sig.signature('GET', '/x'), 'ok');
 
+      // --- ai/explain semantic key: drift-immune, keyed on (question, tier) ---
+      var mk = function (p) { return Sig.signature('POST', 'http://h:8080/api/v1/ai/explain', JSON.stringify({ prompt: p })); };
+      var Q = 'When does our license expire, and what is the renewal step?';
+      // Same question + tier, but grounding text + drifting live values (uptime,
+      // storage, renewal days) differ -- the real failure mode that rots recordings.
+      var pA = 'You are RapidReconciler AI.\nGROUNDING v1 aaa\n[OK] Report engine running 23h 13m\n[OK] License 44 days\nDATA ACCESS — Grounded: use ONLY the figures shown.\nQuestion: ' + Q + '\nAnswer in 2-4 sentences.';
+      var pB = 'You are RapidReconciler AI.\nGROUNDING v2 zzz totally different\n[OK] Report engine running 25h 47m\n[REVIEW] Storage 812 MB\n[OK] License 43 days\nDATA ACCESS — Grounded: use ONLY the figures shown.\nQuestion: ' + Q + '\nAnswer in 2-4 sentences.';
+      var pC = pA.replace('Question: ' + Q, 'Question: How do I add a new team member?');        // different question
+      var pD = pA.replace('DATA ACCESS — Grounded', 'DATA ACCESS — Full');              // different tier
+      var bfG1 = 'You are RapidReconciler AI.\nGROUNDING v1\n[OK] uptime 1h\nDATA ACCESS — Grounded: figures only.\nBriefing: summarise the admin state.';   // no Question line
+      var bfG2 = 'You are RapidReconciler AI.\nGROUNDING v9 different\n[OK] uptime 9h\nDATA ACCESS — Grounded: figures only.\nBriefing: summarise the admin state.';
+      check('ai/explain: grounding+uptime+days drift -> SAME key', mk(pA) === mk(pB), mk(pA));
+      check('ai/explain: different question -> different key', mk(pA) !== mk(pC), 'ok');
+      check('ai/explain: different tier -> different key', mk(pA) !== mk(pD), 'ok');
+      check('ai/explain: briefing (no Question) keys per tier, drift-immune', mk(bfG1) === mk(bfG2), mk(bfG1));
+      check('ai/explain: briefing key differs from a question key', mk(bfG1) !== mk(pA), 'ok');
+      check('non-ai path still whole-body hashed (path-scoped special-case)', Sig.signature('POST', '/api/v1/other', JSON.stringify({ prompt: pA })) !== Sig.signature('POST', '/api/v1/other', JSON.stringify({ prompt: pB })), 'ok');
+
       // --- PHASE 1: RECORD (fakes installed, then record-shim wraps them) ---
       window.fetch = fakeFetch;
       window.XMLHttpRequest = FakeXHR;

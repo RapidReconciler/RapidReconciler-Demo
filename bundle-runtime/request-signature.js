@@ -180,6 +180,26 @@
     return canon === '' ? '' : fnv1a(canon);
   }
 
+  // ---- ai/explain semantic key -------------------------------------------
+  // The /api/v1/ai/explain body is { prompt } where the prompt embeds the
+  // GENERATED grounding + live card values (renewal days, storage, uptime like
+  // "23h 13m", relative activity times like "1d ago") that drift by the minute.
+  // Hashing the whole prompt makes the replay key rot within a day of capture.
+  // The demo answer is canned per (question, tier) -- the pill the prospect
+  // clicked and the exposure tier -- so key ONLY on those. Free text isn't
+  // offered on this surface, so the question space is the fixed pill set; the
+  // auto-briefing call has no "Question:" line and keys per tier.
+  function aiExplainKey(body) {
+    var prompt = '';
+    try { var o = JSON.parse(canonicalBody(body)); prompt = (o && o.prompt) || ''; }
+    catch (e) { prompt = canonicalBody(body); }
+    var tm = prompt.match(/DATA ACCESS[^\n]*?\b(Grounded|Scrubbed|Full)\b/i);
+    var tier = tm ? tm[1].toLowerCase() : 'na';
+    var qm = prompt.match(/(?:^|\n)\s*Question:\s*([^\n]+)/);
+    var q = qm ? qm[1].trim() : '(briefing)';
+    return 'tier=' + tier + '|q=' + q;
+  }
+
   // ---- the signature -----------------------------------------------------
   function signature(method, url, body) {
     method = String(method || 'GET').toUpperCase();
@@ -187,7 +207,9 @@
     var q = sortQuery(u.query);
     var sig = method + ' ' + u.path + (q ? '?' + q : '');
     if (method !== 'GET' && method !== 'HEAD') {
-      var bh = hashBody(body);
+      // Semantic, drift-stable key for the AI answer surface; whole-body hash
+      // for everything else.
+      var bh = (u.path === '/api/v1/ai/explain') ? fnv1a(aiExplainKey(body)) : hashBody(body);
       if (bh) sig += ' #' + bh;
     }
     return sig;
@@ -195,6 +217,7 @@
 
   var api = {
     signature: signature,
+    aiExplainKey: aiExplainKey,
     canonicalize: canonicalize,
     canonicalBody: canonicalBody,
     hashBody: hashBody,

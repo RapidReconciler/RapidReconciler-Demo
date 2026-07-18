@@ -76,7 +76,7 @@
     // Split the signature back into path/query for the stored fields (handy for
     // humans reading recording.json; replay only needs `sig`).
     var u = Sig.splitUrl(rec.url);
-    recording.entries.push({
+    var entry = {
       sig:         Sig.signature(rec.method, rec.url, rec.body),
       method:      String(rec.method || 'GET').toUpperCase(),
       path:        u.path,
@@ -89,7 +89,12 @@
       body:        rec.body_out,
       write:       Sig.isWriteMethod(rec.method),
       via:         rec.via
-    });
+    };
+    // Capture-completeness aid: for the AI answer surface, stamp the semantic
+    // (tier|question) the sig is keyed on, so recording.json can be eyeballed to
+    // confirm every pill x tier combo was actually visited during the walk.
+    if (u.path === '/api/v1/ai/explain' && Sig.aiExplainKey) entry.aiKey = Sig.aiExplainKey(rec.body);
+    recording.entries.push(entry);
     persist();
   }
 
