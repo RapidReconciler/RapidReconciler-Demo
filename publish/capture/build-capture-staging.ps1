@@ -38,7 +38,10 @@ New-Item -ItemType Directory -Path $Staging | Out-Null
 # Product snapshot (flat pages + vendor + fonts).
 Copy-Item (Join-Path $SrcApp '*') -Destination $Staging -Recurse -Force
 
-# The two capture scripts at the staging root.
+# The capture scripts at the staging root. date-freeze.js pins the reference
+# "now" so a walk records against the same frozen clock the bundle replays with
+# (see bundle-runtime/date-freeze.js); it must load FIRST in the boot strip.
+Copy-Item (Join-Path $Runtime 'date-freeze.js')       -Destination (Join-Path $Staging 'date-freeze.js')       -Force
 Copy-Item (Join-Path $Runtime 'request-signature.js') -Destination (Join-Path $Staging 'request-signature.js') -Force
 Copy-Item (Join-Path $Capture 'record-shim.js')       -Destination (Join-Path $Staging 'record-shim.js')       -Force
 
@@ -48,7 +51,7 @@ Copy-Item (Join-Path $Capture 'record-shim.js')       -Destination (Join-Path $S
 # tell VALC to stop capture + restore the RR App (one-and-done). VALC's CORS
 # allows the :8765 origin on /api/**. Only capture-staging gets this global, so
 # record-shim.js stays reusable (no auto-stop) for other record/replay uses.
-$boot = '<script>window.__rrCaptureStopUrl="http://localhost:8080/api/services/capture/stop";</script><script src="/request-signature.js"></script><script src="/record-shim.js"></script>'
+$boot = '<script src="/date-freeze.js"></script><script>window.__rrCaptureStopUrl="http://localhost:8080/api/services/capture/stop";</script><script src="/request-signature.js"></script><script src="/record-shim.js"></script>'
 $n = 0
 # Match ONLY the real <head> tag, injecting exactly once. "<head[^>]*>" also
 # matches "<header ...>" (prefix), and [regex]::Replace(...,1) treats the 4th

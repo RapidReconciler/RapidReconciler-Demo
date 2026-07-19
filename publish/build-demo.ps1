@@ -78,8 +78,11 @@ foreach ($must in @('vendor', 'fonts')) {
   if (-not (Test-Path $p)) { Write-Host "  WARN: expected offline assets missing: $must" -ForegroundColor Yellow }
 }
 
-# 5c. Runtime: request-signature.js + replay-shim.js + launcher to bundle root.
-foreach ($f in @('request-signature.js', 'replay-shim.js', 'launch.ps1', 'launch.cmd')) {
+# 5c. Runtime: date-freeze.js + request-signature.js + replay-shim.js + launcher
+#     to bundle root. date-freeze.js pins the demo's reference "now" (see the
+#     file header) and MUST be the first boot script (5e) so the clock is frozen
+#     before any product or shim code reads the time.
+foreach ($f in @('date-freeze.js', 'request-signature.js', 'replay-shim.js', 'launch.ps1', 'launch.cmd')) {
   $src = Join-Path $Runtime $f
   if (Test-Path $src) { Copy-Item $src -Destination (Join-Path $BundleDir $f) -Force }
   else { Write-Host "  WARN: runtime file missing: $f" -ForegroundColor Yellow }
@@ -99,7 +102,7 @@ if ($Recording -and (Test-Path $Recording)) {
 # 5e. Inject the two boot scripts at the TOP of every page's <head> so the shim
 #     patches fetch/XHR BEFORE any product code runs. The snapshot is generated,
 #     not hand-edited, so a mechanical injection here is the intended pattern.
-$boot = '<script src="/request-signature.js"></script><script src="/replay-shim.js"></script>'
+$boot = '<script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>'
 # Match ONLY the real <head> tag -- NOT <header ...> (which "<head[^>]*>" would
 # also match, since "<head" is a prefix of "<header"). The pattern requires the
 # char after "head" to be ">" or whitespace, so <header> can never match. Inject

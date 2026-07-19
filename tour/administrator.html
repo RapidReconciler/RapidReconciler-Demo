@@ -109,8 +109,12 @@
   .btn.prev{background:rgba(255,255,255,.10); color:var(--on-dark)}
   .btn.prev:hover{background:rgba(255,255,255,.18)}
   .btn.prev[disabled]{opacity:.35; cursor:default}
-  .btn.next{margin-left:auto; background:var(--orange); color:#fff}
+  .btn.next{background:var(--orange); color:#fff}
   .btn.next:hover{background:var(--orange-deep)}
+  /* Exit sits beside Next/Restart (margin-left:auto pushes the pair right); a
+     bordered ghost so it reads prominent but secondary to the orange action. */
+  .btn.exit{margin-left:auto; background:transparent; color:var(--on-dark); border:1px solid rgba(255,255,255,.30); padding:12px 20px}
+  .btn.exit:hover{background:rgba(255,255,255,.10); border-color:rgba(255,255,255,.5)}
 
   /* ===================== STAGE (live product) ===================== */
   .stage{flex:1; height:100%; display:flex; flex-direction:column; min-width:0; padding:14px 14px 14px 0}
@@ -152,8 +156,10 @@
 <script>
 (function seedSession(){
   function b64url(o){ return btoa(JSON.stringify(o)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_'); }
+  // Default admin persona — matches the front-door "Enter as Arthur" card so
+  // opening this tour directly (dev) lands as the same person the card mints.
   var payload = {
-    user: { fn: 'Demo Administrator', u: 'admin@summit-demo.example' },
+    user: { fn: 'Arthur Admin', u: 'arthur@rrdemo.com' },
     dbs: [ { n:'RapidReconciler_Demo1', ip:'localhost:34537', t:{ adm:true }, perms:{ dm:true }, i:['80002','80008'] } ],
     exp: 2082758400
   };
@@ -171,7 +177,6 @@
   <div class="rail-top">
     <span class="wordmark">RapidReconciler AI<span class="spark"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6l1.9 5.1a5 5 0 0 0 2.9 2.9l5.1 1.9-5.1 1.9a5 5 0 0 0-2.9 2.9L12 21.4l-1.9-5.1a5 5 0 0 0-2.9-2.9L2.1 11.5l5.1-1.9a5 5 0 0 0 2.9-2.9z"/></svg></span></span>
     <span class="role-tag">Administrator</span>
-    <a class="rail-exit" href="index.html">Exit</a>
   </div>
 
   <div class="progress">
@@ -182,6 +187,7 @@
 
   <div class="rail-nav">
     <button class="btn prev" id="prev" disabled>&larr; Back</button>
+    <button class="btn exit" id="exitBtn" type="button">Exit</button>
     <button class="btn next" id="next">Next &rarr;</button>
   </div>
 </aside>
@@ -262,11 +268,11 @@
       eyebrow:'Control who sees what',
       intro:'You control who&rsquo;s in &mdash; click into <b>Team &amp; access</b>:',
       points:[
-        'Add a person, set their role, done.',
-        'Roles decide exactly what each person can see and do.',
+        'Add a person, set their role &mdash; that&rsquo;s the whole job.',
+        'They get a secure set-password link by email &mdash; you never see or set a password.',
         'Someone moves on? Remove them just as fast.'
       ],
-      kicker:'That&rsquo;s the role.'
+      kicker:'Add a member, then click <b>Home</b> to wrap up.'
     },
     {
       key:'handoff', flow:null, caption:'Administrator home', frame:'home.html',
@@ -277,7 +283,7 @@
         'The software itself &mdash; fixes, upgrades, escalations &mdash; stays with GSI.',
         'Name an administrator before go-live and the instance is theirs.'
       ],
-      kicker:'That&rsquo;s the tour &mdash; happy to dig into any of it.'
+      kicker:'That&rsquo;s the admin role. <b>Andy</b> and <b>Angie</b> are cleared for takeoff &mdash; hit <b>Exit</b> to pick who walks next.'
     }
   ];
 
@@ -360,8 +366,94 @@
       }
       clearSpotlight();
       var t = d.querySelector(selector);
-      if (t){ t.setAttribute('data-demo-spot', ''); t.scrollIntoView({behavior:'smooth', block:'center'}); }
+      if (t){
+        t.setAttribute('data-demo-spot', '');
+        t.scrollIntoView({behavior:'smooth', block:'center'});
+        // Clicking the spotlit element IS the action -- clear its glow on click so
+        // the highlight doesn't linger after Bud acts on it. It only returns if the
+        // tour re-applies it (next step / restart). One-shot: the listener self-removes.
+        t.addEventListener('click', function(){ clearSpotlight(); }, { once:true });
+      }
     });
+  }
+
+  // ---- demo layer: hide DEV-only product controls a customer never sees --------
+  // The Off/Basic/Enhanced/Full AI data-tier switcher ships in the product for QA
+  // but is never shown to a customer/Bud. Mask it in the demo (product untouched);
+  // idempotent per document, re-applied on every iframe load.
+  function maskDevControls(){
+    whenReady(function(){
+      var d = fdoc(); if (!d) return;
+      if (d.getElementById('demo-mask-style')) return;
+      var st = d.createElement('style'); st.id = 'demo-mask-style';
+      st.textContent = '#rrai-dock{display:none !important}';   // sidebar.js dev-only AI tier dock
+      (d.head || d.body).appendChild(st);
+    });
+  }
+
+  // ---- demo layer: never open an email client. The product keeps its mailto:
+  // links (correct for a live customer); the demo intercepts the click, blocks
+  // the email client, and shows a brief confirmation instead. Wired once per
+  // document. preventDefault only (NOT stopPropagation) so a spotlit link still
+  // clears its glow on the same click.
+  function neutralizeMailto(){
+    whenReady(function(){
+      var d = fdoc(), w = fwin(); if (!d || !w) return;
+      if (w.__demoMailtoWired) return; w.__demoMailtoWired = true;
+      d.addEventListener('click', function(e){
+        var a = e.target && e.target.closest && e.target.closest('a[href^="mailto:"]');
+        if (!a) return;
+        e.preventDefault();
+        if (a.id === 'js-lic-invoice'){ _invoiceModal(d); }   // licensing beat: a modal, not a toast
+        else { _demoToast(d, 'Request sent to GSI.'); }
+      }, true);
+    });
+  }
+  function _demoToast(d, msg){
+    var t = d.getElementById('demo-toast');
+    if (!t){
+      t = d.createElement('div'); t.id = 'demo-toast';
+      t.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);'
+        + 'background:#1f2d4a;color:#fff;padding:10px 18px;border-radius:8px;'
+        + 'font-family:"Source Sans 3",sans-serif;font-size:13.5px;font-weight:600;'
+        + 'box-shadow:0 8px 24px -6px rgba(8,18,38,.5);z-index:9999;opacity:0;'
+        + 'transition:opacity .18s ease;pointer-events:none;max-width:80vw;text-align:center;';
+      (d.body || d.documentElement).appendChild(t);
+    }
+    t.textContent = msg; t.style.opacity = '1';
+    var w = fwin() || window;
+    if (t._h) w.clearTimeout(t._h);
+    t._h = w.setTimeout(function(){ t.style.opacity = '0'; }, 2600);
+  }
+  // Licensing "Request an invoice" beat: a small confirm modal in place of the
+  // email client. Closing it spotlights the Home pill so Bud heads back, which
+  // advances the tour to the Team step (see onIframeNav's 'licensing' branch).
+  function _invoiceModal(d){
+    if (d.getElementById('demo-modal')) return;
+    var wrap = d.createElement('div'); wrap.id = 'demo-modal';
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:9998;display:flex;align-items:center;'
+      + 'justify-content:center;background:rgba(16,26,46,.5);-webkit-backdrop-filter:blur(2px);'
+      + 'backdrop-filter:blur(2px);opacity:0;transition:opacity .18s ease;font-family:"Source Sans 3",sans-serif;';
+    wrap.innerHTML =
+      '<div style="background:#fff;color:#243049;max-width:380px;width:88%;border-radius:14px;'
+      + 'box-shadow:0 24px 60px -12px rgba(8,18,38,.5);padding:26px 26px 20px;text-align:center;">'
+      +   '<div style="width:46px;height:46px;border-radius:50%;background:#e7f3ec;color:#2e8a55;'
+      +     'display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">'
+      +     '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" '
+      +     'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></div>'
+      +   '<div style="font-size:18px;font-weight:800;color:#1f2d4a;margin-bottom:6px;">Request an invoice</div>'
+      +   '<p style="font-size:14.5px;color:#4a5468;line-height:1.5;margin:0 0 20px;">An email will be sent to GSI accounting.</p>'
+      +   '<button type="button" id="demo-modal-close" style="border:0;border-radius:8px;'
+      +     'background:#1f2d4a;color:#fff;font-family:inherit;font-weight:700;font-size:14px;padding:10px 22px;cursor:pointer;">Close</button>'
+      + '</div>';
+    (d.body || d.documentElement).appendChild(wrap);
+    requestAnimationFrame(function(){ wrap.style.opacity = '1'; });
+    function close(){
+      var m = d.getElementById('demo-modal'); if (m && m.parentNode) m.parentNode.removeChild(m);
+      spotlight('.topbar-home');   // guide Bud back Home -> advances to the Team step
+    }
+    d.getElementById('demo-modal-close').addEventListener('click', close);
+    wrap.addEventListener('click', function(ev){ if (ev.target === wrap) close(); });
   }
 
   // Which product page the iframe currently shows (filename only).
@@ -372,8 +464,10 @@
   // guide him back. He clicks Home -> back on Home: advance to the "ask a
   // question" step, where the pill bar lights up. `_visitedPlan` distinguishes the
   // initial Home load (stay, spotlight Manage) from the RETURN to Home (advance).
-  var _visitedPlan = false;
+  var _visitedPlan = false, _visitedLic = false, _visitedTeam = false;
   function onIframeNav(){
+    maskDevControls();                    // re-apply the dev-control mask on every load
+    neutralizeMailto();                   // block email-client links in the demo
     var s = steps[i]; if (!s) return;
     var pg = iframePage();
     if (s.key === 'aiplan'){
@@ -381,8 +475,33 @@
       else if (pg === 'home.html' && _visitedPlan){ _visitedPlan = false; i = 1; render(); }
       return;
     }
-    // General card pattern: once Bud clicks into this step's sub-page, spotlight
-    // its key action there (Licensing -> request invoice, Team -> add a member).
+    // Licensing is a guided beat: Manage -> licensing page (spotlight Request an
+    // invoice) -> click it (a confirm modal; its Close spotlights Home) -> click
+    // Home, which advances to the Team step. `_visitedLic` distinguishes the
+    // initial Manage load from the RETURN to Home.
+    if (s.key === 'licensing'){
+      if (pg === 'admin-companies.html'){ _visitedLic = true; spotlight('#js-lic-invoice'); }
+      else if (pg === 'home.html' && _visitedLic){ _visitedLic = false; i = 3; render(); }
+      return;
+    }
+    // Team is a guided beat too: Team card -> Users page (spotlight New Team
+    // Member; clicking it opens the add form AND lights the Home button) -> click
+    // Home, which advances to the wrap-up (step 4). `_visitedTeam` distinguishes
+    // the initial load from the RETURN to Home.
+    if (s.key === 'team'){
+      if (pg === 'admin-users.html'){
+        _visitedTeam = true;
+        spotlight('#js-new-user');
+        whenReady(function(){
+          var d = fdoc(); if (!d) return;
+          var t = d.querySelector('#js-new-user');
+          if (t) t.addEventListener('click', function(){ spotlight('.topbar-home'); }, { once:true });
+        });
+      }
+      else if (pg === 'home.html' && _visitedTeam){ _visitedTeam = false; i = 4; render(); }
+      return;
+    }
+    // General card pattern: any remaining step's sub-page spotlight.
     if (s.subPage && s.pageSpot && pg === s.subPage){ spotlight(s.pageSpot); }
   }
 
@@ -425,6 +544,8 @@
   function render(){
     var s = steps[i];
     if (s.key === 'aiplan') _visitedPlan = false;   // fresh entry to the AI-plan step
+    if (s.key === 'licensing') _visitedLic = false; // fresh entry to the licensing step
+    if (s.key === 'team') _visitedTeam = false;     // fresh entry to the team step
 
     caption.textContent = (s.caption || '').replace(/&middot;/g,'·').replace(/&amp;/g,'&');
 
@@ -463,6 +584,8 @@
     nextBtn.textContent = (i === steps.length - 1) ? 'Restart ↺' : 'Next →';
 
     loadFrame(s.frame, function(){
+      maskDevControls();
+      neutralizeMailto();
       if (s.spot) spotlight(s.spot); else clearSpotlight();
     });
   }
@@ -487,6 +610,13 @@
     else { i = 0; render(); }
   });
   prevBtn.addEventListener('click', function(){ if (i > 0){ i--; render(); } });
+  // Exit -> the front door at the role cards, with the next persona (Andy the
+  // Analyst) recommended. index.html reads these on load.
+  var exitBtn = document.getElementById('exitBtn');
+  if (exitBtn) exitBtn.addEventListener('click', function(){
+    try { sessionStorage.setItem('rrdemo.stage', 'roles'); sessionStorage.setItem('rrdemo.recRole', 'analyst'); } catch(e){}
+    window.location.href = 'index.html';
+  });
   document.addEventListener('keydown', function(e){
     if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
     if (e.key === 'ArrowRight'){ nextBtn.click(); }

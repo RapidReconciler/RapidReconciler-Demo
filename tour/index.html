@@ -100,12 +100,28 @@
   .resp{list-style:none; margin:0 0 20px; padding:0}
   .resp li{position:relative; padding:6px 0 6px 20px; font-size:15.5px; line-height:1.45; color:var(--ink)}
   .resp li::before{content:""; position:absolute; left:2px; top:12px; width:6px; height:6px; border-radius:50%; background:var(--rc)}
-  .begin{margin-top:auto; border:0; border-radius:10px; background:var(--orange); color:#fff; font-weight:700; font-size:14px; padding:12px 14px; cursor:pointer; font-family:inherit; transition:background .15s}
-  .begin:hover{background:var(--orange-deep)}
+  .begin{margin-top:auto; border:0; border-radius:10px; background:var(--rc,var(--orange)); color:#fff; font-weight:700; font-size:14px; padding:12px 14px; cursor:pointer; font-family:inherit; transition:filter .15s}
+  .begin:hover{filter:brightness(.93)}
   .note{margin-top:18px; font-size:13.5px; color:var(--on-dark); background:rgba(255,255,255,.07); border:1px dashed rgba(255,255,255,.28); border-radius:12px; padding:14px 16px; display:none; max-width:680px}
   .note.show{display:block}
   .note b{color:#fff}
   .change{background:none; border:0; color:var(--orange); font-weight:700; font-size:13px; cursor:pointer; font-family:inherit; padding:0}
+
+  /* persona identity on the role cards */
+  .persona{display:flex; align-items:center; gap:13px; margin:0 0 16px}
+  .avatar{flex:0 0 46px; width:46px; height:46px; border-radius:50%; background:var(--rc,var(--orange)); color:#fff; display:flex; align-items:center; justify-content:center}
+  .avatar svg{width:26px; height:26px}
+  .persona-id{display:flex; flex-direction:column; line-height:1.16}
+  .persona-name{font-size:20px; font-weight:800; letter-spacing:-.01em; color:var(--navy-deep)}
+  .persona-role{font-size:12px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; color:var(--rc,var(--orange)); margin-top:3px}
+
+  /* click-to-enter "signing in" flourish */
+  .signin{position:fixed; inset:0; z-index:60; display:flex; align-items:center; justify-content:center; background:rgba(16,26,46,.55); opacity:0; transition:opacity .2s; -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px)}
+  .signin.show{opacity:1}
+  .signin-card{display:flex; align-items:center; gap:13px; background:#fff; color:var(--ink); font-size:17px; font-weight:600; padding:17px 26px; border-radius:12px; box-shadow:var(--shadow)}
+  .signin-card b{color:var(--navy-deep)}
+  .signin-spin{flex:0 0 18px; width:18px; height:18px; border:3px solid var(--orange-pale); border-top-color:var(--orange); border-radius:50%; animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -171,19 +187,28 @@
     <div class="rolegrid" style="margin-top:22px">
       <div class="role r-admin recommended">
         <span class="badge">Recommended</span>
-        <h3>Administrator</h3>
+        <div class="persona">
+          <span class="avatar" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12.5a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5z"/><path d="M4 20c0-3.4 3.6-5.5 8-5.5s8 2.1 8 5.5v.5H4V20z"/></svg></span>
+          <span class="persona-id"><span class="persona-name">Arthur Admin</span><span class="persona-role">Administrator</span></span>
+        </div>
         <ul class="resp"><li>Manage users and access</li><li>Keep the system running</li><li>Owned and run by your team</li></ul>
-        <button class="begin" data-role="administrator">Begin the administrator tour</button>
+        <button class="begin" data-role="administrator">Enter as Arthur &rarr;</button>
       </div>
       <div class="role r-analyst">
-        <h3>Analyst</h3>
+        <div class="persona">
+          <span class="avatar" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12.5a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5z"/><path d="M4 20c0-3.4 3.6-5.5 8-5.5s8 2.1 8 5.5v.5H4V20z"/></svg></span>
+          <span class="persona-id"><span class="persona-name">Andy Analyst</span><span class="persona-role">Analyst</span></span>
+        </div>
         <ul class="resp"><li>Trace variances to their root cause</li><li>Fix them at the source</li><li>Keep inventory and the GL in step</li></ul>
-        <button class="begin" data-role="analyst">Begin the analyst tour</button>
+        <button class="begin" data-role="analyst">Enter as Andy &rarr;</button>
       </div>
       <div class="role r-accountant">
-        <h3>Accountant</h3>
+        <div class="persona">
+          <span class="avatar" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12.5a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5z"/><path d="M4 20c0-3.4 3.6-5.5 8-5.5s8 2.1 8 5.5v.5H4V20z"/></svg></span>
+          <span class="persona-id"><span class="persona-name">Angie Accountant</span><span class="persona-role">Accountant</span></span>
+        </div>
         <ul class="resp"><li>Post the entries that clear the GL</li><li>Disposition and close each period</li><li>Own the month-end close</li></ul>
-        <button class="begin" data-role="accountant">Begin the accountant tour</button>
+        <button class="begin" data-role="accountant">Enter as Angie &rarr;</button>
       </div>
     </div>
 
@@ -226,17 +251,83 @@
     roles.scrollIntoView({behavior:'smooth', block:'start'});
   });
 
+  // The three demo personas — one per role. Selecting a card "logs them in"
+  // by minting this persona's offline session (same unsigned-token shape the
+  // tour shell uses); the replay shim answers the network, so this only tells
+  // the product WHO + which DB/role to render.
+  var PERSONAS = {
+    administrator: { fn:'Arthur Admin',     first:'Arthur', u:'arthur@rrdemo.com', viewRole:'admin',      adm:true  },
+    analyst:       { fn:'Andy Analyst',     first:'Andy',   u:'andy@rrdemo.com',   viewRole:'analyst',    adm:false },
+    accountant:    { fn:'Angie Accountant', first:'Angie',  u:'angie@rrdemo.com',  viewRole:'accountant', adm:false }
+  };
+  function b64url(o){ return btoa(JSON.stringify(o)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_'); }
+  function seedSession(role){
+    var p = PERSONAS[role]; if(!p) return;
+    var payload = {
+      user: { fn:p.fn, u:p.u },
+      dbs: [ { n:'RapidReconciler_Demo1', ip:'localhost:34537', t:{ adm:p.adm }, perms:{ dm:true }, i:['80002','80008'] } ],
+      exp: 2082758400
+    };
+    try {
+      localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
+      localStorage.setItem('rrv8.activeDb', 'RapidReconciler_Demo1');
+      localStorage.setItem('rrv8.viewRole', p.viewRole);
+      localStorage.setItem('rrv8.aiTier', 'grounded');
+    } catch(e){}
+  }
+  function signInFlourish(first, done){
+    var o = document.createElement('div'); o.className = 'signin';
+    o.innerHTML = '<div class="signin-card"><span class="signin-spin"></span>Signing in as <b>' + first + '</b>&hellip;</div>';
+    document.body.appendChild(o);
+    requestAnimationFrame(function(){ o.classList.add('show'); });
+    setTimeout(done, 850);
+  }
+
   roles.addEventListener('click', function(e){
     var b = e.target.closest('.begin'); if(!b) return;
     var role = b.getAttribute('data-role');
+    var p = PERSONAS[role]; if(!p) return;
     store('role', role);
-    if(role === 'administrator'){ window.location.href = 'administrator.html'; return; }
-    var name = chosen ? chosen.getAttribute('data-name') : 'the selected company';
-    note.innerHTML = 'You are set up as <b>' + name + '</b>, <b>' + role + '</b>. '
-      + 'The step-by-step tour for this role is the next piece we build; this front door hands off to it.';
+    seedSession(role);                       // behind-the-scenes login as the persona
+    if(role === 'administrator'){
+      signInFlourish(p.first, function(){ window.location.href = 'administrator.html'; });
+      return;
+    }
+    // Analyst + accountant walks are the next builds; the session is already seeded
+    // as the persona, so their tour drops straight in once it exists.
+    note.innerHTML = 'Signed in as <b>' + p.fn + '</b>. The step-by-step <b>' + role
+      + '</b> tour is the next piece we build &mdash; this front door already logs you in and hands off to it.';
     note.classList.add('show');
     note.scrollIntoView({behavior:'smooth', block:'center'});
   });
+
+  // The Recommended badge is dynamic: move it (and the ring) onto a role card.
+  function setRecommendedRole(roleKey){
+    Array.prototype.forEach.call(document.querySelectorAll('.role'), function(r){
+      r.classList.remove('recommended');
+      var b = r.querySelector('.badge'); if (b && b.parentNode) b.parentNode.removeChild(b);
+    });
+    var btn = document.querySelector('.begin[data-role="' + roleKey + '"]');
+    var card = btn ? btn.closest('.role') : null;
+    if (card){
+      card.classList.add('recommended');
+      var badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = 'Recommended';
+      card.insertBefore(badge, card.firstChild);
+    }
+  }
+
+  // Returning from a finished (or exited) tour: skip the company pick, drop
+  // straight onto the role cards, and recommend the next persona (admin -> Andy).
+  (function(){
+    var stage = null;
+    try { stage = sessionStorage.getItem('rrdemo.stage'); } catch(e){}
+    if (stage !== 'roles') return;
+    var rec = 'analyst';
+    try { sessionStorage.removeItem('rrdemo.stage'); rec = sessionStorage.getItem('rrdemo.recRole') || 'analyst'; } catch(e){}
+    roles.classList.add('show');
+    setRecommendedRole(rec);
+    setTimeout(function(){ roles.scrollIntoView({behavior:'smooth', block:'start'}); }, 60);
+  })();
 })();
 </script>
 
