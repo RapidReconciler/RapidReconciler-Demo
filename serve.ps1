@@ -35,6 +35,9 @@ while ($listener.IsListening) {
       $bytes = [System.IO.File]::ReadAllBytes($full)
       $ext = [System.IO.Path]::GetExtension($full).ToLower()
       if ($mime.ContainsKey($ext)) { $res.ContentType = $mime[$ext] }
+      # Dev server: never let the browser cache. Rebuilds change files in place, so
+      # a cached page shows stale content and a soft reload (F5) won't refetch.
+      $res.Headers.Add('Cache-Control', 'no-store')
       $res.ContentLength64 = $bytes.Length
       $res.OutputStream.Write($bytes, 0, $bytes.Length)
     } else {

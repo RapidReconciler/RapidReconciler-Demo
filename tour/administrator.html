@@ -41,25 +41,45 @@
 
   /* progress */
   .progress{padding:16px 22px 6px}
-  .rail-kicker{font-size:11px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:var(--on-dark-muted); margin-bottom:10px}
-  .progress-meta{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px}
-  .progress-step{font-size:13px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--orange)}
-  .progress-of{font-size:13px; color:var(--on-dark-muted)}
-  .dots{display:flex; gap:7px; flex-wrap:wrap}
-  .dot{width:9px; height:9px; border-radius:50%; background:rgba(255,255,255,.20); cursor:pointer; transition:background .15s, transform .15s}
-  .dot:hover{transform:scale(1.25)}
-  .dot.on{background:var(--orange)}
-  .dot.done{background:rgba(240,138,36,.55)}
+  .rail-kicker{font-size:12.5px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:var(--on-dark-muted); margin-bottom:10px}
+  /* Persistent workflow map: the 3 responsibilities. Current lit, past done,
+     each clickable to jump. This is the progress indicator AND the nav. */
+  .wf{display:flex; flex-direction:column; gap:6px}
+  .wf-item{display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer;
+    font-family:inherit; background:transparent; border:1px solid transparent; border-radius:10px;
+    padding:9px 11px; transition:background .12s, border-color .12s}
+  .wf-item:hover{background:rgba(255,255,255,.06)}
+  .wf-num{flex:0 0 27px; width:27px; height:27px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:13.5px; font-weight:800; color:var(--on-dark-muted); background:rgba(255,255,255,.10); border:1px solid var(--line-dark)}
+  .wf-body{display:flex; flex-direction:column; min-width:0}
+  .wf-label{font-size:16px; font-weight:700; color:var(--on-dark-muted); line-height:1.25}
+  .wf-tag{font-size:12px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--on-dark-muted); opacity:.65}
+  .wf-item.is-on{background:rgba(240,138,36,.14); border-color:rgba(240,138,36,.45)}
+  .wf-item.is-on .wf-num{background:var(--orange); color:#fff; border-color:var(--orange)}
+  .wf-item.is-on .wf-label{color:#fff}
+  .wf-item.is-on .wf-tag{color:var(--orange); opacity:1}
+  .wf-item.is-done .wf-num{background:rgba(240,138,36,.55); color:#fff; border-color:transparent}
+  .wf-item.is-done .wf-label{color:var(--on-dark)}
+  .wf-rule{height:1px; background:var(--line-dark); margin:14px 0}
+  /* detail fills the rest so the kicker can bottom-anchor within it */
+  .detail{display:flex; flex-direction:column; flex:1; min-height:0}
 
   /* step body (scrolls) */
-  .rail-body{flex:1; overflow-y:auto; padding:14px 22px 8px}
-  .eyebrow{font-size:14px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--orange); margin:6px 0 8px}
-  .rail-body h1{font-size:27px; line-height:1.18; letter-spacing:-.01em; margin:0 0 16px; color:#fff}
+  .rail-body{flex:1; overflow-y:auto; padding:14px 22px 8px; display:flex; flex-direction:column}
+  .eyebrow{font-size:15.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--orange); margin:6px 0 10px}
+  .rail-body h1{font-size:31px; line-height:1.16; letter-spacing:-.01em; margin:0 0 18px; color:#fff}
 
-  /* LEAD — the one "why we're here / what you'll see" line. The guide is visible
-     to the prospect, so it reads as tour narration, not a script or a cue card. */
-  .lead{font-size:17px; line-height:1.55; color:var(--on-dark); margin:0 0 18px; font-weight:500}
-  .lead b{color:#fff; font-weight:700}
+  /* Presenter flow: an intro line, the points, then a value/segue kicker. Reads
+     as Bud's spoken script AND fills the rail with substance the prospect scans. */
+  .intro{font-size:20px; line-height:1.5; color:var(--on-dark); margin:0 0 16px; font-weight:500}
+  .points{list-style:none; margin:0 0 18px; padding:0}
+  .points li{position:relative; padding:11px 0 11px 26px; font-size:18.5px; line-height:1.45; color:var(--on-dark)}
+  .points li + li{border-top:1px solid rgba(255,255,255,.08)}
+  .points li::before{content:""; position:absolute; left:3px; top:20px; width:9px; height:9px; border-radius:50%; background:var(--orange)}
+  /* Kicker sits at the BOTTOM of the rail (margin-top:auto in the flex column),
+     right above Back/Next -- fills the empty space and puts the segue by the button. */
+  .kicker{font-size:18px; line-height:1.5; color:var(--on-dark-muted); font-style:italic; margin:auto 0 0; padding-top:18px}
+  .kicker b{color:#fff}
 
   /* contextual controls (tier ladder + ask buttons) */
   .controls{border-top:1px solid var(--line-dark); padding-top:15px; margin-top:4px}
@@ -85,7 +105,7 @@
 
   /* nav */
   .rail-nav{display:flex; align-items:center; gap:12px; padding:14px 22px 18px; border-top:1px solid var(--line-dark)}
-  .btn{border:0; border-radius:11px; font-family:inherit; font-weight:700; font-size:15.5px; padding:12px 18px; cursor:pointer}
+  .btn{border:0; border-radius:11px; font-family:inherit; font-weight:700; font-size:17px; padding:13px 20px; cursor:pointer}
   .btn.prev{background:rgba(255,255,255,.10); color:var(--on-dark)}
   .btn.prev:hover{background:rgba(255,255,255,.18)}
   .btn.prev[disabled]{opacity:.35; cursor:default}
@@ -114,8 +134,9 @@
 
   @media (max-width:1180px){
     :root{--rail-w:360px}
-    .rail-body h1{font-size:24px}
-    .lead{font-size:16px}
+    .rail-body h1{font-size:27px}
+    .intro{font-size:18px}
+    .points li{font-size:16.5px}
   }
 </style>
 </head>
@@ -155,11 +176,6 @@
 
   <div class="progress">
     <div class="rail-kicker">Guided tour</div>
-    <div class="progress-meta">
-      <span class="progress-step" id="stepLabel">Step 1</span>
-      <span class="progress-of" id="stepOf"></span>
-    </div>
-    <div class="dots" id="dots"></div>
   </div>
 
   <div class="rail-body" id="railBody"><!-- filled by render() --></div>
@@ -177,7 +193,6 @@
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
       <span id="railToggleLabel">Hide guide</span>
     </button>
-    <span class="live-ribbon"><span class="live-dot"></span>Live product &middot; running offline</span>
     <span class="stage-caption" id="stageCaption">Administrator home</span>
   </div>
   <div class="frame-wrap">
@@ -195,62 +210,74 @@
   // a bundled page (null = keep the current one). `onEnter` runs an action inside
   // the iframe (fire a pill, open the help panel, flip a tier) once it's ready.
   var HOME = 'home.html';
+  // The three admin responsibilities -- a persistent workflow map shown on EVERY
+  // page: the current one lit, past ones done, each clickable to jump. `step` is
+  // the index in `steps` that lights it.
+  // `jump` = step to go to when the item is clicked; `last` = the step index the
+  // item stops being "current" after (the AI spans two steps: plan + ask).
+  var WORKFLOW = [
+    { id:'ai',   n:'1', label:'Set what the AI can see', tag:'AI Plan',           jump:0, last:1 },
+    { id:'lic',  n:'2', label:'Keep it running',         tag:'Licensing',         jump:2, last:2 },
+    { id:'team', n:'3', label:'Control who sees what',   tag:'Team &amp; Access', jump:3, last:3 }
+  ];
+
   var steps = [
     {
-      key:'own', caption:'Administrator home', frame:HOME,
-      eyebrow:'The administrator role',
-      title:'This role is yours to own',
-      lead:'Your live instance, running on Summit Industrial&rsquo;s real data. Your team owns the day-to-day; GSI keeps the software behind it.'
+      key:'aiplan', flow:'ai', caption:'Administrator home', frame:HOME, spot:'#aiPlanManage',
+      eyebrow:'Set what the AI can see',
+      intro:'Start with what the AI is allowed to see &mdash; click the highlighted <b>Manage</b> link to open your AI plan:',
+      points:[
+        'Three features, each with its own level &mdash; set independently.',
+        'All on Full here; lower any one to help-docs-only, or off.',
+        'Nothing reaches the AI that you haven&rsquo;t allowed.'
+      ],
+      kicker:'Set your levels, then click <b>Home</b> up top &mdash; I&rsquo;ll point you to the questions.'
     },
     {
-      key:'ai', caption:'RapidReconciler AI', frame:HOME,
-      eyebrow:'RapidReconciler AI',
-      title:'Ask a question, then open the dial',
-      lead:'Every answer comes from this install&rsquo;s real state &mdash; licensing, users, activity. Ask one, then flip the tier and watch the same answer re-reason with more of your data.',
-      controls:{ label:'Ask on the live screen, then flip the dial', asks:[0,4,5], tiers:true }
+      key:'aiask', flow:'ai', caption:'Administrator home', frame:'home.html', spot:'#adminAskBar',
+      eyebrow:'Now put it to work',
+      intro:'Back on Home &mdash; this is the daily view:',
+      points:[
+        'Pick a question on screen &mdash; the answer comes from your live data, at the level you just set.',
+        'Read the board at a glance &mdash; green is clear, amber needs attention.',
+        'And every change is on the record, newest first.'
+      ],
+      kicker:'Next, keeping it running.'
     },
     {
-      key:'cards', caption:'Administrator home &middot; task cards', frame:HOME,
-      eyebrow:'The daily glance',
-      title:'Four cards, one health strip',
-      lead:'The whole admin job at a glance. Colour shows up only where something actually wants attention &mdash; a calm instance stays calm.'
+      key:'licensing', flow:'lic', caption:'Administrator home', frame:HOME,
+      spot:'a[href="admin-companies.html"]', subPage:'admin-companies.html', pageSpot:'#js-lic-invoice',
+      eyebrow:'Keep it running',
+      intro:'Keeping it running is self-service &mdash; click <b>Manage</b> on the Licensing card:',
+      points:[
+        'The card shows exactly when the licence is due.',
+        'Request an invoice right there &mdash; no ticket, no waiting on us.',
+        'Both Summit entities, two currencies, under one licence.'
+      ],
+      kicker:'Next, who gets access.'
     },
     {
-      key:'team', caption:'Team &amp; access &middot; Users', frame:'admin-users.html',
-      eyebrow:'Users and access',
-      title:'Add a team member',
-      lead:'Add a person, set their role, remove them when they move on &mdash; each takes a moment, and access stays in your hands.'
+      key:'team', flow:'team', caption:'Administrator home', frame:HOME,
+      spot:'#teamUsersRow', subPage:'admin-users.html', pageSpot:'#js-new-user',
+      eyebrow:'Control who sees what',
+      intro:'You control who&rsquo;s in &mdash; click into <b>Team &amp; access</b>:',
+      points:[
+        'Add a person, set their role, done.',
+        'Roles decide exactly what each person can see and do.',
+        'Someone moves on? Remove them just as fast.'
+      ],
+      kicker:'That&rsquo;s the role.'
     },
     {
-      key:'renew', caption:'Licensing &middot; Renewal', frame:'admin-companies.html',
-      eyebrow:'Your licence',
-      title:'Renew the licence',
-      lead:'You always know where you stand on renewal &mdash; and requesting an invoice is a single self-serve step, no ticket to us.'
-    },
-    {
-      key:'companies', caption:'Licensing &middot; Companies', frame:'admin-companies.html',
-      eyebrow:'Your entities',
-      title:'Two companies, one licence',
-      lead:'Both Summit entities &mdash; the US company in USD and the UK company in GBP &mdash; sit under one licence, with no hidden seat maths.'
-    },
-    {
-      key:'aiplan', caption:'AI Assistant &middot; your plan', frame:'admin-claude-assistant.html',
-      eyebrow:'Your AI plan',
-      title:'Manage your AI plan',
-      lead:'This is where the dial from earlier is set &mdash; per feature, from help-docs-only up to your real data. Off is the default; you open only what you want.',
-      controls:{ label:'Open the built-in help', help:true }
-    },
-    {
-      key:'activity', caption:'Activity log', frame:'admin-activity-log.html',
-      eyebrow:'The audit trail',
-      title:'Every change, on the record',
-      lead:'Restarts, reloads, corrections &mdash; each one logged, newest first, and a correction notes that it is reversible. Nothing happens off the books.'
-    },
-    {
-      key:'handoff', caption:'Administrator home', frame:HOME,
+      key:'handoff', flow:null, caption:'Administrator home', frame:'home.html',
       eyebrow:'The hand-off',
-      title:'GSI supports it. You run it.',
-      lead:'Light to run, and yours from day one. Name an administrator before go-live and the instance is theirs &mdash; GSI stays on the software itself.'
+      intro:'That&rsquo;s the whole role &mdash; light to run, and yours from day one:',
+      points:[
+        'The three above &mdash; the AI, the licence, the access &mdash; all yours.',
+        'The software itself &mdash; fixes, upgrades, escalations &mdash; stays with GSI.',
+        'Name an administrator before go-live and the instance is theirs.'
+      ],
+      kicker:'That&rsquo;s the tour &mdash; happy to dig into any of it.'
     }
   ];
 
@@ -265,9 +292,6 @@
   var frame     = document.getElementById('stageFrame');
   var frameLoad = document.getElementById('frameLoading');
   var railBody  = document.getElementById('railBody');
-  var dotsEl    = document.getElementById('dots');
-  var stepLabel = document.getElementById('stepLabel');
-  var stepOf    = document.getElementById('stepOf');
   var prevBtn   = document.getElementById('prev');
   var nextBtn   = document.getElementById('next');
   var caption   = document.getElementById('stageCaption');
@@ -291,14 +315,75 @@
   }
 
   function loadFrame(src, after){
-    if (src && src !== currentFrameSrc){
+    // Compare the step's target page to the page ACTUALLY loaded -- Bud may have
+    // navigated the iframe himself (e.g. clicking the Manage link), so the tracked
+    // src can be stale. Without this, a later Home step would skip the reload and
+    // show wherever Bud left the iframe.
+    var actual = '';
+    try { actual = (frame.contentWindow.location.pathname.split('/').pop() || ''); } catch(e){}
+    var want = src ? src.split('/').pop() : '';
+    if (src && actual !== want){
       currentFrameSrc = src;
       frameLoad.hidden = false;
-      frame.onload = function(){ frameLoad.hidden = true; whenReady(after || function(){}); };
+      // One-shot: null it after firing so a later navigation Bud makes himself
+      // (e.g. clicking the product Home link) doesn't re-run this step's stale
+      // callback -- onIframeNav (a persistent listener) handles his navigation.
+      frame.onload = function(){ frame.onload = null; frameLoad.hidden = true; whenReady(after || function(){}); };
       frame.src = src;
     } else {
       whenReady(after || function(){});
     }
+  }
+
+  // ---- demo layer: a transient spotlight injected INTO the product iframe ----
+  // NOT part of the product. The tour paints a glow ring on a target element (by
+  // selector) and wipes it on the next step; the product's source is untouched,
+  // so demo == product still holds. Selectors couple to product markup -- if one
+  // no longer matches, the spotlight silently no-ops (never crashes).
+  function clearSpotlight(){
+    var d = fdoc(); if (!d) return;
+    var el = d.querySelector('[data-demo-spot]');
+    if (el) el.removeAttribute('data-demo-spot');
+  }
+  function spotlight(selector){
+    whenReady(function(){
+      var d = fdoc(); if (!d) return;
+      if (!d.getElementById('demo-spot-style')){
+        var st = d.createElement('style');
+        st.id = 'demo-spot-style';
+        st.textContent = '[data-demo-spot]{outline:3px solid #f08a24 !important; outline-offset:3px; border-radius:8px !important;'
+          + ' box-shadow:0 0 0 6px rgba(240,138,36,.28), 0 0 22px rgba(240,138,36,.6) !important;'
+          + ' animation:demoSpotPulse 1.6s ease-in-out infinite !important}'
+          + '@keyframes demoSpotPulse{0%,100%{box-shadow:0 0 0 6px rgba(240,138,36,.22),0 0 18px rgba(240,138,36,.5)}'
+          + '50%{box-shadow:0 0 0 9px rgba(240,138,36,.36),0 0 30px rgba(240,138,36,.8)}}';
+        (d.head || d.body).appendChild(st);
+      }
+      clearSpotlight();
+      var t = d.querySelector(selector);
+      if (t){ t.setAttribute('data-demo-spot', ''); t.scrollIntoView({behavior:'smooth', block:'center'}); }
+    });
+  }
+
+  // Which product page the iframe currently shows (filename only).
+  function iframePage(){ try { return (frame.contentWindow.location.pathname.split('/').pop() || ''); } catch(e){ return ''; } }
+
+  // Guided AI loop -- follow Bud's OWN navigation on the aiplan step. He clicks
+  // Manage (spotlit on Home) -> plan page: spotlight the product Home button to
+  // guide him back. He clicks Home -> back on Home: advance to the "ask a
+  // question" step, where the pill bar lights up. `_visitedPlan` distinguishes the
+  // initial Home load (stay, spotlight Manage) from the RETURN to Home (advance).
+  var _visitedPlan = false;
+  function onIframeNav(){
+    var s = steps[i]; if (!s) return;
+    var pg = iframePage();
+    if (s.key === 'aiplan'){
+      if (pg === 'admin-claude-assistant.html'){ _visitedPlan = true; spotlight('.topbar-home'); }
+      else if (pg === 'home.html' && _visitedPlan){ _visitedPlan = false; i = 1; render(); }
+      return;
+    }
+    // General card pattern: once Bud clicks into this step's sub-page, spotlight
+    // its key action there (Licensing -> request invoice, Team -> add a member).
+    if (s.subPage && s.pageSpot && pg === s.subPage){ spotlight(s.pageSpot); }
   }
 
   function firePill(idx){
@@ -339,78 +424,46 @@
   // ---- render --------------------------------------------------------------
   function render(){
     var s = steps[i];
+    if (s.key === 'aiplan') _visitedPlan = false;   // fresh entry to the AI-plan step
 
-    stepLabel.textContent = 'Step ' + (i + 1);
-    stepOf.textContent = 'of ' + steps.length;
     caption.textContent = (s.caption || '').replace(/&middot;/g,'·').replace(/&amp;/g,'&');
 
-    // dots
-    dotsEl.innerHTML = '';
-    steps.forEach(function(_, n){
-      var dot = document.createElement('span');
-      dot.className = 'dot' + (n === i ? ' on' : (n < i ? ' done' : ''));
-      dot.title = 'Step ' + (n + 1);
-      dot.addEventListener('click', function(){ i = n; render(); });
-      dotsEl.appendChild(dot);
-    });
-
-    // body
     var html = '';
+    // Persistent workflow map: the 3 responsibilities; current lit, past done, clickable.
+    html += '<div class="wf">';
+    WORKFLOW.forEach(function(w){
+      var state = (s.flow === w.id) ? 'on' : (i > w.last ? 'done' : 'todo');
+      html += '<button type="button" class="wf-item is-' + state + '" data-step="' + w.jump + '">'
+            + '<span class="wf-num">' + w.n + '</span>'
+            + '<span class="wf-body"><span class="wf-label">' + w.label + '</span>'
+            + '<span class="wf-tag">' + w.tag + '</span></span></button>';
+    });
+    html += '</div><div class="wf-rule"></div>';
+    // Page detail below the workflow; the kicker bottom-anchors within it.
+    html += '<div class="detail">';
     html += '<div class="eyebrow">' + s.eyebrow + '</div>';
-    html += '<h1>' + s.title + '</h1>';
-    if (s.lead){ html += '<p class="lead">' + s.lead + '</p>'; }
-
-    // contextual controls
-    if (s.controls){
-      html += '<div class="controls"><span class="controls-label">' + (s.controls.label || 'On the live screen') + '</span>';
-      if (s.controls.asks){
-        html += '<div class="ask-row">';
-        s.controls.asks.forEach(function(idx){
-          html += '<button type="button" class="ask-btn" data-ask="' + idx + '">' + PILL_TEXT[idx] + '</button>';
-        });
-        html += '</div>';
-      }
-      if (s.controls.tiers){
-        html += '<div class="tier-wrap"><div class="tier-seg" id="tierSeg">';
-        ['grounded','scrubbed','full'].forEach(function(t){
-          html += '<button type="button" class="tier-opt" data-tier="' + t + '">' + TIER_LABEL[t] + '</button>';
-        });
-        html += '</div><div class="tier-blurb" id="tierBlurb"></div></div>';
-      }
-      if (s.controls.help){
-        html += '<div class="ask-row"><button type="button" class="ask-btn" id="helpBtn" style="text-align:center">Open the ? help panel</button></div>';
-      }
-      html += '</div>';
+    if (s.intro){ html += '<p class="intro">' + s.intro + '</p>'; }
+    if (s.points && s.points.length){
+      html += '<ul class="points">';
+      s.points.forEach(function(p){ html += '<li>' + p + '</li>'; });
+      html += '</ul>';
     }
+    if (s.kicker){ html += '<p class="kicker">' + s.kicker + '</p>'; }
+    html += '</div>';
     railBody.innerHTML = html;
     railBody.scrollTop = 0;
 
-    // wire controls
-    railBody.querySelectorAll('[data-ask]').forEach(function(b){
-      b.addEventListener('click', function(){ firePill(parseInt(b.getAttribute('data-ask'), 10)); });
+    // clicking a workflow item jumps to that responsibility's page
+    railBody.querySelectorAll('[data-step]').forEach(function(b){
+      b.addEventListener('click', function(){ i = parseInt(b.getAttribute('data-step'), 10); render(); });
     });
-    var seg = document.getElementById('tierSeg');
-    if (seg){
-      var syncTier = function(){
-        var w = fwin(); var cur = (w && w.RRAI) ? w.RRAI.get() : 'grounded';
-        seg.querySelectorAll('.tier-opt').forEach(function(o){ o.classList.toggle('is-active', o.getAttribute('data-tier') === cur); });
-        var bl = document.getElementById('tierBlurb'); if (bl) bl.innerHTML = TIER_BLURB[cur] || '';
-      };
-      seg.querySelectorAll('.tier-opt').forEach(function(o){
-        o.addEventListener('click', function(){ setTier(o.getAttribute('data-tier')); setTimeout(syncTier, 60); });
-      });
-      whenReady(syncTier);
-    }
-    var hb = document.getElementById('helpBtn');
-    if (hb) hb.addEventListener('click', openHelp);
 
     // nav state
     prevBtn.disabled = (i === 0);
     nextBtn.textContent = (i === steps.length - 1) ? 'Restart ↺' : 'Next →';
 
-    // drive the product, then run the step's onEnter action
     loadFrame(s.frame, function(){
-      if (s.key === 'tiers'){ firePill(0); }   // seed an answer so the dial has something to re-reason
+      if (s.spot) spotlight(s.spot); else clearSpotlight();
     });
   }
 
@@ -424,6 +477,9 @@
     'Is the instance healthy, or is anything starting to degrade?',
     'What does the activity log tell me?'
   ];
+
+  // Follow Bud's own navigation inside the product (drives the guided AI loop).
+  frame.addEventListener('load', onIframeNav);
 
   // ---- nav -----------------------------------------------------------------
   nextBtn.addEventListener('click', function(){

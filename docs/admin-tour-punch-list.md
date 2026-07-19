@@ -65,6 +65,54 @@ Status per wart: ☐ open · ◐ fixing · ✅ fixed (owner-verified live)
 
 ---
 
+## Tour refinements (owner walk-through, 2026-07-18 — uncommitted, in working tree + rebuilt bundle)
+- ◐ **8-step restructure** (was 9): merged step 1+2 into one ownership+AI opener; **cut the
+  live tier-flip beat** (the Off/Basic/Enhanced/Full selector is DEV-ONLY, not in production —
+  demoing it would show a control that won't ship); moved the "you control how much the AI
+  sees" story to the AI-plan step (step 6, where exposure is actually set per feature).
+- ◐ **Rail controls stripped** — the rail's pill/tier buttons duplicated the on-screen ones;
+  rail is now pure "why we're here" guide. Bud clicks the REAL product pills. **Capture impact:
+  the walk driver must fire the product's own `.admin-ask-pill` elements, not rail buttons.**
+- ◐ **"Choose a question," never "ask"** — admin AI has NO free-text input; copy must not imply typing.
+- ◐ **Step counter → quiet progress bar** — no "Step N of M" text/dots; a slim orange fill.
+  Casual interactive walk, not a countdown; the prospect interrupts with questions.
+- ☐ **MUST-RESOLVE before demo ships — the "Report Engine" card.** Owner + Bud can't say what
+  it is; a visible card with a **Restart** button the presenter can't explain is a landmine if a
+  prospect points at it. "Our secret for now" is a stopgap, NOT shippable. Fix = a one-line
+  finance-friendly definition Bud can give (likely: the background Data Services process that
+  runs reconciliations — CONFIRM), or take the card off the demo home. Tour does NOT spotlight
+  it today (the glance step names no card).
+- **Note:** dead control-rendering JS (firePill/setTier/openHelp/PILL_TEXT/TIER_*) is now inert
+  (no step uses `controls`). Harmless; remove in a cleanup pass once the panel design settles.
+
+## Product (home.html) — from the tour walk
+- ☐ **Triage the admin home cards: amber left, green right.** Order the four cards by status so
+  attention-needing (amber/red) sit left, clear (green) right — eye lands on work first. Makes the
+  tour's "green is clear, amber needs work" glance literally true. Product change in
+  `RapidReconciler-AI/RRV8/home.html` (flows into the bundle on rebuild).
+  - **Not a static reorder:** card statuses are set ASYNC by the status-dot wiring (`arfDot` etc.,
+    `lvl-amber`/`lvl-red`/green applied after data loads, ~line 4504/4517). The reorder must run
+    AFTER statuses resolve. Cards keep their element IDs (the wiring depends on them), so moving
+    the elements within their container is safe — sort by status class post-resolve. Real shared
+    home used by every role — do it as a careful focused pass, verify live, not a rushed tail edit.
+- ☐ **PROMOTED (owner 2026-07-19) — "show all cards" affordance.** Was tabled; now active. A hidden
+  card must always be reachable (esp. once triage/filtering can hide cards). Build a show-all control.
+- ☐ **PII — filter the GSI-Internal role out of the demo (owner 2026-07-19, PRIORITY).** The demo
+  team list (`admin-users.html`) shows REAL GSI staff — Daren Belsterli, Ed Gutkowski, Mauro, all
+  `@getgsi.com`, with FUNCTIONAL roles (not tagged GSI-Internal), so the #366 exclusion filter isn't
+  dropping them. Real names/emails on a prospect-facing demo. Fix approach TBD: tag them GSI-Internal
+  + apply the filter to the full team page, OR swap to fictional names in the demo data/recording.
+  Highest-priority of the three — real-data hygiene beats cosmetics.
+
+## Admin sub-page polish standard (owner 2026-07-19) — QUEUED, spike-first, AFTER the 3-update agent
+- ☐ The `admin-*.html` sub-pages (AI Assistant, Companies, Users, Activity) look like an older, plainer
+  layer vs the polished `home.html` — reads as "assembled from two products," worse now that the tour
+  drives INTO them. Define ONE lightweight shared "admin page" standard (header/topbar, section-card
+  styling, type scale, spacing, accent) lifted from `home.html`. **Product pass (demo = product), not
+  demo-only.** **Spike on `admin-claude-assistant.html` FIRST** → owner eyeballs "same product?" → then
+  roll to Companies / Users / Activity (the tour-visited pages). Remaining admin pages = later follow-up.
+  Pairs with the already-queued "what's sent" de-jargon on that same page.
+
 ## Cross-cutting / structural
 - ✅ **AI replay key re-keyed to (question + tier) — FIXED + VERIFIED (commit `857371d`).**
   Root cause: `request-signature.js` hashed the WHOLE `ai/explain` prompt, baking in the
