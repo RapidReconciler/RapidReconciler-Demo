@@ -40,14 +40,14 @@
   .rail-exit:hover{color:#fff}
 
   /* progress */
-  .progress{padding:16px 22px 6px}
+  .progress{padding:12px 22px 4px}
   .rail-kicker{font-size:12.5px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:var(--on-dark-muted); margin-bottom:10px}
   /* Persistent workflow map: the 3 responsibilities. Current lit, past done,
      each clickable to jump. This is the progress indicator AND the nav. */
   .wf{display:flex; flex-direction:column; gap:6px}
   .wf-item{display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer;
     font-family:inherit; background:transparent; border:1px solid transparent; border-radius:10px;
-    padding:9px 11px; transition:background .12s, border-color .12s}
+    padding:7px 11px; transition:background .12s, border-color .12s}
   .wf-item:hover{background:rgba(255,255,255,.06)}
   .wf-num{flex:0 0 27px; width:27px; height:27px; border-radius:50%; display:flex; align-items:center; justify-content:center;
     font-size:13.5px; font-weight:800; color:var(--on-dark-muted); background:rgba(255,255,255,.10); border:1px solid var(--line-dark)}
@@ -60,25 +60,25 @@
   .wf-item.is-on .wf-tag{color:var(--orange); opacity:1}
   .wf-item.is-done .wf-num{background:rgba(240,138,36,.55); color:#fff; border-color:transparent}
   .wf-item.is-done .wf-label{color:var(--on-dark)}
-  .wf-rule{height:1px; background:var(--line-dark); margin:14px 0}
+  .wf-rule{height:1px; background:var(--line-dark); margin:10px 0}
   /* detail fills the rest so the kicker can bottom-anchor within it */
   .detail{display:flex; flex-direction:column; flex:1; min-height:0}
 
   /* step body (scrolls) */
-  .rail-body{flex:1; overflow-y:auto; padding:14px 22px 8px; display:flex; flex-direction:column}
-  .eyebrow{font-size:15.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--orange); margin:6px 0 10px}
+  .rail-body{flex:1; overflow-y:auto; padding:10px 22px 8px; display:flex; flex-direction:column}
+  .eyebrow{font-size:15.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--orange); margin:2px 0 8px}
   .rail-body h1{font-size:31px; line-height:1.16; letter-spacing:-.01em; margin:0 0 18px; color:#fff}
 
   /* Presenter flow: an intro line, the points, then a value/segue kicker. Reads
      as Bud's spoken script AND fills the rail with substance the prospect scans. */
-  .intro{font-size:20px; line-height:1.5; color:var(--on-dark); margin:0 0 16px; font-weight:500}
-  .points{list-style:none; margin:0 0 18px; padding:0}
-  .points li{position:relative; padding:11px 0 11px 26px; font-size:18.5px; line-height:1.45; color:var(--on-dark)}
+  .intro{font-size:20px; line-height:1.45; color:var(--on-dark); margin:0 0 12px; font-weight:500}
+  .points{list-style:none; margin:0 0 12px; padding:0}
+  .points li{position:relative; padding:9px 0 9px 26px; font-size:18.5px; line-height:1.4; color:var(--on-dark)}
   .points li + li{border-top:1px solid rgba(255,255,255,.08)}
   .points li::before{content:""; position:absolute; left:3px; top:20px; width:9px; height:9px; border-radius:50%; background:var(--orange)}
   /* Kicker sits at the BOTTOM of the rail (margin-top:auto in the flex column),
      right above Back/Next -- fills the empty space and puts the segue by the button. */
-  .kicker{font-size:18px; line-height:1.5; color:var(--on-dark-muted); font-style:italic; margin:auto 0 0; padding-top:18px}
+  .kicker{font-size:18px; line-height:1.45; color:var(--on-dark-muted); font-style:italic; margin:auto 0 0; padding-top:12px}
   .kicker b{color:#fff}
 
   /* contextual controls (tier ladder + ask buttons) */
@@ -216,74 +216,75 @@
   // a bundled page (null = keep the current one). `onEnter` runs an action inside
   // the iframe (fire a pill, open the help panel, flip a tier) once it's ready.
   var HOME = 'home.html';
-  // The three admin responsibilities -- a persistent workflow map shown on EVERY
-  // page: the current one lit, past ones done, each clickable to jump. `step` is
-  // the index in `steps` that lights it.
+  // The four tour beats -- the three admin responsibilities plus the hand-off --
+  // as a persistent workflow map shown on EVERY page: the current one lit, past
+  // ones done, each clickable to jump. `step` is the index in `steps` that lights it.
   // `jump` = step to go to when the item is clicked; `last` = the step index the
   // item stops being "current" after (the AI spans two steps: plan + ask).
   var WORKFLOW = [
-    { id:'ai',   n:'1', label:'Set what the AI can see', tag:'AI Plan',           jump:0, last:1 },
-    { id:'lic',  n:'2', label:'Keep it running',         tag:'Licensing',         jump:2, last:2 },
-    { id:'team', n:'3', label:'Control who sees what',   tag:'Team &amp; Access', jump:3, last:3 }
+    { id:'ai',      n:'1', label:'Set what the AI can see', tag:'AI Plan',           jump:0, last:1 },
+    { id:'lic',     n:'2', label:'Keep it running',         tag:'Licensing',         jump:2, last:2 },
+    { id:'team',    n:'3', label:'Control who sees what',   tag:'Team &amp; Access', jump:3, last:3 },
+    { id:'handoff', n:'4', label:'Wrap up',                 tag:'Next role',         jump:4, last:4 }
   ];
 
   var steps = [
     {
       key:'aiplan', flow:'ai', caption:'Administrator home', frame:HOME, spot:'#aiPlanManage',
       eyebrow:'Set what the AI can see',
-      intro:'Start with what the AI is allowed to see &mdash; click the highlighted <b>Manage</b> link to open your AI plan:',
+      intro:'Click the glowing <b>Manage</b> link to open your AI plan.',
       points:[
-        'Three features, each with its own level &mdash; set independently.',
-        'All on Full here; lower any one to help-docs-only, or off.',
-        'Nothing reaches the AI that you haven&rsquo;t allowed.'
+        'Three features &mdash; set each on its own.',
+        'All on Full now; dial any one down, or off.',
+        'The AI only ever sees what you allow.'
       ],
-      kicker:'Set your levels, then click <b>Home</b> up top &mdash; I&rsquo;ll point you to the questions.'
+      kicker:'Set it, hit <b>Home</b>, and I&rsquo;ll show you the questions.'
     },
     {
       key:'aiask', flow:'ai', caption:'Administrator home', frame:'home.html', spot:'#adminAskBar',
       eyebrow:'Now put it to work',
-      intro:'Back on Home &mdash; this is the daily view:',
+      intro:'Back Home &mdash; this is the daily view.',
       points:[
-        'Pick a question on screen &mdash; the answer comes from your live data, at the level you just set.',
-        'Read the board at a glance &mdash; green is clear, amber needs attention.',
-        'And every change is on the record, newest first.'
+        'Tap a question &mdash; the answer comes from your live data.',
+        'Read the board at a glance: green&rsquo;s clear, amber needs you.',
+        'Every change is logged, newest first.'
       ],
-      kicker:'Next, keeping it running.'
+      kicker:'Next &mdash; keeping it running.'
     },
     {
       key:'licensing', flow:'lic', caption:'Administrator home', frame:HOME,
       spot:'a[href="admin-companies.html"]', subPage:'admin-companies.html', pageSpot:'#js-lic-invoice',
       eyebrow:'Keep it running',
-      intro:'Keeping it running is self-service &mdash; click <b>Manage</b> on the Licensing card:',
+      intro:'This part&rsquo;s self-service &mdash; click <b>Manage</b> on the Licensing card.',
       points:[
-        'The card shows exactly when the licence is due.',
-        'Request an invoice right there &mdash; no ticket, no waiting on us.',
-        'Both Summit entities, two currencies, under one licence.'
+        'See exactly when the licence is due.',
+        'Need an invoice? Grab it right there &mdash; no ticket.',
+        'All your entities and currencies &mdash; one licence.'
       ],
-      kicker:'Next, who gets access.'
+      kicker:'Next &mdash; who gets in.'
     },
     {
       key:'team', flow:'team', caption:'Administrator home', frame:HOME,
       spot:'#teamUsersRow', subPage:'admin-users.html', pageSpot:'#js-new-user',
       eyebrow:'Control who sees what',
-      intro:'You control who&rsquo;s in &mdash; click into <b>Team &amp; access</b>:',
+      intro:'You decide who&rsquo;s in &mdash; click into <b>Team &amp; access</b>.',
       points:[
-        'Add a person, set their role &mdash; that&rsquo;s the whole job.',
-        'They get a secure set-password link by email &mdash; you never see or set a password.',
-        'Someone moves on? Remove them just as fast.'
+        'Add a person, pick their role &mdash; that&rsquo;s it.',
+        'They set their own password from a secure email link.',
+        'Someone leaves? Remove them just as fast.'
       ],
-      kicker:'Add a member, then click <b>Home</b> to wrap up.'
+      kicker:'Open it up, then hit <b>Home</b> to wrap up.'
     },
     {
-      key:'handoff', flow:null, caption:'Administrator home', frame:'home.html',
-      eyebrow:'The hand-off',
-      intro:'That&rsquo;s the whole role &mdash; light to run, and yours from day one:',
+      key:'handoff', flow:'handoff', caption:'Administrator home', frame:'home.html',
+      eyebrow:'That&rsquo;s the role',
+      intro:'Three jobs, and none of them heavy.',
       points:[
-        'The three above &mdash; the AI, the licence, the access &mdash; all yours.',
-        'The software itself &mdash; fixes, upgrades, escalations &mdash; stays with GSI.',
-        'Name an administrator before go-live and the instance is theirs.'
+        'The AI, the licence, the access &mdash; the admin&rsquo;s whole desk.',
+        'The software &mdash; fixes, upgrades, escalations &mdash; stays with GSI.',
+        'Name an admin before go-live and it&rsquo;s a clean start.'
       ],
-      kicker:'That&rsquo;s the admin role. <b>Andy</b> and <b>Angie</b> are cleared for takeoff &mdash; hit <b>Exit</b> to pick who walks next.'
+      kicker:'<b>Andy</b> and <b>Angie</b> are up next &mdash; hit <b>Exit</b> to pick who walks.'
     }
   ];
 
@@ -465,44 +466,77 @@
   // question" step, where the pill bar lights up. `_visitedPlan` distinguishes the
   // initial Home load (stay, spotlight Manage) from the RETURN to Home (advance).
   var _visitedPlan = false, _visitedLic = false, _visitedTeam = false;
-  function onIframeNav(){
-    maskDevControls();                    // re-apply the dev-control mask on every load
-    neutralizeMailto();                   // block email-client links in the demo
+
+  // ---- demo layer: BEAT SETUP (part A -- idempotent) -----------------------
+  // Apply the current step's SUB-PAGE spotlight + interaction listeners for the
+  // page the iframe is showing RIGHT NOW (`pg` = filename). Split out of
+  // onIframeNav so it runs from BOTH the iframe `load` event AND the end of
+  // render() -- a step that renders while the iframe is already on its page
+  // fires no `load`, so without this the beat would never wire (no spotlight, no
+  // cancel->Home listener) and the step would look dead ("go directly to it then
+  // nothing"). Idempotent: spotlight() already clears+reapplies, and every
+  // listener attach is guarded by a data-demo-wired tag so a double call (load
+  // AND render against the same live DOM) can't stack duplicate handlers. This
+  // does NOT contain any advance-on-navigation (part B) -- that stays load-only
+  // in onIframeNav so a render() can never trigger an advance loop.
+  function setupBeat(pg){
     var s = steps[i]; if (!s) return;
-    var pg = iframePage();
     if (s.key === 'aiplan'){
       if (pg === 'admin-claude-assistant.html'){ _visitedPlan = true; spotlight('.topbar-home'); }
-      else if (pg === 'home.html' && _visitedPlan){ _visitedPlan = false; i = 1; render(); }
       return;
     }
-    // Licensing is a guided beat: Manage -> licensing page (spotlight Request an
-    // invoice) -> click it (a confirm modal; its Close spotlights Home) -> click
-    // Home, which advances to the Team step. `_visitedLic` distinguishes the
-    // initial Manage load from the RETURN to Home.
+    // Licensing beat: on the licensing page, spotlight Request an invoice.
     if (s.key === 'licensing'){
       if (pg === 'admin-companies.html'){ _visitedLic = true; spotlight('#js-lic-invoice'); }
-      else if (pg === 'home.html' && _visitedLic){ _visitedLic = false; i = 3; render(); }
       return;
     }
-    // Team is a guided beat too: Team card -> Users page (spotlight New Team
-    // Member; clicking it opens the add form AND lights the Home button) -> click
-    // Home, which advances to the wrap-up (step 4). `_visitedTeam` distinguishes
-    // the initial load from the RETURN to Home.
+    // Team beat: on the Users page, spotlight New Team Member and wire the
+    // modal's Cancel / X so dismissing it lights the Home button.
     if (s.key === 'team'){
       if (pg === 'admin-users.html'){
         _visitedTeam = true;
         spotlight('#js-new-user');
         whenReady(function(){
           var d = fdoc(); if (!d) return;
-          var t = d.querySelector('#js-new-user');
-          if (t) t.addEventListener('click', function(){ spotlight('.topbar-home'); }, { once:true });
+          // Light Home when the New Team Member modal is DISMISSED, not when it
+          // opens: the modal is z-index:200 and the Home button is z-index:auto, so
+          // a glow applied on the open click is painted UNDER the modal and can't be
+          // seen until it closes. Wiring Home to the Cancel / X buttons makes the
+          // highlight appear exactly as the modal disappears -- and removes any gap
+          // between page load and the listener attaching. Mirrors the licensing beat
+          // (invoice modal Close -> spotlight Home). The data-demo-wired guard stops
+          // a second setupBeat pass (load + render) from stacking a duplicate
+          // handler on the same live button.
+          ['#js-nu-cancel', '#js-nu-close'].forEach(function(sel){
+            var b = d.querySelector(sel);
+            if (b && !b.hasAttribute('data-demo-wired')){
+              b.setAttribute('data-demo-wired', '');
+              b.addEventListener('click', function(){ spotlight('.topbar-home'); }, { once:true });
+            }
+          });
         });
       }
-      else if (pg === 'home.html' && _visitedTeam){ _visitedTeam = false; i = 4; render(); }
       return;
     }
     // General card pattern: any remaining step's sub-page spotlight.
     if (s.subPage && s.pageSpot && pg === s.subPage){ spotlight(s.pageSpot); }
+  }
+
+  function onIframeNav(){
+    maskDevControls();                    // re-apply the dev-control mask on every load
+    neutralizeMailto();                   // block email-client links in the demo
+    var s = steps[i]; if (!s) return;
+    var pg = iframePage();
+    // ADVANCE-ON-NAVIGATION (part B -- load-only): when Bud navigates back Home
+    // after visiting a beat's sub-page, advance the tour. Kept out of setupBeat
+    // (and thus out of render) so a render() can never re-trigger an advance.
+    // The `_visited*` flags distinguish the RETURN to Home from the initial load.
+    if (s.key === 'aiplan'  && pg === 'home.html' && _visitedPlan){ _visitedPlan = false; i = 1; render(); return; }
+    if (s.key === 'licensing' && pg === 'home.html' && _visitedLic){ _visitedLic = false; i = 3; render(); return; }
+    if (s.key === 'team'    && pg === 'home.html' && _visitedTeam){ _visitedTeam = false; i = 4; render(); return; }
+    // Advance didn't fire -> wire this step's beat for the page now showing.
+    // AFTER the advance checks so a real navigation Home still advances first.
+    setupBeat(pg);
   }
 
   function firePill(idx){
@@ -586,7 +620,13 @@
     loadFrame(s.frame, function(){
       maskDevControls();
       neutralizeMailto();
+      // Home-page spotlight is render's job (one source of truth for the Home
+      // beat); setupBeat owns the SUB-PAGE beats. They can't collide: every step
+      // frame is Home, so iframePage() here is home.html and setupBeat no-ops on
+      // it -- but if a page is ever restored on a sub-page without firing `load`,
+      // this still wires that beat (belt-and-suspenders alongside the load event).
       if (s.spot) spotlight(s.spot); else clearSpotlight();
+      setupBeat(iframePage());
     });
   }
 
