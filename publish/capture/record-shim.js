@@ -246,19 +246,73 @@
     root.XMLHttpRequest = RecXHR;
   }
 
+  // ---- export reconciliation --------------------------------------------
+  // download() USED to blob the in-memory `recording` synchronously. That races
+  // the async hydrate (line ~84 reassigns recording.entries = prior.concat(...))
+  // and the 400ms debounced flush: an export fired while either was in flight
+  // serialized a stale subset -- a multi-page walk silently lost a page's worth
+  // of entries even though count() looked right a tick earlier. Fix: export the
+  // UNION of the in-memory buffer AND the persisted IDB snapshot, deduped by sig,
+  // AFTER hydration completes and a final flush is forced. Neither store being
+  // transiently behind can drop an entry the other holds. Dedup-by-sig also
+  // shrinks the file -- replay keys on sig and serves the first match, so the 8x
+  // duplicate reads a walk accumulates collapse to one.
+  function _readIdbEntries(cb) {
+    if (!_idb) { cb([]); return; }
+    try {
+      var g = _idb.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(IDB_KEY);
+      g.onsuccess = function () {
+        var s = g.result;
+        var sameWalk = s && (SESSION == null || String(s.session) === SESSION);
+        cb(sameWalk && s.entries ? s.entries : []);
+      };
+      g.onerror = function () { cb([]); };
+    } catch (e) { cb([]); }
+  }
+  function _mergedRecording(cb) {
+    if (_flushPending) _flush();                 // push latest in-memory to IDB first
+    _readIdbEntries(function (persisted) {
+      var seen = {}, merged = [];
+      function take(list) {
+        for (var i = 0; i < list.length; i++) {
+          var e = list[i]; if (!e) continue;
+          var k = e.sig || (e.method + ' ' + e.path + '?' + e.query + ' #' + e.bodyKey);
+          if (seen[k]) continue;
+          seen[k] = 1; merged.push(e);
+        }
+      }
+      take(recording.entries);                   // in-memory (capture order) wins
+      take(persisted);                            // then any IDB-only stragglers
+      cb({ version: recording.version, createdAt: recording.createdAt, session: recording.session, entries: merged });
+    });
+  }
+  function _whenHydrated(fn) {
+    if (_hydrated) { fn(); return; }
+    var iv = root.setInterval(function () {
+      if (_hydrated) { root.clearInterval(iv); fn(); }
+    }, 100);
+  }
+
   // ---- public API --------------------------------------------------------
   root.__demoCapture = {
     dump: function () { return recording; },
     toJson: function (pretty) { return JSON.stringify(recording, null, pretty ? 2 : 0); },
     count: function () { return recording.entries.length; },
     clear: function () { recording.entries.length = 0; recording.createdAt = new Date().toISOString(); try { if (_idb) _idb.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).delete(IDB_KEY); } catch (e) {} },
-    download: function (filename) {
+    // Async: waits for hydration, forces a flush, then blobs the reconciled union.
+    // Optional cb(entryCount) fires once the file has been offered for download.
+    download: function (filename, cb) {
       filename = filename || 'recording.json';
-      var blob = new Blob([this.toJson(true)], { type: 'application/json' });
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = filename;
-      document.body.appendChild(a); a.click();
-      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+      _whenHydrated(function () {
+        _mergedRecording(function (rec) {
+          var blob = new Blob([JSON.stringify(rec, null, 2)], { type: 'application/json' });
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob); a.download = filename;
+          document.body.appendChild(a); a.click();
+          setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+          if (typeof cb === 'function') cb(rec.entries.length);
+        });
+      });
     }
   };
 
@@ -290,16 +344,21 @@
     function label() { return '\u2b07 Save recording (' + recording.entries.length + ')'; }
     btn.textContent = label();
     btn.addEventListener('click', function () {
-      root.__demoCapture.download();                       // 1. snapshot -> recording.json (client-side blob; server not needed)
-      btn.disabled = true; btn.textContent = 'Saved — stopping…';
-      // 2. One-and-done: ask VALC to stop capture + restore the RR App on :8765.
-      //    The staging origin is CORS-allowed on VALC /api/**. Gated on
-      //    __rrCaptureStopUrl (injected only in capture-staging) so this shim stays
-      //    reusable for non-capture record/replay uses (REC-1) with no auto-stop.
-      var stopUrl = root.__rrCaptureStopUrl;
-      if (stopUrl && root.fetch) { try { root.fetch(stopUrl, { method: 'POST' }).catch(function () {}); } catch (_) {} }
-      // 3. Close this (script-opened) tab after the download has a beat to flush.
-      root.setTimeout(function () { try { root.close(); } catch (_) {} }, 900);
+      btn.disabled = true; btn.textContent = 'Saving…';
+      // 1. snapshot -> recording.json (client-side blob; server not needed). Now
+      //    async (waits for hydration + flush + IDB reconcile), so the stop/close
+      //    are sequenced in the callback -- never before the file is offered.
+      root.__demoCapture.download('recording.json', function () {
+        btn.textContent = 'Saved — stopping…';
+        // 2. One-and-done: ask VALC to stop capture + restore the RR App on :8765.
+        //    The staging origin is CORS-allowed on VALC /api/**. Gated on
+        //    __rrCaptureStopUrl (injected only in capture-staging) so this shim stays
+        //    reusable for non-capture record/replay uses (REC-1) with no auto-stop.
+        var stopUrl = root.__rrCaptureStopUrl;
+        if (stopUrl && root.fetch) { try { root.fetch(stopUrl, { method: 'POST' }).catch(function () {}); } catch (_) {} }
+        // 3. Close this (script-opened) tab after the download has a beat to flush.
+        root.setTimeout(function () { try { root.close(); } catch (_) {} }, 900);
+      });
     });
     doc.body.appendChild(btn);
     // Refresh the count live (cheap; the walk fires calls continuously).
