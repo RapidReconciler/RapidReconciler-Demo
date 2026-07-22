@@ -289,12 +289,15 @@
     var p = PERSONAS[role]; if(!p) return;
     store('role', role);
     seedSession(role);                       // behind-the-scenes login as the persona
-    if(role === 'administrator'){
-      signInFlourish(p.first, function(){ window.location.href = 'administrator.html'; });
+    var tourPage = (role === 'administrator') ? 'administrator.html'
+                 : (role === 'analyst')       ? 'analyst.html'
+                 : null;
+    if(tourPage){
+      signInFlourish(p.first, function(){ window.location.href = tourPage; });
       return;
     }
-    // Analyst + accountant walks are the next builds; the session is already seeded
-    // as the persona, so their tour drops straight in once it exists.
+    // The accountant walk is the next build; the session is already seeded as the
+    // persona, so its tour drops straight in once it exists.
     note.innerHTML = 'Signed in as <b>' + p.fn + '</b>. The step-by-step <b>' + role
       + '</b> tour is the next piece we build &mdash; this front door already logs you in and hands off to it.';
     note.classList.add('show');

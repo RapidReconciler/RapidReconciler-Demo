@@ -29,7 +29,8 @@ $ErrorActionPreference = 'Stop'
 
 $SrcApp     = Join-Path $UiRepo 'RRV8'                       # product snapshot source
 $Runtime    = Join-Path $DemoRepo 'bundle-runtime'           # shims + launcher (this repo)
-$BundleDir  = Join-Path $DemoRepo 'bundle'                   # OUTPUT (gitignored)
+$BundleName = if ($env:RR_BUNDLE_DIR) { $env:RR_BUNDLE_DIR } else { 'bundle' }
+$BundleDir  = Join-Path $DemoRepo $BundleName                # OUTPUT (gitignored); RR_BUNDLE_DIR overrides for a locked-bundle workaround
 
 Write-Host "build-demo (skeleton)" -ForegroundColor Cyan
 Write-Host "  UI repo   : $UiRepo"
