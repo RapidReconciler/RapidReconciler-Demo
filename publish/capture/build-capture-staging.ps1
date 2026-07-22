@@ -51,14 +51,19 @@ Copy-Item (Join-Path $Capture 'record-shim.js')       -Destination (Join-Path $S
 # tell VALC to stop capture + restore the RR App (one-and-done). VALC's CORS
 # allows the :8765 origin on /api/**. Only capture-staging gets this global, so
 # record-shim.js stays reusable (no auto-stop) for other record/replay uses.
-$boot = '<script src="/date-freeze.js"></script><script>window.__rrCaptureStopUrl="http://localhost:8080/api/services/capture/stop";</script><script src="/request-signature.js"></script><script src="/record-shim.js"></script>'
+# Per-build session stamp: IndexedDB persists across capture SESSIONS on this
+# origin (unlike tab-scoped sessionStorage), so the shim uses this to start a NEW
+# walk clean while still accumulating across navigations WITHIN a walk (every page
+# of one build shares this one stamp).
+$sess = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+$boot = '<script src="/date-freeze.js"></script><script>window.__rrCaptureStopUrl="http://localhost:8080/api/services/capture/stop";window.__rrCaptureSession="' + $sess + '";</script><script src="/request-signature.js"></script><script src="/record-shim.js"></script>'
 $n = 0
 # Match ONLY the real <head> tag, injecting exactly once. "<head[^>]*>" also
 # matches "<header ...>" (prefix), and [regex]::Replace(...,1) treats the 4th
 # arg as RegexOptions, not a count -- together they double-inject the shim.
 Get-ChildItem -Path $Staging -Filter '*.html' -Recurse | ForEach-Object {
   $html = Get-Content $_.FullName -Raw -Encoding UTF8
-  if ($html -notmatch [regex]::Escape($boot)) {
+  if ($html -notmatch '/record-shim\.js') {   # guard on the stable shim src, not the per-build stamped boot string
     $rx = New-Object System.Text.RegularExpressions.Regex '(?i)(<head(?:\s[^>]*)?>)'
     $html = $rx.Replace($html, "`$1$boot", 1)   # 3rd arg = count (replace FIRST only)
     Set-Content -Path $_.FullName -Value $html -Encoding UTF8

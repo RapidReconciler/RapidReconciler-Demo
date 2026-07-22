@@ -40,18 +40,78 @@
   var nativeFetch = root.fetch ? root.fetch.bind(root) : null;
   var NativeXHR = root.XMLHttpRequest;
 
-  // Recording persists to sessionStorage so it ACCUMULATES across page
-  // navigations within one capture walk (same :8765 origin). Without this the
-  // in-memory recording reset on every navigation and only the last page was
-  // saved. Re-hydrate on load; a full re-serialize on each record() is fine for
-  // capture (not a hot path); a quota/disabled failure degrades to in-memory.
-  var SS_KEY = '__demoCaptureRecording';
-  var recording = null;
-  try { var _saved = root.sessionStorage && root.sessionStorage.getItem(SS_KEY); if (_saved) recording = JSON.parse(_saved); } catch (e) { recording = null; }
-  if (!recording || !recording.entries) recording = { version: 1, createdAt: new Date().toISOString(), entries: [] };
-  function persist() {
-    try { if (root.sessionStorage) root.sessionStorage.setItem(SS_KEY, JSON.stringify(recording)); } catch (e) { /* quota/disabled: keep recording in-memory */ }
+  // Recording ACCUMULATES across page navigations within one capture walk (same
+  // :8765 origin) so a multi-page / multi-DB walk builds ONE recording. Persistence
+  // is IndexedDB, NOT sessionStorage: analyst data-read payloads run several MB each
+  // (integrity / reconciliation reads), which blows sessionStorage's ~5MB per-origin
+  // quota -- the failing write then leaves a STALE smaller snapshot that the next
+  // navigation reloads, silently dropping the earliest entries. IndexedDB is
+  // disk-backed (hundreds of MB), so the whole recording survives.
+  //
+  // IndexedDB (unlike tab-scoped sessionStorage) persists across capture SESSIONS on
+  // this origin, so a per-build session stamp (window.__rrCaptureSession, injected by
+  // build-capture-staging on every capture/start) gates hydration: a page from the
+  // SAME walk hydrates + appends; a NEW walk (different stamp) starts clean. With no
+  // stamp (record-shim reused outside capture-staging) it accumulates regardless.
+  // If IndexedDB is unavailable it degrades to in-memory only rather than clobber.
+  var recording = { version: 1, createdAt: new Date().toISOString(), entries: [] };
+  var IDB_NAME = '__demoCapture', IDB_STORE = 'recording', IDB_KEY = 'current';
+  var SESSION = (root.__rrCaptureSession != null) ? String(root.__rrCaptureSession) : null;
+  var _idb = null, _hydrated = false, _flushPending = false;
+
+  function _openIdb(cb) {
+    try {
+      if (!root.indexedDB) { cb(null); return; }
+      var req = root.indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = function () { try { req.result.createObjectStore(IDB_STORE); } catch (e) {} };
+      req.onsuccess = function () { cb(req.result); };
+      req.onerror   = function () { cb(null); };
+    } catch (e) { cb(null); }
   }
+  // Hydrate the accumulated recording from prior pages in this walk, then PREPEND it
+  // to anything captured during the async open (this page's early calls) so order
+  // stays capture-chronological. persist() is a no-op until _hydrated, so an early
+  // flush cannot overwrite the prior pages' entries with this page's alone.
+  _openIdb(function (db) {
+    _idb = db;
+    if (!db) { _hydrated = true; return; }   // no IDB -> in-memory only (persist no-ops)
+    try {
+      var g = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(IDB_KEY);
+      g.onsuccess = function () {
+        var prior = g.result;
+        var sameWalk = prior && (SESSION == null || String(prior.session) === SESSION);
+        if (sameWalk && prior.entries && prior.entries.length) {
+          recording.entries = prior.entries.concat(recording.entries);
+          if (prior.createdAt) recording.createdAt = prior.createdAt;
+        }   // else: new capture session -> ignore stale; first persist() overwrites it
+        recording.session = SESSION;
+        _hydrated = true; persist();
+      };
+      g.onerror = function () { recording.session = SESSION; _hydrated = true; };
+    } catch (e) { recording.session = SESSION; _hydrated = true; }
+  });
+  function _flush() {
+    _flushPending = false;
+    if (!_idb || !_hydrated) return;
+    try {
+      _idb.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE)
+        .put({ version: recording.version, createdAt: recording.createdAt, session: recording.session, entries: recording.entries }, IDB_KEY);
+    } catch (e) { /* transient; the next record() reschedules a flush */ }
+  }
+  // Debounced: records() fire in bursts; coalesce to one IDB write ~400ms later.
+  // Network-gated walk steps are seconds apart, so a flush completes before the next
+  // navigation; pagehide/visibilitychange back it up for a nav inside the window.
+  function persist() {
+    if (!_idb || !_hydrated || _flushPending) return;
+    _flushPending = true;
+    try { root.setTimeout(_flush, 400); } catch (e) { _flush(); }
+  }
+  try {
+    root.addEventListener('pagehide', function () { if (_flushPending) _flush(); });
+    root.addEventListener('visibilitychange', function () {
+      if (root.document && root.document.visibilityState === 'hidden' && _flushPending) _flush();
+    });
+  } catch (e) {}
 
   // ---- binary helpers ----------------------------------------------------
   function isTextual(contentType) {
@@ -191,7 +251,7 @@
     dump: function () { return recording; },
     toJson: function (pretty) { return JSON.stringify(recording, null, pretty ? 2 : 0); },
     count: function () { return recording.entries.length; },
-    clear: function () { recording.entries.length = 0; recording.createdAt = new Date().toISOString(); try { if (root.sessionStorage) root.sessionStorage.removeItem(SS_KEY); } catch (e) {} },
+    clear: function () { recording.entries.length = 0; recording.createdAt = new Date().toISOString(); try { if (_idb) _idb.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).delete(IDB_KEY); } catch (e) {} },
     download: function (filename) {
       filename = filename || 'recording.json';
       var blob = new Blob([this.toJson(true)], { type: 'application/json' });
