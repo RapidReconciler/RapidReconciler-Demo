@@ -53,6 +53,24 @@ cards with **Angie / accountant** recommended next. build-demo globs `tour/*.htm
    capture chunk lands, add beats between #3 and the handoff: find a variance → validate vs
    JDE → decide (source-fix vs disposition / record vs adjust). Slot into `steps[]`; the map
    gains a "Work the variances" responsibility. This is the meat of the analyst story.
+   **ATTEMPTED 2026-07-23, REVERTED — blocker found.** Authored a Transaction Variance beat
+   on `inventory-transactions.html?company=30001` spotlighting `.tx-analyzer` (the DMAAI
+   Analyzer: "3 routing mismatches" — inventory relieved to 4240 not the model's 4152; source
+   fix = align the Inv DMAAI). Captured `txv-co30001` full (a strong finding) + wired an
+   `openAnalyzer()` onEnter. **But it does NOT replay clean:** on the offline bundle the DMAAI
+   Analyzer shows **"Routings match"** (empty) instead of "3 routing mismatches", and the txv
+   page throws **3 intermittent `/inventory/integrity` misses** (hashes `3c7f4a47`/`7f3dd8a0`/
+   `f972d448`) whose bodies are NOT in the capture buffer (capture fires `5227a455`/`f5e44dd8`/
+   `cf11097a` instead — a body-determinism mismatch, same class as the session-global gotcha).
+   The DMAAI Analyzer appears to fire integrity POSTs whose body differs capture-vs-replay
+   (and/or computes the mismatch set client-side from data that doesn't replay identically),
+   so the analyzer lands on the WRONG verdict offline. **A beat that shows "all clear" when the
+   story is a recurring problem is worse than no beat**, so it's reverted until the txv analyzer
+   replays faithfully. **Next-session task:** re-add the miss-body logger to the replay shim,
+   read the 3 replay bodies, diff them against the captured txv integrity bodies to pin the
+   varying field, then either make the analyzer's integrity body deterministic or capture the
+   exact bodies the analyzer requests on open. The beat copy + `openAnalyzer` helper are in git
+   history at the reverted commit's parent (search `tour/analyst.html` for `key:'variance'`).
 3. **Archetype → DB binding** — the front door's archetype picker (Summit/Harbor/Golden) is
    cosmetic today; both index.html and the tours hardcode Demo1. Bind the picked archetype
    to the seeded DB (Demo1/2/3) so the tour runs the chosen dataset.
