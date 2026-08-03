@@ -261,19 +261,43 @@
     accountant:    { fn:'Angie Accountant', first:'Angie',  u:'angie@rrdemo.com',  viewRole:'accountant', adm:false }
   };
   function b64url(o){ return btoa(JSON.stringify(o)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_'); }
+  // The Services port is resolved DYNAMICALLY from VALC's Deployment Center
+  // (GET /api/services/agent-port) — the same source AuthController stamps into a
+  // real login token's ip — so a stale hardcoded port can never strand the demo when
+  // an agent is relaunched on a different DB (the bug this replaces). Falls back to
+  // the last-known port ONLY if VALC is unreachable (offline replay, where the port is
+  // never contacted — the replay shim matches by request path, not host).
+  var DB = 'RapidReconciler_Demo1';
+  var VALC = 'http://localhost:8080';
+  var FALLBACK_PORT = 34537;   // last-known Demo1 port; used only when VALC is unreachable (offline replay)
+  function resolvePort(){
+    // Bounded fetch so an unreachable / slow VALC can't stall the hand-off.
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(_){} }, 1500) : null;
+    return fetch(VALC + '/api/services/agent-port?db=' + encodeURIComponent(DB),
+                 { cache:'no-store', signal: ctrl ? ctrl.signal : undefined })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){ return (j && j.port) ? j.port : FALLBACK_PORT; })
+      .catch(function(){ return FALLBACK_PORT; })
+      .then(function(port){ if (timer) clearTimeout(timer); return port; });
+  }
+  // Async (the port lookup) and returns a promise — the click handler waits on it
+  // before handing off, so the tour page never loads before the token is written.
   function seedSession(role){
-    var p = PERSONAS[role]; if(!p) return;
-    var payload = {
-      user: { fn:p.fn, u:p.u },
-      dbs: [ { n:'RapidReconciler_Demo1', ip:'localhost:34537', t:{ adm:p.adm }, perms:{ dm:true }, i:['80002','80008'] } ],
-      exp: 2082758400
-    };
-    try {
-      localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
-      localStorage.setItem('rrv8.activeDb', 'RapidReconciler_Demo1');
-      localStorage.setItem('rrv8.viewRole', p.viewRole);
-      localStorage.setItem('rrv8.aiTier', 'grounded');
-    } catch(e){}
+    var p = PERSONAS[role]; if(!p) return Promise.resolve();
+    return resolvePort().then(function(port){
+      var payload = {
+        user: { fn:p.fn, u:p.u },
+        dbs: [ { n: DB, ip: 'localhost:' + port, t:{ adm:p.adm }, perms:{ dm:true }, i:['80002','80008'] } ],
+        exp: 2082758400
+      };
+      try {
+        localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
+        localStorage.setItem('rrv8.activeDb', DB);
+        localStorage.setItem('rrv8.viewRole', p.viewRole);
+        localStorage.setItem('rrv8.aiTier', 'grounded');
+      } catch(e){}
+    });
   }
   function signInFlourish(first, done){
     var o = document.createElement('div'); o.className = 'signin';
@@ -288,12 +312,14 @@
     var role = b.getAttribute('data-role');
     var p = PERSONAS[role]; if(!p) return;
     store('role', role);
-    seedSession(role);                       // behind-the-scenes login as the persona
+    var seeded = seedSession(role);          // behind-the-scenes login as the persona
     var tourPage = (role === 'administrator') ? 'administrator.html'
                  : (role === 'analyst')       ? 'analyst.html'
                  : null;
     if(tourPage){
-      signInFlourish(p.first, function(){ window.location.href = tourPage; });
+      // Hand off only after the seed has written the token — the flourish and the
+      // async port lookup run in parallel, so whichever finishes last gates the jump.
+      signInFlourish(p.first, function(){ seeded.then(function(){ window.location.href = tourPage; }); });
       return;
     }
     // The accountant walk is the next build; the session is already seeded as the

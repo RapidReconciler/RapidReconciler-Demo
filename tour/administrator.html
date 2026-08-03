@@ -154,21 +154,44 @@
      verified anywhere — the shim intercepts the network — so an unsigned token is
      the honest, dependency-free way to establish the demo session offline. -->
 <script>
-(function seedSession(){
+// The Services port is resolved DYNAMICALLY from VALC's Deployment Center
+// (GET /api/services/agent-port) — the same source AuthController stamps into a
+// real login token's ip — so a stale hardcoded port can never strand the demo when
+// an agent is relaunched on a different DB (the bug this replaces). Falls back to
+// the last-known port ONLY if VALC is unreachable (offline replay, where the port is
+// never contacted — the replay shim matches by request path, not host). Exposes
+// window.__rrSeedReady so the tour waits for the token before loading the first frame.
+window.__rrSeedReady = (function seedSession(){
   function b64url(o){ return btoa(JSON.stringify(o)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_'); }
+  var DB = 'RapidReconciler_Demo1';
+  var VALC = 'http://localhost:8080';
+  var FALLBACK_PORT = 34537;   // last-known Demo1 port; used only when VALC is unreachable (offline replay)
+  function resolvePort(){
+    // Bounded fetch so an unreachable / slow VALC can't stall the tour's first frame.
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(_){} }, 1500) : null;
+    return fetch(VALC + '/api/services/agent-port?db=' + encodeURIComponent(DB),
+                 { cache:'no-store', signal: ctrl ? ctrl.signal : undefined })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){ return (j && j.port) ? j.port : FALLBACK_PORT; })
+      .catch(function(){ return FALLBACK_PORT; })
+      .then(function(port){ if (timer) clearTimeout(timer); return port; });
+  }
   // Default admin persona — matches the front-door "Enter as Arthur" card so
   // opening this tour directly (dev) lands as the same person the card mints.
-  var payload = {
-    user: { fn: 'Arthur Admin', u: 'arthur@rrdemo.com' },
-    dbs: [ { n:'RapidReconciler_Demo1', ip:'localhost:34537', t:{ adm:true }, perms:{ dm:true }, i:['80002','80008'] } ],
-    exp: 2082758400
-  };
-  try {
-    localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
-    localStorage.setItem('rrv8.activeDb', 'RapidReconciler_Demo1');
-    localStorage.setItem('rrv8.viewRole', 'admin');
-    localStorage.setItem('rrv8.aiTier', 'grounded');   // start on Basic — the safe, always-answering tier
-  } catch (e) {}
+  return resolvePort().then(function(port){
+    var payload = {
+      user: { fn: 'Arthur Admin', u: 'arthur@rrdemo.com' },
+      dbs: [ { n: DB, ip: 'localhost:' + port, t:{ adm:true }, perms:{ dm:true }, i:['80002','80008'] } ],
+      exp: 2082758400
+    };
+    try {
+      localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
+      localStorage.setItem('rrv8.activeDb', DB);
+      localStorage.setItem('rrv8.viewRole', 'admin');
+      localStorage.setItem('rrv8.aiTier', 'grounded');   // start on Basic — the safe, always-answering tier
+    } catch (e) {}
+  });
 })();
 </script>
 
@@ -671,7 +694,9 @@
     toggleLbl.textContent = document.body.classList.contains('rail-collapsed') ? 'Show guide' : 'Hide guide';
   });
 
-  render();
+  // Wait for the async session seed (dynamic port resolution) to write the token
+  // before loading the first frame, so the product boots authenticated.
+  (window.__rrSeedReady || Promise.resolve()).then(render);
 })();
 </script>
 

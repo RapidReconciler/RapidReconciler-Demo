@@ -150,27 +150,50 @@
      bundled product, so localStorage is shared. The product runs in staging mode
      (real request paths) and the replay shim answers every call from the recording;
      this synthetic session just tells the product WHICH database + role to render
-     (Summit Industrial / RapidReconciler_Demo1, Administrator). No signature is
+     (Golden Harvest / RapidReconciler_Demo3, Analyst). No signature is
      verified anywhere — the shim intercepts the network — so an unsigned token is
      the honest, dependency-free way to establish the demo session offline. -->
 <script>
-(function seedSession(){
+// The Services port is resolved DYNAMICALLY from VALC's Deployment Center
+// (GET /api/services/agent-port) — the same source AuthController stamps into a
+// real login token's ip — so a stale hardcoded port can never strand the demo when
+// an agent is relaunched on a different DB (the bug this replaces). Falls back to
+// the last-known port ONLY if VALC is unreachable (offline replay, where the port is
+// never contacted — the replay shim matches by request path, not host). Exposes
+// window.__rrSeedReady so the tour waits for the token before loading the first frame.
+window.__rrSeedReady = (function seedSession(){
   function b64url(o){ return btoa(JSON.stringify(o)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_'); }
+  var DB = 'RapidReconciler_Demo3';
+  var VALC = 'http://localhost:8080';
+  var FALLBACK_PORT = 37384;   // last-known Demo3 port; used only when VALC is unreachable (offline replay)
+  function resolvePort(){
+    // Bounded fetch so an unreachable / slow VALC can't stall the tour's first frame.
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(_){} }, 1500) : null;
+    return fetch(VALC + '/api/services/agent-port?db=' + encodeURIComponent(DB),
+                 { cache:'no-store', signal: ctrl ? ctrl.signal : undefined })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){ return (j && j.port) ? j.port : FALLBACK_PORT; })
+      .catch(function(){ return FALLBACK_PORT; })
+      .then(function(port){ if (timer) clearTimeout(timer); return port; });
+  }
   // Analyst persona (Andy) on the Golden Harvest dataset (Demo3) — the analyst
   // showcase: intercompany transfers + a REAL roll-forward break on co 30001
   // (account B000022.1121, the "fix it at the source" story). Matches the front
   // door's Recommended archetype (Golden Harvest).
-  var payload = {
-    user: { fn: 'Andy Analyst', u: 'andy@rrdemo.com' },
-    dbs: [ { n:'RapidReconciler_Demo3', ip:'localhost:34537', t:{ adm:false }, perms:{ dm:true }, i:['30001','30002'] } ],
-    exp: 2082758400
-  };
-  try {
-    localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
-    localStorage.setItem('rrv8.activeDb', 'RapidReconciler_Demo3');
-    localStorage.setItem('rrv8.viewRole', 'analyst');
-    localStorage.setItem('rrv8.aiTier', 'grounded');   // start on Basic — the safe, always-answering tier
-  } catch (e) {}
+  return resolvePort().then(function(port){
+    var payload = {
+      user: { fn: 'Andy Analyst', u: 'andy@rrdemo.com' },
+      dbs: [ { n: DB, ip: 'localhost:' + port, t:{ adm:false }, perms:{ dm:true }, i:['30001','30002'] } ],
+      exp: 2082758400
+    };
+    try {
+      localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
+      localStorage.setItem('rrv8.activeDb', DB);
+      localStorage.setItem('rrv8.viewRole', 'analyst');
+      localStorage.setItem('rrv8.aiTier', 'grounded');   // start on Basic — the safe, always-answering tier
+    } catch (e) {}
+  });
 })();
 </script>
 
@@ -231,32 +254,33 @@
   // NOTE: this tour covers the CAPTURED analyst surfaces — home Data Health and
   // Account Roll Forward (all companies, all 3 AI tiers, recorded offline). The
   // variance-hunt beats (Transaction Variance, Cardex) slot in here after that
-  // capture chunk lands; navigating to them now would replay-MISS. Frames load
-  // directly (Next-driven), so no click-through/advance wiring is needed.
+  // capture chunk lands; navigating to them now would replay-MISS. The Home→corrective
+  // hop is CLICK-TO-ADVANCE (flow B): Bud clicks the spotlit Data Health chip (a real
+  // link to Account Roll Forward) and onIframeNav advances the beat; Next still works too.
   var steps = [
     {
-      key:'standing', flow:'stand', caption:'Analyst home', frame:HOME, spot:'.alh-brief',
+      key:'standing', flow:'stand', caption:'Analyst home', frame:HOME, spot:'#analystDayBriefTop',
       onEnter:function(){ setTierSafe('grounded'); },   // start on Basic — the safe read
       eyebrow:'Where you stand today',
-      intro:'Andy opens to a read of his day &mdash; the AI leads.',
+      intro:'Andy opens to a read of his day &mdash; the AI leads, above everything.',
       points:[
-        'The board says what needs attention and what&rsquo;s already clear.',
-        'No spreadsheet, no hunting &mdash; the reconciliation is done; this is the review.',
-        'These are his own live JDE figures, current to the period.'
+        'One line names the single thing to start with, and why.',
+        'Below it, a card per surface &mdash; Data Health, Transaction Variance, Cardex &mdash; each a live status he can act on.',
+        'No spreadsheet, no hunting &mdash; the reconciliation is done; these are his own live JDE figures.'
       ],
       kicker:'Let&rsquo;s see how much the AI is working with.'
     },
     {
-      key:'tiers', flow:'stand', caption:'Analyst home', frame:'home.html', spot:'.alh-brief',
+      key:'tiers', flow:'stand', caption:'Analyst home', frame:'home.html', spot:'[data-chip="work"]',
       onEnter:function(){ setTierSafe('full'); },        // richest read for the story
       eyebrow:'How much the AI sees &mdash; you decide',
-      intro:'The same read, at the level of detail you allow.',
+      intro:'The same read, at the level of detail you allow &mdash; and its top call is glowing.',
       points:[
         '<b>Basic</b> &mdash; only the figures already on the screen.',
         '<b>Enhanced</b> &mdash; fuller detail, names and accounts masked first.',
         '<b>Full</b> &mdash; your real data: actual names, accounts, dates.'
       ],
-      kicker:'So what does Andy actually DO about a break?'
+      kicker:'That highlighted card is the AI&rsquo;s recommendation &mdash; <b>click it</b> to fix the source (or Next).'
     },
     {
       key:'corrective', flow:'fix', caption:'Account Roll Forward',
@@ -551,6 +575,15 @@
     if (s.key === 'aiplan'  && pg === 'home.html' && _visitedPlan){ _visitedPlan = false; i = 1; render(); return; }
     if (s.key === 'licensing' && pg === 'home.html' && _visitedLic){ _visitedLic = false; i = 3; render(); return; }
     if (s.key === 'team'    && pg === 'home.html' && _visitedTeam){ _visitedTeam = false; i = 4; render(); return; }
+    // Flow B (analyst): Bud clicks the spotlit Data Health day-brief chip — the AI's
+    // top recommendation, a real link to Account Roll Forward — so the iframe
+    // navigates there. Advance to the corrective beat. (Next advances too; both land
+    // on the same beat.) Guarded to the two Home beats so the corrective beat's own
+    // frame load can't re-trigger the jump.
+    if ((s.key === 'standing' || s.key === 'tiers') && pg === 'inventory-account-rollforward.html'){
+      var ci = -1; for (var cj = 0; cj < steps.length; cj++){ if (steps[cj].key === 'corrective'){ ci = cj; break; } }
+      if (ci >= 0){ i = ci; render(); return; }
+    }
     // Advance didn't fire -> wire this step's beat for the page now showing.
     // AFTER the advance checks so a real navigation Home still advances first.
     setupBeat(pg);
@@ -689,7 +722,9 @@
     toggleLbl.textContent = document.body.classList.contains('rail-collapsed') ? 'Show guide' : 'Hide guide';
   });
 
-  render();
+  // Wait for the async session seed (dynamic port resolution) to write the token
+  // before loading the first frame, so the product boots authenticated.
+  (window.__rrSeedReady || Promise.resolve()).then(render);
 })();
 </script>
 
