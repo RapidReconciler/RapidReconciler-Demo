@@ -21,15 +21,25 @@ are NOT captured yet (a separate next chunk) — so they are NOT in this tour.
 
 ## Beats built (captured surfaces only)
 
-Runs against Demo1 / Summit (seed hardcoded, matching the admin tour). Frames load
-directly, Next-driven (no click-through/advance wiring — simpler + robust).
+Runs against **Demo3 / Golden Harvest, co 30001** (seed hardcoded) — that company's
+REAL roll-forward break (account B000022.1121) is what makes the corrective beat land.
+The Home→corrective hop is **click-to-advance (flow B)**: Next still works, but the
+intended path is Bud clicking the spotlit Data Health chip.
 
-| # | Beat | Surface | Spotlight |
-|---|---|---|---|
-| 1 | Where you stand today | home Data Health (80002), Basic tier | `.alh-brief` |
-| 2 | How much the AI sees | home Data Health, cycles to Full | `.alh-brief` |
-| 3 | Fix it at the source | Account Roll Forward (`?company=80002`) | `#rfBrief` |
-| 4 | Hand to accounting | home; Exit recommends Angie | — |
+| # | Beat | Surface | Spotlight | Advance |
+|---|---|---|---|---|
+| 1 | Where you stand today | home day-brief (Basic tier) | `#analystDayBriefTop` (the whole brief band) | Next |
+| 2 | How much the AI sees | home day-brief, cycles to Full | `[data-chip="work"]` (the Data Health chip — the AI's top call, a live link) | **click the chip** → Account Roll Forward (or Next) |
+| 3 | Fix it at the source | Account Roll Forward (`?company=30001`) | `#rfBrief` | Next |
+| 4 | Hand to accounting | home; Exit recommends Angie | — | Exit |
+
+The day-brief was redesigned (2026-07-23, UI repo) to sit ABOVE the tab strip and
+synthesize all three surfaces (Data Health + Transaction Variance + Cardex) as one AI
+lead + a clickable chip per surface. The Data Health chip for a roll-forward break is
+an `<a>` to the corrective page, which is why it doubles as the flow-B advance trigger.
+Flow B is wired in `analyst.html` (`onIframeNav`: standing/tiers + RF page → corrective
+beat) and depends on the redesigned Home being in the bundle — so it is **verifiable
+only after the re-record**.
 
 `WORKFLOW` (the map): 1 See where you stand · 2 Fix it at the source · 3 Hand to accounting.
 Narrative arc = orient (Data Health) → the corrective (Roll Forward, repost-first, source

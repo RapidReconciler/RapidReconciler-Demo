@@ -21,3 +21,16 @@ Thumbs.db
 
 # alternate build output (locked-bundle workaround)
 bundle2/
+
+# alternate build output -- the merged all-database bundle. Same "build output,
+# never source" status as /bundle/, but it was missing from this file: a git add -A
+# would have staged 143 regenerable files including a ~27 MB recording.json.
+# Recordings hold SANITIZED demo data, so this is a repo-weight and build-output
+# rule, not a data-sensitivity one -- they are rebuildable from a capture walk and
+# have no business in history.
+bundle-all/
+
+# Chunk recordings staged next to the capture harness (recording-demo*.json,
+# recording-admin.json, etc). Same rationale: large, generated, rebuildable.
+# Only affects untracked files, so nothing already committed here is disturbed.
+/publish/capture/*.json
