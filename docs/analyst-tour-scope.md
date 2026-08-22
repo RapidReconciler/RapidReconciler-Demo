@@ -4,6 +4,282 @@
 front door, static-verified. Offline miss-verify PENDING a bundle rebuild (blocked this
 session by a locked `bundle/` — see below).
 
+**Status (2026-08-20, session #50):** the owner set the recording rules, and his demo
+defect list is cleared. **The first take is DEMO1 ONLY** — beats get tweaked on one
+database before the other two are recorded, which drops two of the six blockers outright
+(see "DEMO1 FIRST" below). Recording still has not started: three blockers remain, and
+every existing capture is stale as of today. The recording itself runs in its OWN session.
+
+**Status (2026-08-20, session #51): THE DEMO1 RECORDING EXISTS AND REPLAYS CLEAN. All
+three blockers are cleared.** `publish/capture/recording-demo1.json`, 59 signatures /
+90 entries / 52 MB, built into `bundle/` and served on :8770. Every beat on the owner's
+list was walked offline against that bundle and `__demoReplay.misses()` came back `{}`
+on every one, for both companies.
+
+**Status (2026-08-20, session #51, later): THE BEATS ARE BUILT AND WALK CLEAN.**
+`tour/analyst.html` carries 14 beats under a 4-entry rail (see below). Walked forward
+from a fresh load, every beat: **zero replay misses, and every spotlight lands on a
+visible element** — the one beat without a glow is the closing hand-off, which has no
+`spot` by design. The save-and-reflect beat was exercised for real: the card read
+"Likely cause" before the Save click and "Your recorded finding" after it.
+
+Re-verified after a reboot on the owner's actual demo port: `bundle/` rebuilt from
+`recording-demo1.json`, served on **:8770**, all 14 beats walked forward — zero misses,
+every spotlight visible, the analyzer reading "8 of 8 DMAAIs off the cardex model", and
+the card flipping to "Your recorded finding" on the Save click.
+
+Owner's three beat decisions (2026-08-20): Account Roll Forward stays as a **passing
+check** on Demo1 (the corrective version waits for Demo3); 80008 gets **one**
+cross-company beat, not a second full walk; **no AI-tier beat** in this take (the
+capture supports adding one later with no re-record).
+
+| # | Beat | Page | Spotlight |
+|---|---|---|---|
+| 1 | Where you stand today | home | `#analystDayBriefTop` |
+| 2 | What the model does not cover | accounting-model-review | `#excludedCard` |
+| 3 | What good looks like | inventory-account-rollforward | `#rfBrief` |
+| 4 | GL class disagrees with itself | home | `#intgModal` |
+| 5 | 301 items with no frozen standard | home | `#intgModal` |
+| 6 | Two conversions that will not resolve | home | `#intgModal` |
+| 7 | The routing is wrong | inventory-transactions | `#tx-analyzer` |
+| 8 | Record it once | inventory-transactions | `#tx-findings-draft` |
+| 9 | On the record | home | the card link |
+| 10 | On-hand against the cardex | home | the item row link |
+| 11 | One item, both sides | inventory-cardex-variance | `#cxvScope` |
+| 12 | Two reports, no assembly | home | `.aud-hdr-actions` |
+| 13 | Same checks, next company | home (co 80008) | `#analystDayBriefTop` |
+| 14 | Where the analyst stops | home | — |
+
+### Four defects found while building the beats, all fixed
+
+1. **`savePtrs()` in `replay-shim.js` replaced the pointer map instead of merging it.**
+   Each page load indexes only the signatures its own page exercises, so visiting the
+   model-review page (which never reads `txv/resolutions`) wrote a map without it and
+   erased the progress Home had made. Home then re-served position 0 and the
+   save-and-reflect beat showed the before-state again — the exact bug the persistence
+   exists to prevent. Now merges, with `max()` so a hydrated-but-unadvanced pointer
+   cannot walk backwards.
+2. **`spotlight()` gave up before slow surfaces existed.** It gated on `whenReady`,
+   which polls for an ADMIN chrome selector absent from every analyst page, so it fell
+   through on a ~1.8s timer; the transaction drill page needs roughly 8s of replayed
+   fetches before `.tx-analyzer` exists. That beat rendered its copy with no glow while
+   the panel underneath was correct and expanded. Now polls for the actual element.
+3. **A beat's own action cleared its own spotlight.** `_applySpot` attaches a one-shot
+   click listener so that the presenter clicking the spotlit element clears the glow —
+   and `expandAnalyzer()` clicks `#tx-analyzer-toggle`, which sits inside
+   `.tx-analyzer`, so the click bubbled straight into it. `clickIn` now re-asserts the
+   step's spot after acting, and the cross-company beat spotlights the day-brief rather
+   than the company chip it clicks.
+4. **The cardex beat pointed at a selector from a different page.** `#rfCoContext` is a
+   roll-forward id; the cardex page's scope strip is `#cxvScope`. Caught by the walk,
+   not by reading.
+
+### The read-count constraint, restated because it is easy to break
+
+Beats 8 and 9 are one story and must stay adjacent and in order. The recording holds
+three before-state reads of `txv/resolutions?company=80002` and one after, sized to the
+two reads Home's boot spends plus the tab click. Insert a Home visit between beats 7 and
+9, or reorder them, and a before-state read is spent early — the card then flips before
+the presenter touches Save, which is the "appears to work" the owner ruled out.
+
+### What was measured, beat by beat (Demo1, offline, zero misses)
+
+| Beat | Company | Offline result |
+|---|---|---|
+| Data Health — model DMAAI detail | 80002 | `accounting-model-review.html`, $140,346.16 to review across 2 GL classes, AI text lands |
+| Data Health — account roll forward | 80002 | page renders; **the AI says "nothing to correct, rolled forward clean"** |
+| Frozen cost modal | 80002 | 301 rows |
+| GL integrity modal | 80002 | 5 rows |
+| UOM conversions modal | 80002 | 2 rows |
+| Transaction Variance + analyzer | 80002 | **"8 of 8 DMAAIs off the cardex model"** with the full routing table |
+| Transaction Variance save + reflect | 80002 | card flips LIKELY CAUSE → YOUR RECORDED FINDING on the Save click |
+| Cardex Variance | 80002 | item SI-146048 selected on Home lands on the page fully populated |
+| Audit — both PDFs | 80002 + 80008 | "Downloaded the audit report (PDF) — 1 company" / "Downloaded Period Activity (PDF) — 3 entries" |
+| All four tabs + drill + analyzer | 80008 | zero misses; its one card is `DUP`, analyzer reads "1 DMAAI checked, none off the model" |
+
+### Blocker 2 did not reproduce, and the beat is stronger than the reverted one
+
+The 2026-07-23 failure was "Routings match" offline where the story was three routing
+mismatches, plus three intermittent `/inventory/integrity` misses. On Demo1 the analyzer
+replays the live verdict **exactly**: `8 of 8 DMAAIs off the cardex model`, every row
+present, no misses. The reason is worth knowing: **expanding the analyzer fires no
+network at all** — its data arrives with the drill page's own load (`aai-analysis-latest`
+plus the integrity POSTs). So if the page load replays, the verdict replays. The July
+failure was a body-determinism problem on a path that has since changed; it is not a
+property of the analyzer.
+
+### Two facts that shape the beat list — the owner's call
+
+1. **Account Roll Forward on Demo1 is CLEAN.** Both 80002 and the DB-wide report roll
+   forward without a break, so the AI on that page says there is nothing to correct.
+   Demo3's co 30001 break (account B000022.1121) was what made the old corrective beat
+   land. On Demo1 this beat is "here is the check, and it passes" — a health story, not
+   a fix story. Keep it, or move the corrective beat to Demo3 when that gets recorded.
+2. **Only company 80002 carries all three integrity modals.** Measured off the agent:
+   UOM 2 rows / frozen 301 / GL class 5 on 80002; UOM **zero** on 80008 (frozen 134, GL
+   class 1). On 80008 the UOM check reads as Cleared and there is no modal to open. And
+   80008 is thin on Transaction Variance — 1 card on Aug 28, 2 on Jul 31, against 80002's
+   8 and 7. 80002 is the spine; 80008 is the "and it works across companies" beat.
+
+### The save-and-reflect rule needed a shim fix, not just capture ordering
+
+The premise recorded below — that rule 3 is "a capture-walk ordering requirement, not a
+UI change" — **was wrong, and cost three rebuilds to disprove.** Two things were measured:
+
+- **The sequence pointer used to reset on every page load.** The shim re-inits from
+  `recording.json` per document, so a finding saved on the drill page re-served position
+  0 (the before-state) when Home reloaded. Any before/after story whose halves sit on
+  different pages was impossible. Fixed: `replay-shim.js` now persists the per-signature
+  pointers in `sessionStorage`, with `__demoReplay.resetSequence()` to rewind them. The
+  tour front door should call `resetSequence()` on entry so a second run tells the same
+  story.
+- **The read COUNT matters, not just the order.** `GET /inventory/txv/resolutions?company=80002`
+  is read **twice by Home's boot** and once more by the Transaction Variance tab click —
+  three reads before the presenter can click anything. With the captured `[before, after]`
+  the card was already showing the recorded finding before the Save. The recording now
+  holds `[before, before, before, after]`, produced by
+  `publish/capture/tune-save-sequence.ps1`, and the flip lands on the Save click.
+
+Two diagnostics were added to the shim while doing this, and both should stay:
+`__demoReplay.missBodies()` (the request body behind each miss — a signature hash alone
+cannot tell you which report to re-walk) and `__demoReplay.served(filter)` (which
+sequence position each signature has served, in order — this is what turned the
+save-reflect problem from guesswork into one measurement).
+
+### Three build defects found and fixed on the way
+
+1. **`Tools/audit-workbook.js` and `Tools/howto.css` were never staged** — both 404'd in
+   `capture-staging/` and in `bundle/`, because both build scripts carried a hardcoded
+   `$HelpTools` whitelist. That killed the audit **Excel** export outright and left the
+   cardex page's how-to panel unstyled. Both scripts now DERIVE the list from `src=`/
+   `href=` references in the staged HTML, seeded with the few names that only exist in
+   JS. First attempt matched bare `Tools/x.js` and dragged two test-harness scripts into
+   the bundle off JS comments; the regex now requires an attribute.
+2. **`build-demo.ps1` must not run while the bundle is being served.** The serve holds a
+   lock, the build wipes `bundle/` first, and the copy then fails — leaving an EMPTY
+   bundle and no `launch.ps1`. This is session #24's "locked bundle" blocker, and it bit
+   twice more here. Stop the serve, build, restart the serve. Worth a fail-fast guard.
+3. **The pdf.js CDN flag in `capture-walk.md` is stale** — `inventory-account-rollforward.html`
+   has no external references at all. PDFs are jsPDF + autoTable, vendored under
+   `RRV8/vendor/`, already copied into the bundle. Offline replay of the Audit beat was
+   never at risk.
+
+---
+
+## Owner recording rules (2026-08-20)
+
+The Administrator tour is the model. Analyst and accountant follow the same machine:
+persistent numbered `WORKFLOW` rail, current beat lit, past beats done, each clickable;
+`steps[]` driving the real bundled product in an iframe with injected spotlights.
+
+**Delivery target:** the replay bundle, served on **:8770**. Not the live stack. Every rule
+below therefore lands on the capture walk, not on the product.
+
+### Decisions taken
+
+| # | Question | Owner's answer |
+|---|---|---|
+| 1 | Live stack or replay bundle? | **Replay bundle**, `serve.ps1` on :8770 |
+| 2 | Demo2 has six companies — one variance card each? | **Just a couple**, not all six |
+| 3 | "Save button should appear to work" | **Actual save, and the screen reflects it** |
+| 4 | Cardex is Demo1-only; the rail is numbered | **Shorter rail** on Demo2/Demo3 — the three recordings are NOT structurally identical |
+| 5 | One recording or three? | **Three separate recordings**, DB chosen at the front door |
+| a | Demo3's DAC-69 roll-forward break shows on Account Roll Forward | **Narrate it as a feature.** RR is right to raise it — a real F0911-to-F0902 integrity break in the JDE source |
+| b | Demo3's `XX` / blank cost-method rows on Data Health | **Leave as is** |
+
+Rule 3 is the one with teeth, and the bundle can honour it: `replay-shim.js` `pick()` is
+**sequence-aware** — repeated captures of one signature replay in order (before-state, then
+after-state) and the last one sticks. So a save that visibly reflects is a **capture-walk
+ordering requirement**, not a UI change: capture the read, then the save POST, then the
+re-read, in that order. Get the order wrong in the walk and the card replays unchanged
+while the button reports success, which is exactly the "appears to work" the owner ruled out.
+
+### Analyst beat list requested
+
+| Beat | Surface | What must happen | Captured today? |
+|---|---|---|---|
+| Data Health — model DMAAI | Data Health → model DMAAI detail | navigate to the detail screen only. **No button clicks.** | partial |
+| Data Health — account roll forward | Account Roll Forward detail | navigate to the detail screen only. No clicks. | **yes** |
+| Data Health — frozen cost | uncleared items → modal | open the modal on the uncleared ones only | no |
+| Data Health — GL integrity | uncleared items → modal | same | no |
+| Data Health — UOM conversions | uncleared items → modal | same | no |
+| Transaction Variance | `inventory-transactions.html` | one card per current period per company (**a couple** on Demo2), expand the variance analyzer, save and reflect | **NO — reverted, see follow-up 2** |
+| Cardex Variance | `inventory-cardex-variance.html` | **Demo1 only.** Select an item, land on the page. Nothing needs to function. | no |
+| Audit | audit page | both PDF reports generate | no |
+
+Accountant tour comes **after the analyst is approved**. Do not start it early.
+
+### DEMO1 FIRST (owner 2026-08-20) — and it drops two blockers outright
+
+The first take is **Demo1 only**, so the beats can be tweaked before the other two
+databases are recorded. That is not just sequencing; it removes work:
+
+- **Follow-up 3 (archetype → DB binding) is not a blocker for this take.** `index.html`
+  and both tours hardcode `RapidReconciler_Demo1`. For a Demo1-only recording the
+  hardcode is already correct. It becomes a blocker the day Demo2 or Demo3 is recorded.
+- **Follow-up 4 (one recording.json per bundle) is not a blocker either.** One database,
+  one recording. The merge is a Demo2/Demo3 problem.
+- **Demo1 is the one database whose token scope is PROVEN today.** Prerequisite 0.1 in
+  `capture-walk.md` is the #1 capture gotcha — a token whose per-DB company list does not
+  intersect the DB's real companies returns `total:0` with a 200 and you capture a walk
+  full of empty grids. The owner worked Demo1 companies 80002 and 80008 in the browser on
+  2026-08-20, so that intersection is known good. Nothing equivalent is known for Demo2.
+
+So the Demo1 take has **three** blockers, not six: the uncaptured surfaces, the
+Transaction Variance analyzer verdict, and the offline miss-verify that has never run.
+
+### ⚠ EVERY EXISTING CAPTURE IS STALE AS OF 2026-08-20
+
+Three shipped changes moved what the product returns and renders, and a recording made
+before them replays the OLD behaviour into the demo:
+
+1. `/inventory/transactions` rows gained `SDLNTY`, `NonStockGLClass` and
+   `NonStockLineTypes`. Request bodies did not change, so the signatures still MATCH —
+   which is the dangerous part. A stale recording replays cleanly and silently serves rows
+   without the new fields, and the Transaction Details analyzer goes back to a table of
+   dashes on screen. No miss, no warning.
+2. The analyzer's verdict text changed (the stock-class-on-a-non-stock-line sentence), and
+   the non-stock AI grounding fact now distinguishes mixed orders.
+3. `home.html`'s analyst company resolution changed, so which company the walk lands on
+   after a reload is not what it used to be.
+
+Re-capture from scratch. Do not extend the existing recording.
+
+### ⚠ THE WALK SHARES localStorage WITH THE OWNER'S :8765 SESSION
+
+`capture-walk.md` §0.4 is right that a same-origin tab inherits the dev token with no
+re-paste — that is the point. The cost is that the walk also WRITES to the same storage:
+`rrv8.analystCompany.<db>`, the AI tier, the collapsible-lane state. Since 2026-08-20 the
+analyst company pick actually persists (it used to be silently discarded), so after a
+capture the owner's next load of Home lands on whichever company the walk selected. Say so
+rather than letting it look like a regression.
+
+### What blocks the first take
+
+In dependency order. None of this is recording work; all of it is bundle work.
+
+1. ~~**The owner's 2026-08-19 evening demo defect list.**~~ **CLEARED 2026-08-20.** The two
+   items he raised were fixed, verified on screen by him, and merged: the Transaction
+   Details analyzer on non-stock sales lines, and the analyst company switcher.
+2. **Transaction Variance analyzer replays to the wrong verdict** (follow-up 2 below). It shows
+   "Routings match" offline where the story is three routing mismatches. This is the single
+   hardest item and it is the beat the owner called the meat of the analyst story. The
+   diagnostic path is already written in follow-up 2 — miss-body logger, diff the three
+   `/inventory/integrity` bodies, pin the varying field.
+3. **Archetype → DB binding is cosmetic** (follow-up 3). Both `index.html` and the tours
+   hardcode `RapidReconciler_Demo1`. **NOT a blocker for the Demo1 take** — the hardcode is
+   already right. Blocks Demo2/Demo3 only.
+4. **The bundle serves one `recording.json`** (follow-up 4). **NOT a blocker for the Demo1
+   take** — one database, one recording. Blocks Demo2/Demo3, where companies do not overlap
+   so a merged recording replays cleanly (the cheaper route).
+5. **Frozen cost, GL integrity, UOM conversions, Cardex Variance and Audit are uncaptured.**
+   A new capture chunk, and the Audit beat means capturing whatever the two PDF builds fetch.
+6. **Offline miss-verify has never run** (follow-up 1). Nothing above is provable until it does.
+
+The audit report's Account Summary links are NOT a blocker: `RapidReconciler-AI/Tools/
+test-audit-pdf-links.js` proved the destinations against the file on 2026-08-19, 34/34, with
+a control. Clicking them on camera is safe.
+
 ## What it is
 
 The presenter-driven guided walkthrough for **Andy Analyst**, mirroring the admin tour

@@ -58,7 +58,38 @@ if (-not $Recording) {
 }
 
 # --- Step 5: assemble bundle/ ----------------------------------------------
-if (Test-Path $BundleDir) { Remove-Item $BundleDir -Recurse -Force }
+# RENAME FIRST, DELETE SECOND. This used to be a bare
+# `Remove-Item $BundleDir -Recurse -Force`, which is destructive on failure: when
+# anything holds the directory (a serve running out of it -- launch.ps1, or a shell
+# sitting in it) the recursive delete still EMPTIES it and only the final directory
+# removal throws. The run then aborts having left the bundle at zero files with no
+# launch.ps1, which reads like a build-script bug and is not one. Measured
+# 2026-08-20: three consecutive runs, bundle/ at 0 items, and the directory then
+# stayed locked against every retry.
+#
+# A rename fails cleanly on a locked directory and destroys nothing, so it is the
+# right probe: if it cannot be moved aside, stop while the old bundle is still
+# intact and serving.
+if (Test-Path $BundleDir) {
+  $retire = "$BundleDir._old"
+  if (Test-Path $retire) { Remove-Item $retire -Recurse -Force -ErrorAction SilentlyContinue }
+  try {
+    Rename-Item -Path $BundleDir -NewName (Split-Path $retire -Leaf) -ErrorAction Stop
+  } catch {
+    Write-Host ""
+    Write-Host "  ABORTED -- the existing bundle is locked and NOTHING was deleted." -ForegroundColor Red
+    Write-Host "    $BundleDir" -ForegroundColor Red
+    Write-Host "  Almost always a demo server still serving out of it. Stop it first:" -ForegroundColor Yellow
+    Write-Host "    Get-CimInstance Win32_Process | ? { `$_.CommandLine -match 'launch\.ps1' } | % { Stop-Process -Id `$_.ProcessId -Force }" -ForegroundColor Yellow
+    Write-Host "  Also check for a shell whose current directory is the bundle." -ForegroundColor Yellow
+    Write-Host "  To build elsewhere instead: `$env:RR_BUNDLE_DIR = 'bundle2'" -ForegroundColor Yellow
+    Write-Host ""
+    throw "bundle directory locked: $BundleDir"
+  }
+  # Best-effort cleanup. A leftover bundle._old is cosmetic and gitignored; a
+  # failure here must not fail a build whose output is already correct.
+  Remove-Item $retire -Recurse -Force -ErrorAction SilentlyContinue
+}
 New-Item -ItemType Directory -Path $BundleDir | Out-Null
 
 # 5a. Product snapshot. Copy RRV8/* to the bundle root (pages are flat, so the
@@ -137,7 +168,12 @@ Get-ChildItem -Path $BundleDir -Filter '*.html' -Recurse | ForEach-Object {
 # were 404ing in the flattened bundle already (missing topbar logo on every admin
 # page; unstyled grid on admin-users). Staged here so the page hosting the panel
 # renders correctly.
-$HelpTools = @('help-sidebar.js','help-sidebar.css','doc-chrome.js','doc-header.css','doc-print.css','admin-grid.css','home-search.js')
+# SEED only. help-sidebar.js builds some refs in JS, so those must be named; the
+# rest are DERIVED from the bundled pages below, because a hardcoded whitelist
+# silently drops any Tools asset a page starts referencing later. Measured
+# 2026-08-20: audit-workbook.js and howto.css were both absent, which kills the
+# audit Excel export and leaves the cardex page's how-to panel unstyled.
+$HelpToolsSeed = @('help-sidebar.js','help-sidebar.css','doc-chrome.js','doc-header.css','doc-print.css','admin-grid.css','home-search.js')
 $HelpDocs  = @('administrator-start-here.html','administrator-managing-companies.html','administrator-complex-password.html','administrator-managing-users.html','getting-started-with-rapidreconciler.html')
 $HelpImgs  = @('rr-collapse-navigation-bar.png','rr-full-screen.png','rr-help-panel.png','rr-log-out.png','rr-login-screen.png','rr-main-navigation.png','rr-module-status-bar.png','rr-password-reset.png','rr-personal-data.png','rr-system-alerts.png','rr-web-page-banner.png','gsi-logo.png')
 if (Test-Path $SrcApp) {
@@ -145,6 +181,20 @@ if (Test-Path $SrcApp) {
   $dstDocs  = Join-Path $BundleDir 'RRUniversity'
   $dstImgs  = Join-Path $BundleDir 'Images'
   New-Item -ItemType Directory -Path $dstTools, $dstDocs, $dstImgs -Force | Out-Null
+  $refTools = New-Object System.Collections.Generic.HashSet[string]
+  foreach ($s in $HelpToolsSeed) { [void]$refTools.Add($s) }
+  Get-ChildItem -Path $BundleDir -Filter *.html -File | ForEach-Object {
+    $html = Get-Content -Path $_.FullName -Raw -Encoding UTF8
+    # src=/href= only. A bare "Tools/x.js" match also hits JS COMMENTS -- measured
+    # 2026-08-20: it dragged test-oe-compose.js and test-variance-tieout.js into the
+    # bundle because home.html mentions them in comments. Test harnesses do not ship.
+    foreach ($m in [regex]::Matches($html, '(?:src|href)\s*=\s*["''](?:\.\./)?Tools/([A-Za-z0-9._-]+\.(?:js|css))')) {
+      [void]$refTools.Add($m.Groups[1].Value)
+    }
+  }
+  $HelpTools = @($refTools | Where-Object { Test-Path (Join-Path $UiRepo "Tools\$_") } | Sort-Object)
+  $missingTools = @($refTools | Where-Object { -not (Test-Path (Join-Path $UiRepo "Tools\$_")) })
+  if ($missingTools.Count) { Write-Host ("  WARN referenced but absent from the UI repo Tools dir: {0}" -f ($missingTools -join ', ')) -ForegroundColor Yellow }
   foreach ($f in $HelpTools) { Copy-Item (Join-Path $UiRepo "Tools\$f")        -Destination (Join-Path $dstTools $f) -Force }
   foreach ($f in $HelpDocs)  { Copy-Item (Join-Path $UiRepo "RRUniversity\$f") -Destination (Join-Path $dstDocs  $f) -Force }
   foreach ($f in $HelpImgs)  { Copy-Item (Join-Path $UiRepo "Images\$f")       -Destination (Join-Path $dstImgs  $f) -Force }

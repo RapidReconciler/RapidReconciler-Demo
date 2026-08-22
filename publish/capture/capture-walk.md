@@ -79,6 +79,55 @@ If they differ, STOP — a walk will silently record empty screens.
   driver's. (The automated agent is blocked from doing it by the safety
   classifier, by design.)
 
+### 0.1b Pre-flight the DATA, not just the token — one call per surface
+
+The token check above proves the scope lines up. It does not prove the
+screens have anything on them, and a beat that opens a modal on a check
+with zero flagged rows records an empty panel that nobody notices until
+replay. Ask the agent directly before walking, from any page on the
+:8765 origin (the token is already there):
+
+```js
+const tok = localStorage.getItem('rrv8.token');
+const H = { 'Content-Type': 'application/json;charset=UTF-8', Authorization: 'Bearer ' + tok };
+// Agent routes carry NO /api/v1 prefix -- rrFetch builds base + '/' + area.
+await fetch('http://localhost:34537/inventory/integrity', { method:'POST', headers:H,
+  body: JSON.stringify({ report:'v_integrity7_frozen_cost',
+    reconciliationFilter:{companies:['80002','80008'],businessUnits:[],objects:[],subsidiaries:[],currencies:[]},
+    take:20000, skip:0, page:1, pageSize:20000 }) }).then(r=>r.json());
+```
+
+Group the rows by `CompanyNumber` and you know which company carries the
+story before spending a walk on it. Measured on Demo1 2026-08-20:
+`v_integrity4_uom_conv` 2 rows (80002 only), `v_integrity7_frozen_cost`
+301/134, `v_integrity5_gl_class` 5/1, `v6ui_itemrollintegritydialog` 8
+across both. That is how it was known in advance that only 80002 opens
+all three integrity modals.
+
+Also worth a call: `GET /available-periods` (Demo1 tops out at
+`2025-08-28`, prior `2025-07-31` — a year behind Demo2, and not
+month-ends).
+
+### 0.1c A once-per-session cache will hide a request from the recording
+
+**This is the subtlest gap in the whole procedure.** Some reads fire
+once per browser session and cache in `sessionStorage`, so a walk that
+loads the same page ten times records them ONCE — with whatever scope
+applied on the first load. If replay then asks with a different scope,
+you get a miss on a screen the walk definitely visited.
+
+Measured 2026-08-20: the DMAAI preload
+(`POST /inventory/integrity[v_integrity_jde_aais]`, `loadDmaaisNow`) is
+guarded by "already warmed this session" and only ever fired once, with
+`period` 2025-07-31. The bundle asked for 2025-08-28 and missed — and
+the visible symptom was not an error but a DEGRADED headline: "numbers
+current to Aug 28, 2025. Account-mismatch checks load when you open
+Transaction Variance" instead of "connected, numbers current to Aug 28,
+2025, inventory loaded".
+
+To capture a second scope of a once-per-session read: `sessionStorage.clear()`,
+set the scope, reload. Do this for each scope the tour will visit.
+
 ### 0.2 AI must return 200, not 403
 
 `POST /api/v1/ai/explain` is the demo centerpiece. Confirm it answers
@@ -251,6 +300,80 @@ download doesn't persist to disk in the automated context, read
 `window.__demoCapture.toJson(true)` and write the file yourself (watch
 the size — base64 response bodies can be large; chunk if needed).
 
+### 5a. In an MCP-driven walk the download does NOT persist — POST it instead
+
+Measured 2026-08-20: a `Blob` + anchor-click download of the recording
+never reached disk, while jsPDF's own `doc.save()` on the same page did.
+Do not fight it, and do not try to return 50 MB of JSON through the
+agent's own tool channel. Stand up a one-shot loopback sink and POST to
+it:
+
+```
+powershell -ExecutionPolicy Bypass -File recording-sink.ps1 -Port 8791 -OutFile <path>
+```
+
+then from the walk tab:
+
+```js
+await fetch('http://localhost:8791/save', { method:'POST',
+  headers:{'Content-Type':'application/json'}, body: JSON.stringify(rec) });
+```
+
+The sink is a `System.Net.HttpListener` with permissive CORS that writes
+one request body to a file and exits.
+
+### 5b. DEDUPE before you save, or the recording is ten times too big
+
+The raw buffer for the Demo1 analyst walk was **349 MB** across 553
+entries. The cause is one endpoint: `POST /inventory/transactions`
+returns the full grid (5,341 rows for co 80002, ~4.5 MB) and the walk
+loaded it 74 times. Collapsing **consecutive byte-identical** responses
+per signature took it to 86 entries / 40 MB with no loss of meaning:
+
+```js
+function fnv(s){ let h=0x811c9dc5; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=(h*0x01000193)>>>0; } return h.toString(16); }
+const last = {}, kept = [];
+(window.__demoCapture.dump().entries||[]).forEach(e => {
+  const fp = fnv(e.body||'') + ':' + (e.body||'').length + ':' + e.status;
+  if (last[e.sig] === fp) return;          // consecutive identical -> drop
+  last[e.sig] = fp; kept.push(e);
+});
+```
+
+**Consecutive only.** A blanket "keep one per body" would also drop a
+before-state that legitimately recurs after an after-state, and the
+replay pointer walks the sequence in order — see 5c.
+
+### 5c. A save-and-reflect beat is a COUNT, not just an order
+
+`replay-shim.js` serves a signature's entries in capture order and
+sticks on the last. So the number of before-state entries has to equal
+the number of reads that happen **before** the presenter clicks Save.
+Measured on Demo1: Home's boot reads
+`GET /inventory/txv/resolutions?company=<co>` **twice**, and the
+Transaction Variance tab click reads it a third time. `[before, after]`
+therefore showed the recorded finding before anything was saved.
+
+Two tools exist for this now:
+
+- `__demoReplay.served('txv/resolutions')` prints which sequence
+  position each signature has served, in call order. Measure, don't
+  guess.
+- `publish/capture/tune-save-sequence.ps1` duplicates the first entry of
+  one signature N times, as a text splice (no 50 MB JSON round-trip).
+
+And the shim persists its pointers in `sessionStorage`, so a save on one
+page reflects after navigating to another. Call
+`__demoReplay.resetSequence()` to rewind a run.
+
+### 5d. Stop the bundle server before running build-demo
+
+`build-demo.ps1` wipes `bundle/` first. A serve running out of that
+directory holds a lock, the copy fails, and you are left with an EMPTY
+bundle and no `launch.ps1` — which reads like a build script bug and is
+not one. Stop the serve, build, restart the serve. (This is session
+#24's "locked bundle" blocker; it recurred twice on 2026-08-20.)
+
 Feed the result to `build-demo.ps1 -Recording <path>`. Under the
 partition-by-DB plan (manifest option A) name it per DB
 (`recording-demo3.json`, ...).
@@ -289,10 +412,12 @@ a new screen is always visited.
 
 ## Flags / separate inputs (not part of this driver)
 
-- **pdf.js CDN vendoring** — `inventory-account-rollforward.html` pulls
-  pdf.js from Cloudflare. A recording that visits it carries a live
-  external dependency, which breaks true-offline replay. Vendor the asset
-  as a build-demo (offline-replay) step. NOT part of the capture driver.
+- ~~**pdf.js CDN vendoring**~~ — **withdrawn 2026-08-20.** Measured: that
+  file has no external references, and the PDF path is jsPDF +
+  autoTable, both vendored under `RRV8/vendor/` and already copied into
+  the bundle by `build-demo.ps1`. The Audit beat was walked offline on
+  the Demo1 bundle and both PDFs generated with the network unavailable.
+  Nothing to vendor.
 - **Curated free-text AI prompt list** — the full set of scripted "Ask"
   prompts the tour uses is a tour-definition input, authored with the
   tour, not by this driver. A validation run fires one representative Ask

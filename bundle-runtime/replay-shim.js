@@ -39,7 +39,44 @@
   // sig -> { entries: [entry,...], ptr: n }
   var index = {};
   var missCounts = {};   // sig -> count
+  // sig -> the REQUEST body that missed. A signature alone names the path and a
+  // body hash, which is not enough to fix a gap: you cannot tell WHICH report a
+  // "POST /inventory/integrity #958ff597" wanted. Keeping the body turns a miss
+  // into an actionable "re-walk this screen" instead of a hash hunt.
+  var missBodies = {};
+  var serveLog = {};     // sig -> [sequence position served, in call order]
   var loaded = false;
+
+  // ---- sequence pointers survive a navigation ----------------------------
+  // Each page load re-inits the shim from recording.json, so an in-memory pointer
+  // restarts at 0 on every navigation. That silently breaks any before/after story
+  // whose two halves sit on different pages -- measured 2026-08-20: a finding saved
+  // on the transaction drill page never reflected back on Home, because Home's boot
+  // re-served position 0 (the before-state) instead of continuing the sequence.
+  // Persisting the pointers in sessionStorage makes "save on page A, see it on page
+  // B" work, which is what the owner's rule 3 ("actual save, and the screen
+  // reflects it") requires. sessionStorage, not localStorage: a new tab is a fresh
+  // run of the demo, and resetSequence() re-arms it without closing the tab.
+  var PTR_KEY = 'rrv8.demoReplay.ptr';
+  function loadPtrs() {
+    try { return JSON.parse(root.sessionStorage.getItem(PTR_KEY) || '{}') || {}; } catch (e) { return {}; }
+  }
+  // MERGE, never replace. Each page load builds an index of only the signatures in
+  // the recording it happens to exercise, so writing that page's map wholesale
+  // erases every other signature's progress. Measured 2026-08-20: the analyst walk
+  // advanced txv/resolutions to 3 on Home, then visited the model-review page --
+  // which never reads that signature, so its ptr was 0 and the save wiped the 3.
+  // Home then re-served position 0 and the save-and-reflect beat showed the
+  // before-state again, which is exactly the bug the persistence exists to kill.
+  // max() rather than assignment so a page that hydrated a pointer and never
+  // advanced it cannot walk it backwards either.
+  function savePtrs() {
+    try {
+      var o = loadPtrs();
+      for (var k in index) if (index[k].ptr) o[k] = Math.max(o[k] || 0, index[k].ptr);
+      root.sessionStorage.setItem(PTR_KEY, JSON.stringify(o));
+    } catch (e) {}
+  }
 
   function buildIndex(recording) {
     index = {};
@@ -48,6 +85,10 @@
       var e = entries[i];
       if (!index[e.sig]) index[e.sig] = { entries: [], ptr: 0 };
       index[e.sig].entries.push(e);
+    }
+    var stored = loadPtrs();
+    for (var s in stored) if (index[s]) {
+      index[s].ptr = Math.min(stored[s], index[s].entries.length - 1);
     }
     loaded = true;
   }
@@ -58,8 +99,14 @@
   function pick(sig) {
     var slot = index[sig];
     if (!slot || !slot.entries.length) return null;
-    var e = slot.entries[Math.min(slot.ptr, slot.entries.length - 1)];
-    if (slot.ptr < slot.entries.length - 1) slot.ptr++;
+    var at = Math.min(slot.ptr, slot.entries.length - 1);
+    var e = slot.entries[at];
+    if (slot.ptr < slot.entries.length - 1) { slot.ptr++; savePtrs(); }
+    // Which position in the sequence each signature was served from, in order.
+    // A save-and-reflect beat depends on an exact read COUNT before the Save
+    // click, and guessing that count wastes a rebuild per guess; this makes it
+    // observable. Read it with __demoReplay.served().
+    (serveLog[sig] = serveLog[sig] || []).push(at);
     return e;
   }
 
@@ -83,8 +130,13 @@
 
   // ---- dev overlay -------------------------------------------------------
   var overlayEl = null;
-  function showMiss(sig, method) {
+  function showMiss(sig, method, reqBody) {
     missCounts[sig] = (missCounts[sig] || 0) + 1;
+    if (missBodies[sig] === undefined) {
+      var b = '';
+      try { b = (reqBody == null) ? '' : (typeof reqBody === 'string' ? reqBody : String(reqBody)); } catch (e) { b = '[unreadable]'; }
+      missBodies[sig] = b.length > 2000 ? (b.slice(0, 2000) + '...[' + b.length + ' bytes]') : b;
+    }
     try { (root.console && console.warn)('[demo replay] MISS ' + sig + ' -- not in the recording (capture walk did not visit it)'); } catch (e) {}
     renderOverlay();
   }
@@ -139,7 +191,7 @@
       headers = { 'Content-Type': m.contentType };
       bodyInit = m.bodyInit;
     } else {
-      showMiss(sig, method);
+      showMiss(sig, method, body);
       var mr = missResponse(method);
       status = mr.status; statusText = 'Demo Replay Miss';
       headers = { 'Content-Type': mr.contentType };
@@ -206,7 +258,7 @@
         status = entry.status; ct = entry.contentType || 'application/json';
         encoding = entry.encoding; rawBody = entry.body;
       } else {
-        showMiss(sig, self._method);
+        showMiss(sig, self._method, body);
         var mr = missResponse(self._method);
         status = mr.status; ct = mr.contentType; encoding = 'text'; rawBody = mr.body;
       }
@@ -245,6 +297,28 @@
     ready: function () { return loaded; },
     stats: function () { var n = 0; for (var k in index) n += index[k].entries.length; return { signatures: 0 + Object.keys(index).length, entries: n }; },
     misses: function () { var o = {}; for (var k in missCounts) o[k] = missCounts[k]; return o; },
+    // The request body behind each miss. Pair with misses() when a gap needs
+    // diagnosing: the body names the report / company / period to re-walk.
+    missBodies: function () { var o = {}; for (var k in missBodies) o[k] = missBodies[k]; return o; },
+    // sig -> the sequence positions served so far, in call order. Pass a substring
+    // to filter. Use it to size a save-and-reflect capture: the count of reads
+    // before the Save click is what the before-state entry count has to match.
+    // Rewind every sequence to its before-state. The tour front door calls this so
+    // a second run of the same walk shows the same story; without it the pointers
+    // would still be parked on the after-states from the previous run.
+    resetSequence: function () {
+      for (var k in index) index[k].ptr = 0;
+      try { root.sessionStorage.removeItem(PTR_KEY); } catch (e) {}
+      serveLog = {};
+      return true;
+    },
+    served: function (filter) {
+      var o = {};
+      for (var k in serveLog) if (!filter || k.indexOf(filter) >= 0) {
+        o[k] = { calls: serveLog[k].length, positions: serveLog[k].slice(), of: (index[k] ? index[k].entries.length : 0) };
+      }
+      return o;
+    },
     signature: Sig.signature
   };
 

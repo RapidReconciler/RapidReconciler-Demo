@@ -86,7 +86,28 @@ Write-Host "  injected record-shim into $n page(s)" -ForegroundColor Green
 # were 404ing in the flattened bundle already (missing topbar logo on every admin
 # page; unstyled grid on admin-users). Staged here so the page hosting the panel
 # renders correctly.
-$HelpTools = @('help-sidebar.js','help-sidebar.css','doc-chrome.js','doc-header.css','doc-print.css','admin-grid.css')
+# The list below is a SEED, not the whole set. help-sidebar.js builds some of its
+# refs in JS, so those cannot be found by scanning HTML -- they have to be named.
+# Everything else is DERIVED from the staged pages, because a hardcoded whitelist
+# silently drops any Tools asset a page starts referencing later. Measured
+# 2026-08-20 during the Demo1 analyst capture: audit-workbook.js, howto.css and
+# home-search.js all 404'd in staging (dead audit Excel export, unstyled how-to
+# panel on the cardex page) purely because nobody added them to this array.
+$HelpToolsSeed = @('help-sidebar.js','help-sidebar.css','doc-chrome.js','doc-header.css','doc-print.css','admin-grid.css')
+$refTools = New-Object System.Collections.Generic.HashSet[string]
+foreach ($s in $HelpToolsSeed) { [void]$refTools.Add($s) }
+Get-ChildItem -Path $Staging -Filter *.html -File | ForEach-Object {
+  $html = Get-Content -Path $_.FullName -Raw -Encoding UTF8
+  # src=/href= only. A bare "Tools/x.js" match also hits JS COMMENTS -- measured
+  # 2026-08-20: it dragged two test-harness scripts in because home.html names them
+  # in comments. Test harnesses do not ship.
+  foreach ($m in [regex]::Matches($html, '(?:src|href)\s*=\s*["''](?:\.\./)?Tools/([A-Za-z0-9._-]+\.(?:js|css))')) {
+    [void]$refTools.Add($m.Groups[1].Value)
+  }
+}
+$HelpTools = @($refTools | Where-Object { Test-Path (Join-Path $UiRepo "Tools\$_") } | Sort-Object)
+$missingTools = @($refTools | Where-Object { -not (Test-Path (Join-Path $UiRepo "Tools\$_")) })
+if ($missingTools.Count) { Write-Host ("  WARN referenced but absent from the UI repo Tools dir: {0}" -f ($missingTools -join ', ')) -ForegroundColor Yellow }
 $HelpDocs  = @('administrator-start-here.html','administrator-managing-companies.html','administrator-complex-password.html','administrator-managing-users.html','getting-started-with-rapidreconciler.html')
 $HelpImgs  = @('rr-collapse-navigation-bar.png','rr-full-screen.png','rr-help-panel.png','rr-log-out.png','rr-login-screen.png','rr-main-navigation.png','rr-module-status-bar.png','rr-password-reset.png','rr-personal-data.png','rr-system-alerts.png','rr-web-page-banner.png','gsi-logo.png')
 
