@@ -40,3 +40,8 @@ bundle-all/
 bundle._old/
 bundle2._old/
 bundle-all._old/
+
+# Per-database demo bundles (build output, never source; one recording each,
+# because DB-global GETs collide in a merged recording - see analyst-tour-scope.md).
+bundle-demo2/
+bundle-demo3/

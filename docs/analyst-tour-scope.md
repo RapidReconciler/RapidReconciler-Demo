@@ -82,6 +82,104 @@ two reads Home's boot spends plus the tab click. Insert a Home visit between bea
 9, or reorder them, and a before-state read is spent early — the card then flips before
 the presenter touches Save, which is the "appears to work" the owner ruled out.
 
+## DEMO2 RECORDED (2026-08-22)
+
+`publish/capture/recording-demo2.json` — 88 entries / 62 signatures / 54 MB, built into
+`bundle-demo2/` and served on **:8772**. Companies **80003 Harbor Wholesale Supply**,
+**80004 Crossroads Distribution**, **80010 Nationwide Trading**, both current periods
+(**2026-03-31** and **2026-02-28** — real month-ends, unlike Demo1). Walked offline
+across all three companies and every surface: **zero misses**, and the save-and-reflect
+flips on the Save click (positions `[0,1,2]` before, `[3,3,3]` after).
+
+Packaging is **one bundle per database**, on the owner's call. Merging is not safe:
+`request-signature.js` deliberately drops scheme, host and port, so `GET /available-periods`
+against Demo1's agent and against Demo2's produce the SAME signature with different
+responses. Same for `/poll`, `/inventory/status`, `/inventory/cardex-tolerance`,
+`/admin/companies`. Follow-up 4 below assumes merging is clean "because companies do not
+overlap" — that holds for POSTs, which carry companies in the body, and fails for every
+body-less DB-global GET.
+
+### Demo2's beat list is much shorter, and not only because of cardex
+
+Measured against the Demo2 agent across all six licensed companies:
+
+| Check | Demo2 |
+|---|---|
+| Frozen cost | **zero rows, all six companies** |
+| Model DMAAI excluded classes | **zero rows** — "All GL classes accounted for" |
+| Cardex variance items | 1 row, on company `00000`, which is not licensed so it is filtered out |
+| Account roll forward | clean on every company walked |
+| UOM conversion | 2 rows, **80004 only** |
+| GL class integrity | 80003: 4 · 80004: 1 · 80013: 2 · 80023: 7 |
+
+So three Demo1 beats have nothing behind them here: frozen cost, the model-DMAAI
+exclusion story, and cardex. The owner's "shorter rail on Demo2" call was right, and it
+is shorter than just dropping cardex.
+
+**There is no routing-mismatch story on Demo2.** Every card's analyzer reads "N DMAAIs
+checked, none off the model" — 2 on Net Zero, 4 on Period Mismatch, 8 on 80004's voucher
+card, 20 on 80003's. That is consistent with the model table being complete. Demo1's
+"8 of 8 DMAAIs off the cardex model" has no equivalent, so the analyzer beat needs
+different copy or a different purpose here.
+
+**What Demo2 carries instead** is a distribution story: **Period Mismatch**, **A/P
+Voucher on Inventory**, **Inventory DMAAI Net Zero**, **Unclassified — Inventory**. The
+Period Mismatch card is the strongest beat on this database and it lands directly on
+INV-5: its auto-drafted finding reads "the variance nets to within tolerance once the two
+months are added together, on one account and one batch."
+
+### Two things Demo2 cannot do, and one is a decision
+
+1. **The Period Activity PDF does not replay yet — and the DB is now ready for it to.**
+   Measured toast on the bundle: **"No activity to export."** That PDF renders the
+   findings trail and Demo2 had no completed reviews.
+
+   **Resolved in the database, NOT in the recording (2026-08-22).** A review was
+   completed on co 80003's Period Mismatch card (owner's call, delegated), so the card
+   reads "In audit findings · Aug 22" and both PDFs generate against the LIVE stack:
+   "Downloaded Period Activity (PDF) — 1 entry".
+
+   Patching it into the existing recording FAILED, and the reason is worth keeping:
+   `merge-recording.ps1 -Refresh` appends the fresh response, and `pick()` serves a
+   signature's entries in order — so a fresh walk still gets the stale empty trail at
+   position 0 and only reaches the populated one on a second visit. **Append cannot
+   express "this is the new baseline"; that needs a replace.** Rather than perform
+   surgery on a 54 MB single-line JSON, the fix is a clean re-record of Demo2 now that
+   the database state is right. One walk, no merging.
+
+   Two real bugs were caught on the way and both are fixed in `merge-recording.ps1`:
+   the `-Refresh` parameter was `[string[]]`, which `powershell -File` flattens into one
+   useless token so every prefix test silently failed and the merge reported
+   "refreshed: 0" with no error; and refreshing `/inventory/audit-detail` duplicated a
+   27 MB response, taking the recording from 54 MB to 81 MB for a PDF that already
+   worked. Refresh the surface whose data changed, nothing more.
+2. **80010 Nationwide Trading is entirely clean** — "Nothing needs your attention right
+   now", all three integrity checks cleared, one variance card. It works as a deliberate
+   contrast beat; it does not work as a findings beat.
+
+### Two defects found while verifying Demo2
+
+1. **The parameterised status poll was missing from the capture.** `GET /poll?recalculating=false&updating=false`
+   is a long-poll that never terminated during the walk, so it was never recorded, and it
+   MISSED on replay. That matters more than a status call sounds: the shim renders a
+   visible "Demo replay: missing recordings" overlay, on camera. Demo1's recording has
+   both poll variants; Demo2's had only the bare one. Fixed by sitting on the drill page
+   until the poll cycled, then merging the delta.
+2. **The client-side variance-card store survives a sequence rewind.** The drill page's
+   Save writes the finding to `rrv8.txvCards.<db>.<co>` in localStorage as well as to the
+   agent, and `resetSequence()` does not touch localStorage. After one presenter run the
+   card opened already reading "Your recorded finding" and the Save beat changed nothing
+   — the same "appears to work" the recording ordering exists to prevent, arriving by a
+   different route. The tour seed now clears that store on entry. **This affected Demo1
+   equally**; its bundle was rebuilt with the fix.
+
+### What is NOT built for Demo2
+
+The tour. `tour/analyst.html` is seeded to Demo1 and carries Demo1's 14 beats. A Demo2
+tour needs its own seed and a rail of roughly 8 beats given the table above.
+
+---
+
 ### What was measured, beat by beat (Demo1, offline, zero misses)
 
 | Beat | Company | Offline result |
