@@ -34,3 +34,9 @@ bundle-all/
 # recording-admin.json, etc). Same rationale: large, generated, rebuildable.
 # Only affects untracked files, so nothing already committed here is disturbed.
 /publish/capture/*.json
+
+# Retired bundle awaiting delete (build-demo renames the old bundle aside before
+# rebuilding, so a locked directory aborts the build instead of emptying it).
+bundle._old/
+bundle2._old/
+bundle-all._old/
