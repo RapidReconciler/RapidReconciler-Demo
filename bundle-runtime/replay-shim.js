@@ -8,11 +8,26 @@
  * Requires request-signature.js (window.DemoSig) to be loaded FIRST, so the
  * lookup key is computed by the exact same code that wrote it during capture.
  *
+ * ONE BUNDLE, ONE RECORDING PER DATABASE (merge-spec.md, option A).
+ * The signature drops scheme/host/port on purpose, so DB-global GETs
+ * (available-periods, inventory/status, cardex-tolerance, poll, ...) produce an
+ * IDENTICAL signature on every demo DB while returning different data. Merging
+ * all three DBs into one recording therefore serves whichever DB was captured
+ * last, on every DB -- which silently breaks multi-DB free-roam. So the bundle
+ * ships one recording per DB plus a small `recordings.json` manifest, and this
+ * shim loads the one matching localStorage['rrv8.activeDb'].
+ *
+ * The product's DB switcher does NOT reload the page: home.html's dbSelect
+ * handler calls RRV8.setActiveDatabase(name) -- which writes rrv8.activeDb
+ * synchronously -- then immediately re-runs loadActiveDbSurfaces(). So the swap
+ * has to happen on the next REQUEST, not on a page load, which is why
+ * ensureIndexForCurrentDb() sits at the top of pick().
+ *
  * Loading the recording (in priority order):
  *   1. window.__DEMO_RECORDING  -- an inlined recording object (file:// mode).
- *   2. fetch('recording.json')  -- a sibling static asset (local-server mode),
- *      read with the NATIVE fetch captured before patching. This is a static
- *      file read, not a backend call; the running demo still never phones home.
+ *   2. recordings.json -> the file mapped to the active DB (multi-DB bundle).
+ *   3. recording.json  -- a sibling static asset (single-DB bundle, unchanged).
+ *      Read with a synchronous XHR so the index exists before product code runs.
  * Or call window.__demoReplay.init(recordingObject) yourself.
  *
  * On a MISS (a request whose signature was never captured):
@@ -57,9 +72,17 @@
   // B" work, which is what the owner's rule 3 ("actual save, and the screen
   // reflects it") requires. sessionStorage, not localStorage: a new tab is a fresh
   // run of the demo, and resetSequence() re-arms it without closing the tab.
-  var PTR_KEY = 'rrv8.demoReplay.ptr';
+  //
+  // The key is namespaced BY DATABASE. It used to be one flat key, which was
+  // correct while a bundle held one dataset. With a recording per DB, a flat key
+  // means Demo1's pointer for "GET /available-periods" is applied to Demo2's
+  // entry list for the same signature the moment the presenter switches DB --
+  // so a save-and-reflect sequence can serve its after-state first. Same class of
+  // bug as the savePtrs() one below, arriving through the DB switcher instead.
+  var PTR_PREFIX = 'rrv8.demoReplay.ptr';
+  function ptrKey() { return PTR_PREFIX + (loadedDb ? ('.' + loadedDb) : ''); }
   function loadPtrs() {
-    try { return JSON.parse(root.sessionStorage.getItem(PTR_KEY) || '{}') || {}; } catch (e) { return {}; }
+    try { return JSON.parse(root.sessionStorage.getItem(ptrKey()) || '{}') || {}; } catch (e) { return {}; }
   }
   // MERGE, never replace. Each page load builds an index of only the signatures in
   // the recording it happens to exercise, so writing that page's map wholesale
@@ -74,8 +97,58 @@
     try {
       var o = loadPtrs();
       for (var k in index) if (index[k].ptr) o[k] = Math.max(o[k] || 0, index[k].ptr);
-      root.sessionStorage.setItem(PTR_KEY, JSON.stringify(o));
+      root.sessionStorage.setItem(ptrKey(), JSON.stringify(o));
     } catch (e) {}
+  }
+
+  // ---- which dataset is loaded -------------------------------------------
+  // manifest shape: { "byDb": { "<db name>": "<file>" }, "default": "<file>" }
+  var manifest   = null;    // null until the first sync read (or a 404)
+  var loadedDb   = null;    // the DB name the current index was built for
+  var loadedFile = null;    // the file the current index was built from
+
+  function currentDb() {
+    try { return root.localStorage.getItem('rrv8.activeDb') || ''; } catch (e) { return ''; }
+  }
+  // Returns the recording file for a database, or '' meaning "this bundle has no
+  // recording for that database".
+  //
+  // The `default` is ONLY for "no database selected yet". Applying it to a database
+  // the manifest does not list is the bug this whole change exists to kill: measured
+  // 2026-08-24, switching to Demo3 (uncaptured) served Demo1's 90 entries under the
+  // label Demo3 with ZERO misses -- Summit Industrial's books presented as Golden
+  // Harvest, silently, on camera. An uncaptured database must MISS.
+  function fileForDb(db) {
+    if (manifest && manifest.byDb) {
+      if (manifest.byDb[db]) return manifest.byDb[db];
+      if (db) return '';                       // known-but-uncaptured -> no recording
+      return manifest.default || '';           // nothing selected yet -> the default
+    }
+    return 'recording.json';                   // single-DB bundle, or no manifest shipped
+  }
+  // Swap the index when the active DB changes. Called from pick(), so it runs on
+  // the first request AFTER a switch and before the lookup that request needs.
+  // A single-DB bundle resolves to the same file every time and never re-reads.
+  function ensureIndexForCurrentDb() {
+    var db = currentDb();
+    if (loaded && db === loadedDb) return;
+    var file = fileForDb(db);
+    if (!file) {
+      // Deliberately empty: every request for this database now MISSES and the
+      // overlay names it, which reads as "not captured yet" instead of quietly
+      // handing the presenter another dataset's numbers.
+      loadedDb = db; loadedFile = ''; index = {}; loaded = true;
+      console.warn('[demo replay] no recording in this bundle for database ' + db + ' -- every call will miss');
+      return;
+    }
+    if (loaded && file === loadedFile) { loadedDb = db; return; }
+    var rec = readJsonSync(file);
+    if (!rec) {
+      if (!loaded) console.warn('[demo replay] could not read ' + file + ' for database ' + (db || '(none)'));
+      return;                                   // keep serving what we have; misses will report
+    }
+    loadedDb = db; loadedFile = file;           // set BEFORE buildIndex -- ptrKey() reads loadedDb
+    buildIndex(rec);
   }
 
   function buildIndex(recording) {
@@ -97,6 +170,7 @@
   // order (before-state, then after-state), and keep returning the LAST one once
   // the queue is exhausted (a reload re-reads the final state).
   function pick(sig) {
+    ensureIndexForCurrentDb();
     var slot = index[sig];
     if (!slot || !slot.entries.length) return null;
     var at = Math.min(slot.ptr, slot.entries.length - 1);
@@ -153,7 +227,12 @@
       ].join(';');
       document.body.appendChild(overlayEl);
     }
-    var lines = ['<b>Demo replay: missing recordings</b> (page still runs on neutral responses)'];
+    // Name the dataset. A miss almost always means "this signature is not in
+    // THIS database's recording" -- without the dataset on screen the reader
+    // cannot tell a capture gap from the wrong recording being loaded.
+    var lines = ['<b>Demo replay: missing recordings</b> (page still runs on neutral responses)',
+                 'dataset: <b>' + escapeHtml(loadedDb || '(none)') + '</b> &middot; '
+                   + escapeHtml(loadedFile || 'NO RECORDING IN THIS BUNDLE for this database')];
     for (var sig in missCounts) if (Object.prototype.hasOwnProperty.call(missCounts, sig)) {
       lines.push('&bull; ' + escapeHtml(sig) + (missCounts[sig] > 1 ? ' &times;' + missCounts[sig] : ''));
     }
@@ -295,7 +374,15 @@
   root.__demoReplay = {
     init: function (recording) { buildIndex(recording); return this; },
     ready: function () { return loaded; },
-    stats: function () { var n = 0; for (var k in index) n += index[k].entries.length; return { signatures: 0 + Object.keys(index).length, entries: n }; },
+    // Reports WHICH dataset is loaded alongside the counts. With one recording
+    // per DB, "78 entries" is meaningless without knowing whose 78 they are --
+    // and a verification walk that reads the counts but not the dataset cannot
+    // tell a correct run from one served out of the wrong recording.
+    stats: function () {
+      var n = 0; for (var k in index) n += index[k].entries.length;
+      return { db: loadedDb || null, file: loadedFile || null,
+               signatures: 0 + Object.keys(index).length, entries: n };
+    },
     misses: function () { var o = {}; for (var k in missCounts) o[k] = missCounts[k]; return o; },
     // The request body behind each miss. Pair with misses() when a gap needs
     // diagnosing: the body names the report / company / period to re-walk.
@@ -308,7 +395,18 @@
     // would still be parked on the after-states from the previous run.
     resetSequence: function () {
       for (var k in index) index[k].ptr = 0;
-      try { root.sessionStorage.removeItem(PTR_KEY); } catch (e) {}
+      // Every dataset's pointers, not just the loaded one: the tour front door
+      // calls this on entry, and the presenter may have roamed across DBs on the
+      // previous run. Leaving another DB's pointers parked on their after-states
+      // is the same "the save beat changes nothing" failure, one archetype over.
+      try {
+        var ss = root.sessionStorage, kill = [];
+        for (var i = 0; i < ss.length; i++) {
+          var key = ss.key(i);
+          if (key && key.indexOf(PTR_PREFIX) === 0) kill.push(key);
+        }
+        for (var j = 0; j < kill.length; j++) ss.removeItem(kill[j]);
+      } catch (e) {}
       serveLog = {};
       return true;
     },
@@ -328,28 +426,38 @@
   // pages fire their data calls immediately, and a large recording.json (MBs)
   // may not have parsed yet -> those early calls MISS with no retry. A sync XHR
   // on a same-origin static file is a sub-second, one-time cost at page load.
-  function loadRecordingSync() {
-    if (!NativeXHR) return false;
+  // One synchronous same-origin static read. Returns the parsed object or null.
+  function readJsonSync(file) {
+    if (!NativeXHR) return null;
     try {
       var xhr = new NativeXHR();
-      xhr.open('GET', 'recording.json', false);   // false = synchronous
+      xhr.open('GET', file, false);               // false = synchronous
       xhr.send(null);
-      if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
-        buildIndex(JSON.parse(xhr.responseText));
-        return true;
-      }
-    } catch (e) { /* fall through to async */ }
-    return false;
+      if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) return JSON.parse(xhr.responseText);
+    } catch (e) { /* missing file or parse error -> null */ }
+    return null;
   }
 
   function autoload() {
-    if (root.__DEMO_RECORDING) { buildIndex(root.__DEMO_RECORDING); return; }
-    if (loadRecordingSync()) return;              // primary: race-free
+    if (root.__DEMO_RECORDING) {
+      loadedDb = currentDb(); loadedFile = '(inlined)';
+      buildIndex(root.__DEMO_RECORDING);
+      return;
+    }
+    // The manifest is tiny and optional. Absent -> single-DB bundle, and
+    // fileForDb() falls through to recording.json exactly as before.
+    manifest = readJsonSync('recordings.json');
+    ensureIndexForCurrentDb();
+    if (loaded) return;
     if (nativeFetch) {                            // fallback: async (best-effort)
-      nativeFetch('recording.json', { cache: 'no-store' })
+      var file = fileForDb(currentDb());
+      nativeFetch(file, { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (rec) { if (rec) buildIndex(rec); else console.warn('[demo replay] no recording.json found'); })
-        .catch(function () { console.warn('[demo replay] could not load recording.json; call __demoReplay.init(rec)'); });
+        .then(function (rec) {
+          if (rec) { loadedDb = currentDb(); loadedFile = file; buildIndex(rec); }
+          else console.warn('[demo replay] no ' + file + ' found');
+        })
+        .catch(function () { console.warn('[demo replay] could not load ' + file + '; call __demoReplay.init(rec)'); });
     }
   }
   autoload();

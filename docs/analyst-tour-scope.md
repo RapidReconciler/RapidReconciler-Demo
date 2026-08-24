@@ -173,6 +173,74 @@ purchasing residual across both periods and its brief ranks the two. 80041 has z
 variance rows and zero on every integrity check, and its brief reads *"Feb 28, 2026 is
 clean … mark the period reviewed and move on."*
 
+### CORRECTION (2026-08-24, later): one bundle, one door, one recording per DB
+
+The section below shipped a **per-database bundle with its own front door**. That
+was the wrong shape and it contradicted three documents that predate it:
+
+- `docs/architecture.md` (owner, 2026-07-17) — free-roam across all three DBs from
+  one bundle; "the dev token already carries all three demo DBs, so the DB switcher
+  offers them offline".
+- `tour/README.md` — "The choice sets which demo dataset the tour runs against."
+- `publish/merge-spec.md` and `docs/plans/demo-capture-manifest.md` — option A,
+  recommended: one recording **per DB inside one bundle**, and "`replay-shim.js`
+  gains a small enhancement: pick the recording matching the active DB… **the
+  enhancement lands when the second DB is added.**"
+
+The second DB was added and the enhancement was skipped. Owner ruling 2026-08-24:
+**everything works from :8770, non-negotiable — one starting point, and each of the
+nine role x archetype combinations recorded and reachable from the chooser.**
+
+**What landed:**
+
+| Piece | Change |
+|---|---|
+| `bundle-runtime/replay-shim.js` | Loads `recordings.json` (a `{byDb, default}` manifest) and indexes the recording matching `localStorage['rrv8.activeDb']`. `ensureIndexForCurrentDb()` sits at the top of `pick()`, because the product's DB switcher does **not** reload — `home.html`'s `dbSelect` handler calls `RRV8.setActiveDatabase()` (which writes the key synchronously) then re-runs the loaders in place. So the swap has to happen on the next request. Falls back to `recording.json` when no manifest ships, so a single-DB bundle is unchanged. |
+| same | Sequence pointers are namespaced **per database** (`rrv8.demoReplay.ptr.<db>`). A flat key applied Demo1's pointer to Demo2's entry list the moment the presenter switched, which can serve an after-state first. `resetSequence()` clears every dataset's. |
+| same | `stats()` reports `db` and `file`, and the miss overlay names the dataset. "78 entries" means nothing without knowing whose. |
+| `publish/build-demo.ps1` | `-Recording '<db>=<path>[,<db>=<path>]'` ships one recording per DB and writes `recordings.json`. A bare path still builds a single-DB bundle. `RR_TOUR_VARIANT` is gone. |
+| `tour/index.html` | The archetype picker now **is** the dataset selector. It also probes which of the nine pages exist in the bundle and disables the rest with "not yet", instead of handing the presenter a 404. |
+| `bundle-runtime/launch.ps1` | Answered **500 on HEAD** while GET returned 200, because it wrote a body on a HEAD. Fixed. |
+| tour pages | Renamed to `<role>-<archetype>.html`: `analyst-summit`, `administrator-summit`, `analyst-harbor`. `index-demo2.html` deleted, `bundle-demo2/` removed. |
+
+**In-product DB switching is ON (owner, 2026-08-24).** The archetype picks where
+the tour OPENS; it is not a lock. `tour/tour-seed.js` mints a token carrying all
+three demo databases with the chosen one active, so the product's switcher offers
+all three offline, and the shim re-indexes on the next request after a switch.
+
+**One seeder, nine pages.** The nine pages stay nine separate pages, but the
+session seed is no longer copied into each of them -- every page hardcoded its own
+database, port, company list and spine company, and the moment two disagreed the
+product rendered one dataset's numbers under another's label. `tour/tour-seed.js`
+holds the archetype table, the personas and the seeder; `build-demo.ps1` stages
+`tour/*.js` alongside the pages.
+
+**A database with no recording MISSES -- it does not borrow one.** Found and fixed
+while testing the switcher: `fileForDb()` fell back to the manifest `default` for
+any unlisted DB, so switching to the uncaptured Demo3 served **Demo1's 90 entries
+labelled Demo3, with zero misses** -- Summit Industrial's books presented as Golden
+Harvest, silently, on camera. The `default` now applies only when no database is
+selected yet; a known-but-uncaptured DB loads an empty index and the overlay reads
+"dataset: RapidReconciler_Demo3 - NO RECORDING IN THIS BUNDLE for this database".
+
+**Measured on :8770, one bundle:** Summit → Andy loads `recording-demo1.json` (90
+entries / 59 sigs, co 80002); Harbor → Andy loads `recording-demo2.json` (78 / 56,
+co 80003); both zero misses. Switching `rrv8.activeDb` mid-session swaps the index
+on the next request, both directions, and `GET /available-periods` — the signature
+that used to collide — returns `2025-08-28…` on Demo1 and `2026-03-31…` on Demo2
+from the same bundle. The role matrix reports 3 of 9 built. The product's own DB switcher offers all
+three databases and swaps datasets mid-tour: Harbor opened on Demo2 / co 80003,
+switched to Demo1 / co 80002 with zero misses, then to the uncaptured Demo3 where
+it degraded to 0 entries + 9 misses + the overlay naming the dataset, then back to
+a clean zero-miss Harbor run.
+
+**Still to come:** six rails (accountant x3, administrator x2, analyst-golden) and
+the Demo3 capture. The recording count is **three, not nine** — a recording is keyed
+by request, not persona, so all three role tours on one DB resolve out of that DB's
+single recording.
+
+---
+
 ### The rail is built (2026-08-24) — two files, not one
 
 Owner ruled the three demo databases get **three separate tour pages**, not one

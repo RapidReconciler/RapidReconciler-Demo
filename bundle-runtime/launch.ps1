@@ -109,7 +109,12 @@ try {
         $res.ContentLength64 = $bytes.Length
         # Same-origin localhost; keep caching off so a rebuilt bundle is picked up.
         $res.Headers.Add('Cache-Control', 'no-store')
-        $res.OutputStream.Write($bytes, 0, $bytes.Length)
+        # HEAD must send the headers and NO body. Writing the body on a HEAD makes
+        # HttpListener throw (the response is already complete), and the client sees
+        # a 500 on a file that GETs fine -- measured 2026-08-24, which is why the
+        # front door's "is this tour page in the bundle?" probe read every page as
+        # missing. Standard method, standard answer.
+        if ($req.HttpMethod -ne 'HEAD') { $res.OutputStream.Write($bytes, 0, $bytes.Length) }
       } else {
         $res.StatusCode = 404
         $msg = [System.Text.Encoding]::UTF8.GetBytes("404 Not Found: $($req.Url.AbsolutePath)")

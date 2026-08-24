@@ -149,80 +149,17 @@
 <!-- Seed the offline session BEFORE the product iframe boots. Same origin as the
      bundled product, so localStorage is shared. The product runs in staging mode
      (real request paths) and the replay shim answers every call from the recording;
-     this synthetic session just tells the product WHICH database + role to render
-     (Harbor Wholesale Supply / RapidReconciler_Demo2, Analyst). No signature is
-     verified anywhere — the shim intercepts the network — so an unsigned token is
-     the honest, dependency-free way to establish the demo session offline. -->
+     this synthetic session just tells the product WHICH database + role to render.
+
+     The seed itself lives in tour-seed.js -- ONE table and ONE seeder shared by the
+     front door and all nine role x archetype pages. The nine pages each carry their
+     own beats; none of them carries its own copy of the database wiring, because a
+     page that disagreed with its neighbour rendered one dataset's numbers under
+     another's label. The token carries ALL THREE demo databases with this one
+     active, so the product's DB switcher works offline (docs/architecture.md). -->
+<script src="tour-seed.js"></script>
 <script>
-// The Services port is resolved DYNAMICALLY from VALC's Deployment Center
-// (GET /api/services/agent-port) — the same source AuthController stamps into a
-// real login token's ip — so a stale hardcoded port can never strand the demo when
-// an agent is relaunched on a different DB (the bug this replaces). Falls back to
-// the last-known port ONLY if VALC is unreachable (offline replay, where the port is
-// never contacted — the replay shim matches by request path, not host). Exposes
-// window.__rrSeedReady so the tour waits for the token before loading the first frame.
-window.__rrSeedReady = (function seedSession(){
-  function b64url(o){ return btoa(JSON.stringify(o)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_'); }
-  var DB = 'RapidReconciler_Demo2';
-  var VALC = 'http://localhost:8080';
-  var FALLBACK_PORT = 45585;   // last-known Demo2 port; used only when VALC is unreachable (offline replay)
-  function resolvePort(){
-    // Bounded fetch so an unreachable / slow VALC can't stall the tour's first frame.
-    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    var timer = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(_){} }, 1500) : null;
-    return fetch(VALC + '/api/services/agent-port?db=' + encodeURIComponent(DB),
-                 { cache:'no-store', signal: ctrl ? ctrl.signal : undefined })
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(j){ return (j && j.port) ? j.port : FALLBACK_PORT; })
-      .catch(function(){ return FALLBACK_PORT; })
-      .then(function(port){ if (timer) clearTimeout(timer); return port; });
-  }
-  // Analyst persona (Andy) on the Harbor Wholesale Supply dataset (Demo2), which
-  // is a DIFFERENT story from Demo1 and deliberately has its own page. Demo2's
-  // account model is complete -- zero excluded GL classes, and every card's
-  // analyzer reads "none off the model" -- so the beats below are about what the
-  // tool finds on a customer whose configuration is already right.
-  //
-  // The token lists all six licensed companies because the footer company chip
-  // renders the full roster, and the walk that produced recording-demo2.json ran
-  // with the same six. Narrow it and the chip menu stops matching the recording.
-  // The tour itself visits 80003 (the spine) and 80041 (the clean contrast).
-  return resolvePort().then(function(port){
-    var payload = {
-      user: { fn: 'Andy Analyst', u: 'andy@rrdemo.com' },
-      dbs: [ { n: DB, ip: 'localhost:' + port, t:{ adm:false }, perms:{ dm:true }, i:['80003','80004','80010','80013','80023','80041'] } ],
-      exp: 2082758400
-    };
-    try {
-      localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
-      localStorage.setItem('rrv8.activeDb', DB);
-      localStorage.setItem('rrv8.viewRole', 'analyst');
-      localStorage.setItem('rrv8.aiTier', 'grounded');   // start on Basic — the safe, always-answering tier
-      localStorage.setItem('rrv8.analystCompany.' + DB, '80003');  // the spine company: the only one with an uncleared check
-      // REWIND THE REPLAY SEQUENCE on every entry to the walk. replay-shim.js
-      // persists its per-signature pointers in sessionStorage so a save on one page
-      // reflects after navigating to another (the owner's "actual save, and the
-      // screen reflects it"). The cost is that a SECOND run of the walk in the same
-      // tab would start with those pointers parked on the after-states, so the
-      // save-and-reflect beat would open already-saved and change nothing on the
-      // click. Clearing the key here is the whole fix: the shim rebuilds its index
-      // from recording.json on the next page load and finds no stored pointers.
-      // Done from the tour page, not the product, because the key is per-origin and
-      // the tour and the iframe share it.
-      sessionStorage.removeItem('rrv8.demoReplay.ptr');
-      // Drop the client-side variance-card store too. The drill page's Save writes
-      // the finding to rrv8.txvCards.<db>.<co> in localStorage as well as to the
-      // agent, and localStorage is NOT rewound by the replay pointer reset. Measured
-      // 2026-08-22 on the Demo2 bundle: after one presenter run the card opened
-      // already reading "Your recorded finding", so the Save beat changed nothing on
-      // the click — the same "appears to work" the recording ordering exists to
-      // prevent, arriving by a completely different route.
-      Object.keys(localStorage)
-        .filter(function (k) { return k.indexOf('rrv8.txvCards.') === 0; })
-        .forEach(function (k) { localStorage.removeItem(k); });
-    } catch (e) {}
-  });
-})();
+window.__rrSeedReady = RRTour.seed('harbor', 'analyst');
 </script>
 
 <!-- ===================== PRESENTER RAIL ===================== -->
