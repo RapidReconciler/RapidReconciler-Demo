@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RapidReconciler AI &mdash; Analyst walk (Demo2)</title>
+<style>
+  :root{
+    --navy:#1f2d4a; --navy-deep:#16223b; --ink:#1d2431; --muted:#5b6472;
+    --card:#ffffff; --orange:#f08a24; --orange-deep:#d97316;
+    --on-dark:#f2f6fd; --on-dark-muted:#c9d4e8;
+    --line-dark:rgba(255,255,255,.14);
+    --shadow:0 2px 6px rgba(0,0,0,.20), 0 14px 40px rgba(0,0,0,.28);
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --rail-w:400px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0; height:100%}
+  body{font-family:var(--sans); color:var(--on-dark); -webkit-font-smoothing:antialiased;
+    display:flex; height:100vh; overflow:hidden;
+    background:
+      linear-gradient(rgba(16,26,46,.55), rgba(16,26,46,.80)),
+      #0f1c33 url("assets/meeting-bg.png") center top / cover no-repeat fixed;
+  }
+  .spark{display:inline-block; color:var(--orange)}
+  .spark svg{width:.78em; height:.78em; margin-left:.1em; filter:drop-shadow(0 0 6px rgba(240,138,36,.5))}
+
+  /* ===================== PRESENTER RAIL ===================== */
+  .rail{flex:0 0 var(--rail-w); width:var(--rail-w); height:100%; display:flex; flex-direction:column;
+    background:rgba(16,26,46,.62); border-right:1px solid var(--line-dark);
+    -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+    transition:flex-basis .22s ease, width .22s ease;}
+  body.rail-collapsed .rail{flex-basis:0; width:0; border-right:0; overflow:hidden}
+
+  .rail-top{display:flex; align-items:center; gap:12px; padding:20px 22px 14px; border-bottom:1px solid var(--line-dark)}
+  .wordmark{font-weight:800; font-size:18px; color:#fff; white-space:nowrap}
+  .role-tag{font-size:11.5px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; color:var(--orange);
+    border:1px solid rgba(240,138,36,.5); border-radius:999px; padding:4px 10px; white-space:nowrap}
+  .rail-exit{margin-left:auto; color:var(--on-dark-muted); font-weight:700; font-size:13.5px; text-decoration:none; white-space:nowrap}
+  .rail-exit:hover{color:#fff}
+
+  /* progress */
+  .progress{padding:12px 22px 4px}
+  .rail-kicker{font-size:12.5px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:var(--on-dark-muted); margin-bottom:10px}
+  /* Persistent workflow map: the 3 responsibilities. Current lit, past done,
+     each clickable to jump. This is the progress indicator AND the nav. */
+  .wf{display:flex; flex-direction:column; gap:6px}
+  .wf-item{display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer;
+    font-family:inherit; background:transparent; border:1px solid transparent; border-radius:10px;
+    padding:7px 11px; transition:background .12s, border-color .12s}
+  .wf-item:hover{background:rgba(255,255,255,.06)}
+  .wf-num{flex:0 0 27px; width:27px; height:27px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:13.5px; font-weight:800; color:var(--on-dark-muted); background:rgba(255,255,255,.10); border:1px solid var(--line-dark)}
+  .wf-body{display:flex; flex-direction:column; min-width:0}
+  .wf-label{font-size:16px; font-weight:700; color:var(--on-dark-muted); line-height:1.25}
+  .wf-tag{font-size:12px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--on-dark-muted); opacity:.65}
+  .wf-item.is-on{background:rgba(240,138,36,.14); border-color:rgba(240,138,36,.45)}
+  .wf-item.is-on .wf-num{background:var(--orange); color:#fff; border-color:var(--orange)}
+  .wf-item.is-on .wf-label{color:#fff}
+  .wf-item.is-on .wf-tag{color:var(--orange); opacity:1}
+  .wf-item.is-done .wf-num{background:rgba(240,138,36,.55); color:#fff; border-color:transparent}
+  .wf-item.is-done .wf-label{color:var(--on-dark)}
+  .wf-rule{height:1px; background:var(--line-dark); margin:10px 0}
+  /* detail fills the rest so the kicker can bottom-anchor within it */
+  .detail{display:flex; flex-direction:column; flex:1; min-height:0}
+
+  /* step body (scrolls) */
+  .rail-body{flex:1; overflow-y:auto; padding:10px 22px 8px; display:flex; flex-direction:column}
+  .eyebrow{font-size:15.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--orange); margin:2px 0 8px}
+  .rail-body h1{font-size:31px; line-height:1.16; letter-spacing:-.01em; margin:0 0 18px; color:#fff}
+
+  /* Presenter flow: an intro line, the points, then a value/segue kicker. Reads
+     as Bud's spoken script AND fills the rail with substance the prospect scans. */
+  .intro{font-size:20px; line-height:1.45; color:var(--on-dark); margin:0 0 12px; font-weight:500}
+  .points{list-style:none; margin:0 0 12px; padding:0}
+  .points li{position:relative; padding:9px 0 9px 26px; font-size:18.5px; line-height:1.4; color:var(--on-dark)}
+  .points li + li{border-top:1px solid rgba(255,255,255,.08)}
+  .points li::before{content:""; position:absolute; left:3px; top:20px; width:9px; height:9px; border-radius:50%; background:var(--orange)}
+  /* Kicker sits at the BOTTOM of the rail (margin-top:auto in the flex column),
+     right above Back/Next -- fills the empty space and puts the segue by the button. */
+  .kicker{font-size:18px; line-height:1.45; color:var(--on-dark-muted); font-style:italic; margin:auto 0 0; padding-top:12px}
+  .kicker b{color:#fff}
+
+  /* contextual controls (tier ladder + ask buttons) */
+  .controls{border-top:1px solid var(--line-dark); padding-top:15px; margin-top:4px}
+  .controls[hidden]{display:none}
+  .controls-label{display:block; font-size:11.5px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; color:var(--on-dark-muted); margin-bottom:10px}
+
+  .ask-row{display:flex; flex-direction:column; gap:8px; margin-bottom:16px}
+  .ask-btn{font-family:inherit; text-align:left; font-size:15px; font-weight:600; color:#eaf1ff;
+    background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.22); border-radius:10px;
+    padding:11px 14px; cursor:pointer; line-height:1.35; transition:background .12s, border-color .12s}
+  .ask-btn:hover{background:rgba(255,255,255,.18); border-color:rgba(255,255,255,.42)}
+  .ask-btn::before{content:"Ask \2192  "; color:var(--orange); font-weight:800}
+
+  /* tier ladder */
+  .tier-wrap{margin-bottom:8px}
+  .tier-seg{display:flex; gap:6px; background:rgba(0,0,0,.22); border:1px solid var(--line-dark); border-radius:12px; padding:6px}
+  .tier-opt{flex:1; font-family:inherit; font-size:15px; font-weight:700; color:var(--on-dark-muted);
+    background:transparent; border:0; border-radius:8px; padding:11px 6px; cursor:pointer; transition:background .12s, color .12s}
+  .tier-opt:hover{color:#fff}
+  .tier-opt.is-active{background:var(--orange); color:#fff}
+  .tier-blurb{font-size:14.5px; line-height:1.45; color:var(--on-dark); margin:11px 2px 0; min-height:42px}
+  .tier-blurb b{color:#fff}
+
+  /* nav */
+  .rail-nav{display:flex; align-items:center; gap:12px; padding:14px 22px 18px; border-top:1px solid var(--line-dark)}
+  .btn{border:0; border-radius:11px; font-family:inherit; font-weight:700; font-size:17px; padding:13px 20px; cursor:pointer}
+  .btn.prev{background:rgba(255,255,255,.10); color:var(--on-dark)}
+  .btn.prev:hover{background:rgba(255,255,255,.18)}
+  .btn.prev[disabled]{opacity:.35; cursor:default}
+  .btn.next{background:var(--orange); color:#fff}
+  .btn.next:hover{background:var(--orange-deep)}
+  /* Exit sits beside Next/Restart (margin-left:auto pushes the pair right); a
+     bordered ghost so it reads prominent but secondary to the orange action. */
+  .btn.exit{margin-left:auto; background:transparent; color:var(--on-dark); border:1px solid rgba(255,255,255,.30); padding:12px 20px}
+  .btn.exit:hover{background:rgba(255,255,255,.10); border-color:rgba(255,255,255,.5)}
+
+  /* ===================== STAGE (live product) ===================== */
+  .stage{flex:1; height:100%; display:flex; flex-direction:column; min-width:0; padding:14px 14px 14px 0}
+  body.rail-collapsed .stage{padding-left:14px}
+  .stage-head{display:flex; align-items:center; gap:12px; padding:0 4px 12px}
+  .rail-toggle{display:inline-flex; align-items:center; gap:8px; font-family:inherit; font-size:13.5px; font-weight:700;
+    color:var(--on-dark); background:rgba(255,255,255,.10); border:1px solid var(--line-dark); border-radius:999px;
+    padding:8px 14px; cursor:pointer}
+  .rail-toggle:hover{background:rgba(255,255,255,.18)}
+  .live-ribbon{display:inline-flex; align-items:center; gap:8px; font-size:12.5px; font-weight:800; letter-spacing:.05em;
+    text-transform:uppercase; color:#eafff2; background:rgba(46,138,85,.28); border:1px solid rgba(46,138,85,.55);
+    border-radius:999px; padding:6px 13px}
+  .live-dot{width:8px; height:8px; border-radius:50%; background:#3ddc84; box-shadow:0 0 0 3px rgba(61,220,132,.25)}
+  .stage-caption{font-size:13.5px; color:var(--on-dark-muted); margin-left:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+  .frame-wrap{flex:1; min-height:0; border-radius:14px; overflow:hidden; background:#f4f6fb; box-shadow:var(--shadow); position:relative}
+  iframe#stageFrame{width:100%; height:100%; border:0; display:block; background:#fff}
+  .frame-loading{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--muted); font-size:15px; background:#f4f6fb; transition:opacity .3s; pointer-events:none}
+  .frame-loading[hidden]{opacity:0}
+
+  @media (max-width:1180px){
+    :root{--rail-w:360px}
+    .rail-body h1{font-size:27px}
+    .intro{font-size:18px}
+    .points li{font-size:16.5px}
+  }
+</style>
+</head>
+<body>
+
+<!-- Seed the offline session BEFORE the product iframe boots. Same origin as the
+     bundled product, so localStorage is shared. The product runs in staging mode
+     (real request paths) and the replay shim answers every call from the recording;
+     this synthetic session just tells the product WHICH database + role to render
+     (Harbor Wholesale Supply / RapidReconciler_Demo2, Analyst). No signature is
+     verified anywhere — the shim intercepts the network — so an unsigned token is
+     the honest, dependency-free way to establish the demo session offline. -->
+<script>
+// The Services port is resolved DYNAMICALLY from VALC's Deployment Center
+// (GET /api/services/agent-port) — the same source AuthController stamps into a
+// real login token's ip — so a stale hardcoded port can never strand the demo when
+// an agent is relaunched on a different DB (the bug this replaces). Falls back to
+// the last-known port ONLY if VALC is unreachable (offline replay, where the port is
+// never contacted — the replay shim matches by request path, not host). Exposes
+// window.__rrSeedReady so the tour waits for the token before loading the first frame.
+window.__rrSeedReady = (function seedSession(){
+  function b64url(o){ return btoa(JSON.stringify(o)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_'); }
+  var DB = 'RapidReconciler_Demo2';
+  var VALC = 'http://localhost:8080';
+  var FALLBACK_PORT = 45585;   // last-known Demo2 port; used only when VALC is unreachable (offline replay)
+  function resolvePort(){
+    // Bounded fetch so an unreachable / slow VALC can't stall the tour's first frame.
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(_){} }, 1500) : null;
+    return fetch(VALC + '/api/services/agent-port?db=' + encodeURIComponent(DB),
+                 { cache:'no-store', signal: ctrl ? ctrl.signal : undefined })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){ return (j && j.port) ? j.port : FALLBACK_PORT; })
+      .catch(function(){ return FALLBACK_PORT; })
+      .then(function(port){ if (timer) clearTimeout(timer); return port; });
+  }
+  // Analyst persona (Andy) on the Harbor Wholesale Supply dataset (Demo2), which
+  // is a DIFFERENT story from Demo1 and deliberately has its own page. Demo2's
+  // account model is complete -- zero excluded GL classes, and every card's
+  // analyzer reads "none off the model" -- so the beats below are about what the
+  // tool finds on a customer whose configuration is already right.
+  //
+  // The token lists all six licensed companies because the footer company chip
+  // renders the full roster, and the walk that produced recording-demo2.json ran
+  // with the same six. Narrow it and the chip menu stops matching the recording.
+  // The tour itself visits 80003 (the spine) and 80041 (the clean contrast).
+  return resolvePort().then(function(port){
+    var payload = {
+      user: { fn: 'Andy Analyst', u: 'andy@rrdemo.com' },
+      dbs: [ { n: DB, ip: 'localhost:' + port, t:{ adm:false }, perms:{ dm:true }, i:['80003','80004','80010','80013','80023','80041'] } ],
+      exp: 2082758400
+    };
+    try {
+      localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
+      localStorage.setItem('rrv8.activeDb', DB);
+      localStorage.setItem('rrv8.viewRole', 'analyst');
+      localStorage.setItem('rrv8.aiTier', 'grounded');   // start on Basic — the safe, always-answering tier
+      localStorage.setItem('rrv8.analystCompany.' + DB, '80003');  // the spine company: the only one with an uncleared check
+      // REWIND THE REPLAY SEQUENCE on every entry to the walk. replay-shim.js
+      // persists its per-signature pointers in sessionStorage so a save on one page
+      // reflects after navigating to another (the owner's "actual save, and the
+      // screen reflects it"). The cost is that a SECOND run of the walk in the same
+      // tab would start with those pointers parked on the after-states, so the
+      // save-and-reflect beat would open already-saved and change nothing on the
+      // click. Clearing the key here is the whole fix: the shim rebuilds its index
+      // from recording.json on the next page load and finds no stored pointers.
+      // Done from the tour page, not the product, because the key is per-origin and
+      // the tour and the iframe share it.
+      sessionStorage.removeItem('rrv8.demoReplay.ptr');
+      // Drop the client-side variance-card store too. The drill page's Save writes
+      // the finding to rrv8.txvCards.<db>.<co> in localStorage as well as to the
+      // agent, and localStorage is NOT rewound by the replay pointer reset. Measured
+      // 2026-08-22 on the Demo2 bundle: after one presenter run the card opened
+      // already reading "Your recorded finding", so the Save beat changed nothing on
+      // the click — the same "appears to work" the recording ordering exists to
+      // prevent, arriving by a completely different route.
+      Object.keys(localStorage)
+        .filter(function (k) { return k.indexOf('rrv8.txvCards.') === 0; })
+        .forEach(function (k) { localStorage.removeItem(k); });
+    } catch (e) {}
+  });
+})();
+</script>
+
+<!-- ===================== PRESENTER RAIL ===================== -->
+<aside class="rail" id="rail">
+  <div class="rail-top">
+    <span class="wordmark">RapidReconciler AI<span class="spark"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6l1.9 5.1a5 5 0 0 0 2.9 2.9l5.1 1.9-5.1 1.9a5 5 0 0 0-2.9 2.9L12 21.4l-1.9-5.1a5 5 0 0 0-2.9-2.9L2.1 11.5l5.1-1.9a5 5 0 0 0 2.9-2.9z"/></svg></span></span>
+    <span class="role-tag">Analyst</span>
+  </div>
+
+  <div class="progress">
+    <div class="rail-kicker">Guided tour</div>
+  </div>
+
+  <div class="rail-body" id="railBody"><!-- filled by render() --></div>
+
+  <div class="rail-nav">
+    <button class="btn prev" id="prev" disabled>&larr; Back</button>
+    <button class="btn exit" id="exitBtn" type="button">Exit</button>
+    <button class="btn next" id="next">Next &rarr;</button>
+  </div>
+</aside>
+
+<!-- ===================== STAGE ===================== -->
+<main class="stage">
+  <div class="stage-head">
+    <button class="rail-toggle" id="railToggle" title="Show or hide the guide">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+      <span id="railToggleLabel">Hide guide</span>
+    </button>
+    <span class="stage-caption" id="stageCaption">Administrator home</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame-loading" id="frameLoading">Loading the live product&hellip;</div>
+    <iframe id="stageFrame" title="RapidReconciler live product"></iframe>
+  </div>
+</main>
+
+<script>
+(function(){
+  'use strict';
+
+  // ---- the walk definition -------------------------------------------------
+  // Each step drives the REAL bundled admin product in the iframe. `frame` loads
+  // a bundled page (null = keep the current one). `onEnter` runs an action inside
+  // the iframe (fire a pill, open the help panel, flip a tier) once it's ready.
+  var HOME = 'home.html';
+  // The analyst's three responsibilities + the hand-off, as a persistent workflow
+  // map shown on EVERY page: current lit, past done, each clickable to jump.
+  // `jump` = step to go to when clicked; `last` = the step index the item stops
+  // being "current" after (Data Health spans two steps: the read + the tiers).
+  var WORKFLOW = [
+    { id:'stand',   n:'1', label:'See where you stand',  tag:'Day brief',   jump:0, last:0 },
+    { id:'trust',   n:'2', label:'Trust the numbers',    tag:'Data Health', jump:1, last:2 },
+    { id:'work',    n:'3', label:'Work the variance',    tag:'Variance',    jump:3, last:5 },
+    { id:'prove',   n:'4', label:'Show the work',        tag:'Audit',       jump:6, last:7 }
+  ];
+
+  // Every surface below is in recording-demo2.json and was walked offline with
+  // __demoReplay.misses() EMPTY at every beat (2026-08-24, companies 80003 then
+  // 80041). Figures quoted in the copy are the ones the bundle actually replays --
+  // if a re-record changes them, change the copy in the same commit or the
+  // narration starts contradicting the screen.
+  //
+  // DEMO2 IS NOT DEMO1 MINUS SIX BEATS. Frozen cost, the model-DMAAI exclusion and
+  // cardex all return zero rows here, and no card has a routing mismatch. The story
+  // is a customer whose configuration is already right, where the tool still finds
+  // a variance that nets away across two months. Do not port Demo1's phrasing --
+  // its GL-class beat is item-vs-branch, this one is branch-vs-location, and its
+  // "8 of 8 DMAAIs off the cardex model" has no equivalent at all.
+  //
+  // READ-COUNT CONSTRAINT, measured: the recording holds THREE before-state reads
+  // of txv/resolutions?company=80003 and four after. Beats 4 and 5 are one story
+  // and must stay adjacent and in order -- Save on the drill page, then RETURN to
+  // Home to see the card change. The Home card is not on screen at beats 2 or 3, so
+  // a read spent there cannot reveal the after-state early; put a card-bearing Home
+  // beat between 3 and 6 and it can. Re-walk the tour if you reorder these.
+  var RF  = 'inventory-account-rollforward.html?company=80003';
+  var TXV = 'inventory-transactions.html?company=80003&card=PER&period=2026-02-28&expect=4';
+
+  var steps = [
+    // ---- 1. See where you stand ------------------------------------------
+    {
+      key:'standing', flow:'stand', caption:'Analyst home', frame:HOME, spot:'#analystDayBriefTop',
+      onEnter:function(){ setTierSafe('grounded'); },   // Basic -- the safe, always-answering read
+      eyebrow:'Where you stand today',
+      intro:'Andy opens to a read of his day, scoped to Harbor Wholesale Supply.',
+      points:[
+        'One line names what to start with, and why it outranks the rest.',
+        'A card per surface below it &mdash; Data Health, Transaction Variance, Cardex &mdash; each a live status, each clickable.',
+        'Nothing was exported and nothing was keyed. The reconciliation already ran against his own JDE.'
+      ],
+      kicker:'Before working a variance, Andy checks the numbers deserve to be trusted.'
+    },
+    // ---- 2. Trust the numbers --------------------------------------------
+    {
+      key:'rollfwd', flow:'trust', caption:'Account Roll Forward', frame:RF, spot:'#rfBrief',
+      eyebrow:'What good looks like',
+      intro:'The period-to-period integrity check, and on this company it passes.',
+      points:[
+        'Closing balance to opening balance, every account, every loaded period.',
+        'The AI says there is nothing to correct &mdash; the GL balance and the reconciliation variance both carried forward without a break.',
+        'Worth seeing green. A break here means the balances moved and the detail behind them did not, and no journal entry closes that.'
+      ],
+      kicker:'One check did not come back clean. That one is next.'
+    },
+    {
+      key:'glclass', flow:'trust', caption:'GL Class Integrity', frame:HOME, spot:'#intgModal',
+      onEnter:function(){ openIntg('glclass'); },
+      eyebrow:'The branch and the location disagree',
+      intro:'Four items carry one GL class on the branch and a different one on the location.',
+      points:[
+        'The class decides which account the cost lands in, so two answers means two possible accounts for one item.',
+        'Three of the four are 6101 against 6102, all in branch B002465 &mdash; one setup mistake repeated, not four separate ones.',
+        'The fix is on the branch and location records, not in an RR setting. Correct it at source and it stops recurring.'
+      ],
+      kicker:'That is the only configuration break. Now the money.'
+    },
+    // ---- 3. Work the variance --------------------------------------------
+    {
+      key:'analyzer', flow:'work', caption:'Transaction Variance &middot; Period Mismatch',
+      frame:TXV, spot:'.tx-analyzer',
+      onEnter:function(){ expandAnalyzer(); },
+      eyebrow:'The routing is right, so the cause is timing',
+      intro:'A $4,441 variance on one account and one batch, flagged as a period mismatch.',
+      points:[
+        'The analyzer resolves every inventory DMAAI behind this card against the model: <b>4 checked, none off it</b>.',
+        'That is the useful half of a negative result. Mapping is ruled out, so the cost is not going to the wrong account &mdash; it is landing in the wrong month.',
+        'The variance nets to within tolerance once February and March are added together. Read both periods on the row before calling it a cut-off.'
+      ],
+      kicker:'Andy writes what he found so the next person does not re-derive it.'
+    },
+    {
+      key:'save', flow:'work', caption:'Transaction Variance &middot; record the finding',
+      frame:null, spot:'#tx-findings-draft',
+      eyebrow:'Record it once',
+      intro:'The finding is already drafted from the evidence on screen &mdash; Andy reads it and saves.',
+      points:[
+        'What was checked, what was found, and what stops it recurring &mdash; drafted from the evidence, his to edit before it saves.',
+        'It also records what was NOT tested. No item-ledger date is compared against a G/L date anywhere in the classifier, and the draft says so rather than letting the reader assume it did.',
+        'Prevention is the deliverable. The journal entry that clears this period belongs to accounting.'
+      ],
+      kicker:'<b>Click Save</b>, then Next &mdash; watch the card on Home.'
+    },
+    {
+      key:'reflect', flow:'work', caption:'Analyst home', frame:HOME, spot:'a[href*="card=PER"]',
+      onEnter:function(){ openTab('txvar'); },
+      eyebrow:'On the record',
+      intro:'Same card, one minute later.',
+      points:[
+        'It read <b>Likely cause</b> &mdash; RR&rsquo;s own diagnosis of the pattern.',
+        'It now reads <b>Your recorded finding</b> &mdash; Andy&rsquo;s, with the evidence he checked.',
+        'Anyone opening this period sees the work, not just the number.'
+      ],
+      kicker:'Two more cards on this company were closed earlier. Here is what that produces.'
+    },
+    // ---- 4. Show the work ------------------------------------------------
+    {
+      key:'audit', flow:'prove', caption:'Audit Center', frame:HOME, spot:'.aud-hdr-actions',
+      onEnter:function(){ openTab('audit'); },
+      eyebrow:'Two reports, no assembly',
+      intro:'Everything Andy and the accountant did on this period, as documents.',
+      points:[
+        '<b>Audit report</b> &mdash; the period&rsquo;s accounts summary, batches, transactions and physical inventory, one company per page.',
+        '<b>Period Activity</b> &mdash; three entries, grouped by who wrote them: two findings Andy closed, and the accountant&rsquo;s sign-off on the account model.',
+        'Built from what is already on screen. Nothing is re-keyed.'
+      ],
+      kicker:'One company down. The same checks run across the rest.'
+    },
+    {
+      // Spot the day-brief band, NOT the company chip: switchCompany() clicks the
+      // chip, and a click on the spotlit element clears its own glow.
+      key:'clean', flow:'prove', caption:'Analyst home &middot; co 80041', frame:HOME, spot:'#analystDayBriefTop',
+      onEnter:function(){ switchCompany('80041'); },
+      eyebrow:'What a clean company looks like',
+      intro:'Andy switches company and the whole surface re-scopes.',
+      points:[
+        'Every accuracy check passes, the cardex ties, and there is no variance in scope.',
+        'The AI does not stop at &ldquo;clean&rdquo; &mdash; it tells him to mark the period reviewed and move on.',
+        'Same four surfaces, same workflow. Nothing was set up per company to make that happen.'
+      ],
+      kicker:'That is the analyst&rsquo;s day. What clears the GL &mdash; the journal entry &mdash; is <b>Angie&rsquo;s</b>; hit <b>Exit</b> to hand off.'
+    }
+  ];
+
+  // Set the AI tier inside the product iframe, defensively (no-op if RRAI isn't
+  // ready yet). Every tier for these surfaces is captured, so any state replays.
+  function setTierSafe(tier){
+    whenReady(function(){
+      var w = fwin();
+      if (w && w.RRAI && typeof w.RRAI.set === 'function'){ try { w.RRAI.set(tier); } catch(e){} }
+    });
+  }
+
+  var TIER_BLURB = {
+    grounded: '<b>Basic.</b> The AI sees only the figures already on your screen &mdash; nothing else leaves the page.',
+    scrubbed: '<b>Enhanced.</b> The AI sees fuller detail, but names and accounts are masked to roles first.',
+    full:     '<b>Full.</b> The AI uses your real data &mdash; actual names, accounts, and dates.'
+  };
+  var TIER_LABEL = { grounded:'Basic', scrubbed:'Enhanced', full:'Full' };
+
+  // ---- element handles -----------------------------------------------------
+  var frame     = document.getElementById('stageFrame');
+  var frameLoad = document.getElementById('frameLoading');
+  var railBody  = document.getElementById('railBody');
+  var prevBtn   = document.getElementById('prev');
+  var nextBtn   = document.getElementById('next');
+  var caption   = document.getElementById('stageCaption');
+
+  var i = 0;
+  var currentFrameSrc = '';
+
+  // ---- iframe helpers ------------------------------------------------------
+  function fwin(){ try { return frame.contentWindow; } catch(e){ return null; } }
+  function fdoc(){ try { return frame.contentDocument || (fwin() && fwin().document); } catch(e){ return null; } }
+
+  // Run fn once the iframe's product has booted (admin pills present, or a short
+  // grace period for non-home pages). Polls briefly; never throws.
+  function whenReady(fn, tries){
+    tries = tries || 0;
+    var d = fdoc();
+    var ready = d && d.body && (d.querySelector('.admin-ask-pill') || d.querySelector('.topbar-help') || tries > 12);
+    if (ready) { try { fn(); } catch(e){} return; }
+    if (tries > 40) return;
+    setTimeout(function(){ whenReady(fn, tries + 1); }, 150);
+  }
+
+  // ---- beat actions ------------------------------------------------------
+  // whenReady() gates on an ADMIN chrome selector (.admin-ask-pill / .topbar-help),
+  // neither of which exists on the analyst surfaces, so it falls through on a
+  // ~1.8s timer. That is fine for setting a tier and wrong for clicking a control
+  // that only exists once replayed data has painted. whenEl polls for the actual
+  // element instead, so every action below waits for the thing it operates on.
+  function whenEl(sel, fn, tries){
+    tries = tries || 0;
+    var d = fdoc();
+    var el = d && d.querySelector(sel);
+    if (el) { try { fn(el); } catch(e){} return; }
+    if (tries > 100) return;                       // ~15s, then give up quietly
+    setTimeout(function(){ whenEl(sel, fn, tries + 1); }, 150);
+  }
+  function clickIn(sel, then){
+    whenEl(sel, function(el){
+      el.click();
+      // A beat's own action is NOT the presenter clicking the spotlit element, but
+      // _applySpot cannot tell the difference: it attaches a one-shot click listener
+      // that clears the glow, and an action click BUBBLES into it. Measured
+      // 2026-08-20: expandAnalyzer clicks #tx-analyzer-toggle, which sits inside
+      // .tx-analyzer, so the analyzer beat cleared its own spotlight and rendered
+      // with no glow at all while the panel underneath was correct and expanded.
+      // Re-assert the current step's spot once the action has settled.
+      var s = steps[i];
+      if (s && s.spot) setTimeout(function(){ spotlight(s.spot); }, 700);
+      if (then) setTimeout(then, 400);
+    });
+  }
+  // Home's four analyst tabs. data-sv values read off the live markup:
+  // work = Data Health, txvar = Transaction Variance, reports = Cardex, audit = Audit Center.
+  function openTab(sv){ clickIn('[data-sv="' + sv + '"]'); }
+  // Data Health integrity modals. On Demo2 co 80003 there is exactly ONE uncleared
+  // check -- glclass, 4 rows -- so only that data-intg-view button exists; frozen
+  // cost and UOM return zero rows and render as Cleared with no modal to open. It
+  // renders from data the tab already fetched, so opening it costs no request and
+  // cannot MISS.
+  function openIntg(key){
+    clickIn('[data-sv="work"]', function(){
+      whenEl('[data-intg-view="' + key + '"]', function(b){ b.click(); });
+    });
+  }
+  function expandAnalyzer(){ clickIn('#tx-analyzer-toggle'); }
+  // The footer company chip. The menu renders company numbers in <span>s rather
+  // than buttons, so match on text within #haCosMenu instead of a control selector.
+  function switchCompany(co){
+    clickIn('#haCosBtn', function(){
+      var d = fdoc(); if (!d) return;
+      var menu = d.getElementById('haCosMenu'); if (!menu) return;
+      var hit = null;
+      Array.prototype.forEach.call(menu.querySelectorAll('*'), function(e){
+        if (e.children.length <= 2 && (e.innerText || '').trim() === String(co)) hit = e;
+      });
+      if (hit) hit.click();
+    });
+  }
+
+  function loadFrame(src, after){
+    // Compare the step's target page to the page ACTUALLY loaded -- Bud may have
+    // navigated the iframe himself (e.g. clicking the Manage link), so the tracked
+    // src can be stale. Without this, a later Home step would skip the reload and
+    // show wherever Bud left the iframe.
+    var actual = '';
+    try { actual = (frame.contentWindow.location.pathname.split('/').pop() || ''); } catch(e){}
+    var want = src ? src.split('/').pop() : '';
+    if (src && actual !== want){
+      currentFrameSrc = src;
+      frameLoad.hidden = false;
+      // One-shot: null it after firing so a later navigation Bud makes himself
+      // (e.g. clicking the product Home link) doesn't re-run this step's stale
+      // callback -- onIframeNav (a persistent listener) handles his navigation.
+      frame.onload = function(){ frame.onload = null; frameLoad.hidden = true; whenReady(after || function(){}); };
+      frame.src = src;
+    } else {
+      whenReady(after || function(){});
+    }
+  }
+
+  // ---- demo layer: a transient spotlight injected INTO the product iframe ----
+  // NOT part of the product. The tour paints a glow ring on a target element (by
+  // selector) and wipes it on the next step; the product's source is untouched,
+  // so demo == product still holds. Selectors couple to product markup -- if one
+  // no longer matches, the spotlight silently no-ops (never crashes).
+  // _spotSel = the selector the CURRENT step wants lit. Re-asserts (below) check it
+  // so a re-apply scheduled for a past step can't paint after the step changed.
+  var _spotSel = null;
+  function clearSpotlight(){
+    _spotSel = null;
+    var d = fdoc(); if (!d) return;
+    var el = d.querySelector('[data-demo-spot]');
+    if (el) el.removeAttribute('data-demo-spot');
+  }
+  function _applySpot(selector){
+    var d = fdoc(); if (!d) return;
+    if (_spotSel !== selector) return;                 // step moved on -- abort
+    if (!d.getElementById('demo-spot-style')){
+      var st = d.createElement('style');
+      st.id = 'demo-spot-style';
+      st.textContent = '[data-demo-spot]{outline:3px solid #f08a24 !important; outline-offset:3px; border-radius:8px !important;'
+        + ' box-shadow:0 0 0 6px rgba(240,138,36,.28), 0 0 22px rgba(240,138,36,.6) !important;'
+        + ' animation:demoSpotPulse 1.6s ease-in-out infinite !important}'
+        + '@keyframes demoSpotPulse{0%,100%{box-shadow:0 0 0 6px rgba(240,138,36,.22),0 0 18px rgba(240,138,36,.5)}'
+        + '50%{box-shadow:0 0 0 9px rgba(240,138,36,.36),0 0 30px rgba(240,138,36,.8)}}';
+      (d.head || d.body).appendChild(st);
+    }
+    var prev = d.querySelector('[data-demo-spot]');
+    var t = d.querySelector(selector);
+    if (prev && prev !== t) prev.removeAttribute('data-demo-spot');
+    if (t && !t.hasAttribute('data-demo-spot')){
+      t.setAttribute('data-demo-spot', '');
+      t.scrollIntoView({behavior:'smooth', block:'center'});
+      // Clicking the spotlit element IS the action -- clear its glow on click.
+      t.addEventListener('click', function(){ clearSpotlight(); }, { once:true });
+    }
+  }
+  function spotlight(selector){
+    _spotSel = selector;
+    // POLL for the target rather than guess at a settle time. whenReady gates on an
+    // admin chrome selector that does not exist on the analyst surfaces, so it fell
+    // through on a ~1.8s timer -- and the transaction drill page needs roughly 8s of
+    // replayed fetches before .tx-analyzer exists at all. Measured 2026-08-20: that
+    // beat rendered its copy with NO glow while the analyzer underneath was correct
+    // and already expanded, which reads on camera as a dead beat.
+    whenEl(selector, function(){ if (_spotSel === selector) _applySpot(selector); });
+    // Product surfaces render their AI brief ASYNC (replay + tier re-render), which
+    // can replace the spotlit node right after the first apply. Re-assert on a
+    // schedule that outlasts the slowest beat; each re-apply is guarded by _spotSel
+    // so it stops the moment the step changes.
+    [700, 1600, 3000, 4800, 7000, 10000].forEach(function(ms){
+      setTimeout(function(){ if (_spotSel === selector) _applySpot(selector); }, ms);
+    });
+  }
+
+  // ---- demo layer: hide DEV-only product controls a customer never sees --------
+  // The Off/Basic/Enhanced/Full AI data-tier switcher ships in the product for QA
+  // but is never shown to a customer/Bud. Mask it in the demo (product untouched);
+  // idempotent per document, re-applied on every iframe load.
+  function maskDevControls(){
+    whenReady(function(){
+      var d = fdoc(); if (!d) return;
+      if (d.getElementById('demo-mask-style')) return;
+      var st = d.createElement('style'); st.id = 'demo-mask-style';
+      st.textContent = '#rrai-dock{display:none !important}';   // sidebar.js dev-only AI tier dock
+      (d.head || d.body).appendChild(st);
+    });
+  }
+
+  // ---- demo layer: never open an email client. The product keeps its mailto:
+  // links (correct for a live customer); the demo intercepts the click, blocks
+  // the email client, and shows a brief confirmation instead. Wired once per
+  // document. preventDefault only (NOT stopPropagation) so a spotlit link still
+  // clears its glow on the same click.
+  function neutralizeMailto(){
+    whenReady(function(){
+      var d = fdoc(), w = fwin(); if (!d || !w) return;
+      if (w.__demoMailtoWired) return; w.__demoMailtoWired = true;
+      d.addEventListener('click', function(e){
+        var a = e.target && e.target.closest && e.target.closest('a[href^="mailto:"]');
+        if (!a) return;
+        e.preventDefault();
+        if (a.id === 'js-lic-invoice'){ _invoiceModal(d); }   // licensing beat: a modal, not a toast
+        else { _demoToast(d, 'Request sent to GSI.'); }
+      }, true);
+    });
+  }
+  function _demoToast(d, msg){
+    var t = d.getElementById('demo-toast');
+    if (!t){
+      t = d.createElement('div'); t.id = 'demo-toast';
+      t.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);'
+        + 'background:#1f2d4a;color:#fff;padding:10px 18px;border-radius:8px;'
+        + 'font-family:"Source Sans 3",sans-serif;font-size:13.5px;font-weight:600;'
+        + 'box-shadow:0 8px 24px -6px rgba(8,18,38,.5);z-index:9999;opacity:0;'
+        + 'transition:opacity .18s ease;pointer-events:none;max-width:80vw;text-align:center;';
+      (d.body || d.documentElement).appendChild(t);
+    }
+    t.textContent = msg; t.style.opacity = '1';
+    var w = fwin() || window;
+    if (t._h) w.clearTimeout(t._h);
+    t._h = w.setTimeout(function(){ t.style.opacity = '0'; }, 2600);
+  }
+  // Licensing "Request an invoice" beat: a small confirm modal in place of the
+  // email client. Closing it spotlights the Home pill so Bud heads back, which
+  // advances the tour to the Team step (see onIframeNav's 'licensing' branch).
+  function _invoiceModal(d){
+    if (d.getElementById('demo-modal')) return;
+    var wrap = d.createElement('div'); wrap.id = 'demo-modal';
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:9998;display:flex;align-items:center;'
+      + 'justify-content:center;background:rgba(16,26,46,.5);-webkit-backdrop-filter:blur(2px);'
+      + 'backdrop-filter:blur(2px);opacity:0;transition:opacity .18s ease;font-family:"Source Sans 3",sans-serif;';
+    wrap.innerHTML =
+      '<div style="background:#fff;color:#243049;max-width:380px;width:88%;border-radius:14px;'
+      + 'box-shadow:0 24px 60px -12px rgba(8,18,38,.5);padding:26px 26px 20px;text-align:center;">'
+      +   '<div style="width:46px;height:46px;border-radius:50%;background:#e7f3ec;color:#2e8a55;'
+      +     'display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">'
+      +     '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" '
+      +     'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></div>'
+      +   '<div style="font-size:18px;font-weight:800;color:#1f2d4a;margin-bottom:6px;">Request an invoice</div>'
+      +   '<p style="font-size:14.5px;color:#4a5468;line-height:1.5;margin:0 0 20px;">An email will be sent to GSI accounting.</p>'
+      +   '<button type="button" id="demo-modal-close" style="border:0;border-radius:8px;'
+      +     'background:#1f2d4a;color:#fff;font-family:inherit;font-weight:700;font-size:14px;padding:10px 22px;cursor:pointer;">Close</button>'
+      + '</div>';
+    (d.body || d.documentElement).appendChild(wrap);
+    requestAnimationFrame(function(){ wrap.style.opacity = '1'; });
+    function close(){
+      var m = d.getElementById('demo-modal'); if (m && m.parentNode) m.parentNode.removeChild(m);
+      spotlight('.topbar-home');   // guide Bud back Home -> advances to the Team step
+    }
+    d.getElementById('demo-modal-close').addEventListener('click', close);
+    wrap.addEventListener('click', function(ev){ if (ev.target === wrap) close(); });
+  }
+
+  // Which product page the iframe currently shows (filename only).
+  function iframePage(){ try { return (frame.contentWindow.location.pathname.split('/').pop() || ''); } catch(e){ return ''; } }
+
+  // Advance to a beat by KEY, never by index. The walk is 14 beats and gets
+  // reordered every time the owner tweaks it; a hardcoded index survives that
+  // silently and lands the presenter on the wrong beat.
+  function jumpToKey(key){
+    for (var k = 0; k < steps.length; k++){
+      if (steps[k].key === key){ i = k; render(); return true; }
+    }
+    return false;
+  }
+
+  // ---- demo layer: BEAT SETUP (part A -- idempotent) -----------------------
+  // Apply the current step's SUB-PAGE spotlight + interaction listeners for the
+  // page the iframe is showing RIGHT NOW (`pg` = filename). Split out of
+  // onIframeNav so it runs from BOTH the iframe `load` event AND the end of
+  // render() -- a step that renders while the iframe is already on its page
+  // fires no `load`, so without this the beat would never wire (no spotlight, no
+  // cancel->Home listener) and the step would look dead ("go directly to it then
+  // nothing"). Idempotent: spotlight() already clears+reapplies, and every
+  // listener attach is guarded by a data-demo-wired tag so a double call (load
+  // AND render against the same live DOM) can't stack duplicate handlers. This
+  // does NOT contain any advance-on-navigation (part B) -- that stays load-only
+  // in onIframeNav so a render() can never trigger an advance loop.
+  function setupBeat(pg){
+    var s = steps[i]; if (!s) return;
+    // The three integrity-modal beats and the two tab-scoped beats re-run their
+    // own onEnter action here, not just on step entry. A step that renders while
+    // the iframe is ALREADY on home.html fires no `load` event, so without this a
+    // rail jump straight to (say) the frozen-cost beat would spotlight #intgModal
+    // while the modal was never opened -- a glow on a hidden element, which reads
+    // as a dead beat. Every action is a click on a live control and idempotent:
+    // re-opening a modal that is open just re-renders it.
+    if (pg === 'home.html'){
+      if (s.key === 'glclass'){ openIntg('glclass'); return; }   // the only uncleared check on 80003
+      if (s.key === 'reflect'){ openTab('txvar'); return; }
+      if (s.key === 'audit'){   openTab('audit'); return; }
+      // Beat 8 is the company switch itself, so a rail jump straight to it has to
+      // re-fire the switch or it spotlights 80003's day brief while the copy talks
+      // about a clean company. switchCompany is idempotent: picking the company
+      // already in focus re-renders the same surface.
+      if (s.key === 'clean'){ switchCompany('80041'); return; }
+    }
+    // The analyzer beat lives on the transactions drill page and its panel starts
+    // collapsed, so re-expand on a render that finds the page already loaded.
+    if (s.key === 'analyzer' && pg === 'inventory-transactions.html'){ expandAnalyzer(); return; }
+    // General card pattern: any remaining step's sub-page spotlight.
+    if (s.subPage && s.pageSpot && pg === s.subPage){ spotlight(s.pageSpot); }
+  }
+
+  function onIframeNav(){
+    maskDevControls();                    // re-apply the dev-control mask on every load
+    neutralizeMailto();                   // block email-client links in the demo
+    var s = steps[i]; if (!s) return;
+    var pg = iframePage();
+    // ADVANCE-ON-NAVIGATION (part B -- load-only): the presenter clicks a real
+    // product link and the tour follows him. Kept out of setupBeat (and thus out of
+    // render) so a render() can never re-trigger an advance.
+    //
+    // Both hops are guarded to the beat the presenter can only be on when the click
+    // is his, so a beat's OWN frame load cannot re-trigger the jump.
+    //   day brief -> the spotlit Data Health chip is a live link to Account Roll
+    //                Forward, so land him on that beat rather than the model beat.
+    //   cardex    -> the spotlit item row is a live link to the item's page.
+    if (s.key === 'standing' && pg === 'inventory-account-rollforward.html'){ jumpToKey('rollfwd'); return; }
+    // Advance didn't fire -> wire this step's beat for the page now showing.
+    // AFTER the advance checks so a real navigation Home still advances first.
+    setupBeat(pg);
+  }
+
+  function firePill(idx){
+    whenReady(function(){
+      var d = fdoc(); if (!d) return;
+      var pills = d.querySelectorAll('.admin-ask-pill');
+      if (pills[idx]){ pills[idx].click(); pills[idx].scrollIntoView({behavior:'smooth', block:'center'}); }
+    });
+  }
+  function setTier(tier){
+    var w = fwin(), d = fdoc();
+    if (!w || !w.RRAI) return;
+    if (tier === 'full'){
+      // KNOWN RECORDING GAP (2026-07-18): the six admin pills were captured clean
+      // at Basic + Enhanced, but the Full-tier prompt embeds real names + exact
+      // sign-in dates, so a Full re-fire is a replay MISS ("No answer came back").
+      // Flip the product to Full for the data-exposure STORY (labels + the ? panel
+      // reflect it), but clear the on-screen answer first so a prospect never sees
+      // a miss. Remove this guard once the recording is re-walked at Full tier and
+      // the inactivity line is made capture-stable. See handoff notes.
+      var dm = d && d.getElementById('adminAnsDismiss');
+      if (dm) dm.click();
+      w.RRAI.set('full');
+    } else {
+      w.RRAI.set(tier);                                   // re-fires the active pill at the new level
+      var panel = d && d.getElementById('adminAnsPanel'); // if the panel was cleared (returning from Full), re-ask
+      if (panel && panel.hidden) firePill(0);
+    }
+  }
+  function openHelp(){
+    whenReady(function(){
+      var d = fdoc(); if (!d) return;
+      var b = d.querySelector('.topbar-help');
+      if (b) b.click();
+    });
+  }
+
+  // ---- render --------------------------------------------------------------
+  function render(){
+    var s = steps[i];
+
+    caption.textContent = (s.caption || '').replace(/&middot;/g,'·').replace(/&amp;/g,'&');
+
+    var html = '';
+    // Persistent workflow map: the 3 responsibilities; current lit, past done, clickable.
+    html += '<div class="wf">';
+    WORKFLOW.forEach(function(w){
+      var state = (s.flow === w.id) ? 'on' : (i > w.last ? 'done' : 'todo');
+      html += '<button type="button" class="wf-item is-' + state + '" data-step="' + w.jump + '">'
+            + '<span class="wf-num">' + w.n + '</span>'
+            + '<span class="wf-body"><span class="wf-label">' + w.label + '</span>'
+            + '<span class="wf-tag">' + w.tag + '</span></span></button>';
+    });
+    html += '</div><div class="wf-rule"></div>';
+    // Page detail below the workflow; the kicker bottom-anchors within it.
+    html += '<div class="detail">';
+    html += '<div class="eyebrow">' + s.eyebrow + '</div>';
+    if (s.intro){ html += '<p class="intro">' + s.intro + '</p>'; }
+    if (s.points && s.points.length){
+      html += '<ul class="points">';
+      s.points.forEach(function(p){ html += '<li>' + p + '</li>'; });
+      html += '</ul>';
+    }
+    if (s.kicker){ html += '<p class="kicker">' + s.kicker + '</p>'; }
+    html += '</div>';
+    railBody.innerHTML = html;
+    railBody.scrollTop = 0;
+
+    // clicking a workflow item jumps to that responsibility's page
+    railBody.querySelectorAll('[data-step]').forEach(function(b){
+      b.addEventListener('click', function(){ i = parseInt(b.getAttribute('data-step'), 10); render(); });
+    });
+
+    // nav state
+    prevBtn.disabled = (i === 0);
+    nextBtn.textContent = (i === steps.length - 1) ? 'Restart ↺' : 'Next →';
+
+    loadFrame(s.frame, function(){
+      maskDevControls();
+      neutralizeMailto();
+      // Home-page spotlight is render's job (one source of truth for the Home
+      // beat); setupBeat owns the SUB-PAGE beats. They can't collide: every step
+      // frame is Home, so iframePage() here is home.html and setupBeat no-ops on
+      // it -- but if a page is ever restored on a sub-page without firing `load`,
+      // this still wires that beat (belt-and-suspenders alongside the load event).
+      if (s.spot) spotlight(s.spot); else clearSpotlight();
+      setupBeat(iframePage());
+      if (s.onEnter) s.onEnter();
+    });
+  }
+
+  // The exact pill text — must match the product's data-q verbatim (it is the
+  // capture key). Kept here only for the presenter buttons' labels.
+  var PILL_TEXT = [
+    'What needs my attention right now?',
+    'When does our license expire, and what is the renewal step?',
+    'Who has not signed in lately, and should I remove them?',
+    'How do I add a new team member?',
+    'Is the instance healthy, or is anything starting to degrade?',
+    'What does the activity log tell me?'
+  ];
+
+  // Follow Bud's own navigation inside the product (drives the guided AI loop).
+  frame.addEventListener('load', onIframeNav);
+
+  // ---- nav -----------------------------------------------------------------
+  nextBtn.addEventListener('click', function(){
+    if (i < steps.length - 1){ i++; render(); }
+    else { i = 0; render(); }
+  });
+  prevBtn.addEventListener('click', function(){ if (i > 0){ i--; render(); } });
+  // Exit -> the front door at the role cards, with the next persona (Angie the
+  // Accountant) recommended. index.html reads these on load.
+  var exitBtn = document.getElementById('exitBtn');
+  if (exitBtn) exitBtn.addEventListener('click', function(){
+    try { sessionStorage.setItem('rrdemo.stage', 'roles'); sessionStorage.setItem('rrdemo.recRole', 'accountant'); } catch(e){}
+    window.location.href = 'index.html';
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowRight'){ nextBtn.click(); }
+    else if (e.key === 'ArrowLeft'){ prevBtn.click(); }
+  });
+
+  // rail collapse (give the product full width when demonstrating)
+  var toggle = document.getElementById('railToggle');
+  var toggleLbl = document.getElementById('railToggleLabel');
+  toggle.addEventListener('click', function(){
+    document.body.classList.toggle('rail-collapsed');
+    toggleLbl.textContent = document.body.classList.contains('rail-collapsed') ? 'Show guide' : 'Hide guide';
+  });
+
+  // Wait for the async session seed (dynamic port resolution) to write the token
+  // before loading the first frame, so the product boots authenticated.
+  (window.__rrSeedReady || Promise.resolve()).then(render);
+})();
+</script>
+
+</body>
+</html>
