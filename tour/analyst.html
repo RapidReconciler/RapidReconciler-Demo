@@ -335,7 +335,7 @@ window.__rrSeedReady = (function seedSession(){
       points:[
         'Closing balance to opening balance, every account, every loaded period.',
         'The AI says there is nothing to correct &mdash; the GL balance and the reconciliation variance both rolled forward clean.',
-        'Worth seeing green. When this check breaks, it means F0911 and F0902 disagree at the source, and no journal entry fixes that.'
+        'Worth seeing green. A break here means the balances moved and the detail behind them did not &mdash; repost in JDE first, then Reload GL. No journal entry closes it.'
       ],
       kicker:'Three checks did NOT come back clean. Those are next.'
     },
@@ -346,7 +346,7 @@ window.__rrSeedReady = (function seedSession(){
       intro:'Five items carry one GL class at the item level and another at the branch level.',
       points:[
         'The class decides which account the cost lands in, so two answers means two possible accounts for one item.',
-        'This is a JD Edwards data fix, not an RR setting &mdash; correct it at source and it stops recurring.',
+        'The fix is in the item and branch records, not in an RR setting &mdash; correct it at source and it stops recurring.',
         'RR shows the whole balance behind each item, so the fix gets prioritised by money rather than by row count.'
       ],
       kicker:'Same panel, next check &mdash; frozen cost.'
@@ -355,9 +355,9 @@ window.__rrSeedReady = (function seedSession(){
       key:'frozen', flow:'trust', caption:'Frozen Cost Integrity', frame:HOME, spot:'#intgModal',
       onEnter:function(){ openIntg('frozen'); },
       eyebrow:'301 items with no frozen standard',
-      intro:'Items posting at zero cost because no frozen standard exists for them.',
+      intro:'Items with no frozen standard on file.',
       points:[
-        'Zero-cost transactions still move quantity, so the cardex and the GL drift apart quietly.',
+        'Without a standard the transaction still moves quantity but carries no cost, so the two sides separate.',
         'The count is the story here: 301 on this company alone, which makes it a costing-run gap rather than a handful of exceptions.',
         'Fix the cost roll, and a whole class of future variance never gets created.'
       ],
@@ -371,7 +371,7 @@ window.__rrSeedReady = (function seedSession(){
       points:[
         'A missing or contradictory conversion makes an item&rsquo;s quantity mean different things on the two sides of the reconciliation.',
         'Small counts, disproportionate effect &mdash; a bad conversion multiplies through every transaction on that item.',
-        'Two rows is a morning&rsquo;s work in JDE. Left alone it is a recurring, unexplainable variance.'
+        'Two rows to correct at source. Left alone, the same variance comes back every period.'
       ],
       kicker:'The data is trustworthy now. Time to work the variances.'
     },
@@ -384,8 +384,8 @@ window.__rrSeedReady = (function seedSession(){
       intro:'A $7,118 variance where the GL posted two entries that cancel and neither reached inventory.',
       points:[
         'The analyzer resolves every inventory DMAAI behind this card against the model: <b>8 of 8 are off it</b>.',
-        'All eight route to 4240, Cost of Goods Sold, where the model expects 4152 &mdash; Finished Goods and Purchased Parts Inventory.',
-        'That is the cause, not a symptom. Point the Inv DMAAI at the inventory account per GL class and the card stops coming back.'
+        'The table gives each one side by side: the account the DMAAI points at, and the inventory account the model names for that GL class. They differ on every row.',
+        'That is the cause, not a symptom. Point the inventory DMAAI at the account the model names for that GL class and the card stops coming back.'
       ],
       kicker:'Andy writes what he found so the next person does not re-derive it.'
     },
@@ -395,8 +395,8 @@ window.__rrSeedReady = (function seedSession(){
       eyebrow:'Record it once',
       intro:'The finding is already drafted from the evidence on screen &mdash; Andy reads it and saves.',
       points:[
-        'What was checked, what was found, and what prevents recurrence &mdash; in his words, against his data.',
-        'It saves to the record, not to a spreadsheet on his desktop.',
+        'What was checked, what was found, and what stops it recurring &mdash; drafted from the evidence, his to edit before it saves.',
+        'One action. The finding attaches to the card it came from.',
         'Prevention is the deliverable. The journal entry that clears this period belongs to accounting.'
       ],
       kicker:'<b>Click Save</b>, then Next &mdash; watch the card on Home.'
@@ -434,7 +434,7 @@ window.__rrSeedReady = (function seedSession(){
       points:[
         'Validate in JDE first &mdash; export the item ledger and sum it against the on-hand.',
         'If JDE is wrong, fix it there and record it; RR clears on the next refresh.',
-        'If RR is wrong and JDE ties, sync the difference. The order matters: never adjust away a real break.'
+        'If RR is wrong and JDE ties, clear the variance here. Either way it is reversible.'
       ],
       kicker:'Now Andy shows what he did.'
     },
@@ -447,7 +447,7 @@ window.__rrSeedReady = (function seedSession(){
       points:[
         '<b>Audit report</b> &mdash; the period&rsquo;s accounts summary, batches, transactions and physical inventory, one company per page.',
         '<b>Period Activity</b> &mdash; the findings trail, grouped by who wrote it.',
-        'Built in the browser from what is already on screen. Nothing is re-queried and nothing is re-typed.'
+        'Built from what is already on screen. Nothing is re-keyed.'
       ],
       kicker:'One company down. The same checks run across the rest.'
     },
@@ -462,7 +462,7 @@ window.__rrSeedReady = (function seedSession(){
       points:[
         'Data Health, Transaction Variance, Cardex and the Audit Center all follow the company he picks.',
         'Summit Industrial Ltd. is a cleaner set &mdash; fewer variance cards, and its UOM conversions come back clean.',
-        'The point is the workflow is identical. Nothing here is configured per company by hand.'
+        'The workflow is identical. Nothing was set up per company to make that happen.'
       ],
       kicker:'That is the analyst&rsquo;s day.'
     },
@@ -473,7 +473,7 @@ window.__rrSeedReady = (function seedSession(){
       points:[
         'Andy keeps inventory and the GL in step, and records why they drifted.',
         'What clears the GL this period &mdash; the journal entry &mdash; is Angie&rsquo;s work, not his.',
-        'One hands to the other with the evidence attached; nothing falls between them.'
+        'The evidence goes with the handoff, so Angie is not starting from the number alone.'
       ],
       kicker:'<b>Angie</b> is up next &mdash; hit <b>Exit</b> to hand off.'
     }

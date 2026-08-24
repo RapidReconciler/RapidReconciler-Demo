@@ -50,6 +50,44 @@ capture supports adding one later with no re-record).
 | 13 | Same checks, next company | home (co 80008) | `#analystDayBriefTop` |
 | 14 | Where the analyst stops | home | — |
 
+### The beat copy was reviewed against the recording (2026-08-23, UI-120)
+
+Every figure in the 14 beats was re-derived from `recording-demo1.json` rather than
+trusted. **All of them tie**: excluded classes SUPP $111,904.04 + NS40 $28,442.12 =
+**$140,346.16** to the cent (and the other three excluded classes are $0, so "two GL
+classes carry value" is exact); frozen cost **301** on 80002; GL class **5**; UOM **2**;
+cardex **3** items on 80002; SI-146048 at **500 EA / $550**, QOH **75,457**, on-hand
+value **$83,002.70**.
+
+**One beat was wrong, and it was the strongest one.** Beat 7 read *"All eight route to
+4240, Cost of Goods Sold, where the model expects 4152 &mdash; Finished Goods and
+Purchased Parts Inventory."* **4240 and 4152 are DMAAI TABLE numbers, not GL accounts.**
+`aai-analysis-latest` rows carry `aaiNumber` (the table) separately from `objAccount`
+(the account), and `model-baseline` rows carry `TableNumber: 4152` next to an
+`AccountDescription` &mdash; the two account descriptions had been lifted off those rows
+and glued to the table number. Worse, **company 80002 has no 4240 rows in the Inventory
+module at all**: 4240 appears only under Sales (578 rows on 80002, 30 on 80008), and the
+analyzer compares Inventory DMAAIs against the 4152 PI model.
+
+The real shape, measured: the model points at 14-series inventory accounts (147272,
+140909, 141818, 144545, 145454); the mismatching DMAAIs point at 5-series accounts
+(524996 &times;370, 510415 &times;123, 520830 &times;44, ...). Which specific eight rows
+this card resolves could not be determined from the recording, so the replacement copy
+points at the on-screen routing table instead of naming accounts. **Do not put account
+numbers back into that beat without deriving them from the card.**
+
+Twelve other lines were changed: a roll-forward break was described as "F0911 and F0902
+disagree at the source" (it is the RR-side incremental-load gap &mdash; repost, then
+Reload GL, per `reference_f0911_incremental_load_reload_gl`); "never adjust away a real
+break" was the law-enforcement framing the owner cut from the cardex Adjust flow and the
+roll-forward band; the save beat said the finding was in Andy's words one line after
+saying it was auto-drafted; and the two lines the owner had already flagged &mdash; the
+spreadsheet swipe and the invented "a morning's work in JDE" &mdash; are gone.
+
+Verified: esprima-clean, 14 beats intact, and both `:8770` and `:8772` serve the new
+strings with none of the old ones. **Not yet walked in a browser** &mdash; the change is
+text-only inside `points:[]` literals and no spotlight or action was touched.
+
 ### Four defects found while building the beats, all fixed
 
 1. **`savePtrs()` in `replay-shim.js` replaced the pointer map instead of merging it.**
@@ -82,7 +120,122 @@ two reads Home's boot spends plus the tab click. Insert a Home visit between bea
 9, or reorder them, and a before-state read is spent early — the card then flips before
 the presenter touches Save, which is the "appears to work" the owner ruled out.
 
-## DEMO2 RECORDED (2026-08-22)
+## DEMO2 RE-RECORDED (2026-08-24) — this is the live capture
+
+`publish/capture/recording-demo2.json` — **48,933,404 bytes, 78 entries / 56 signatures**,
+built into `bundle-demo2/` and served on **:8772**. Companies **80003 Harbor Wholesale
+Supply**, **80010 Nationwide Trading**, **80041**, periods **2026-03-31** and
+**2026-02-28**. **All 8 beats walked offline with `misses()` empty at every stage.**
+
+### The Period Activity defect was misdiagnosed, and the real cause is one line
+
+It was recorded as "the Audit Center had no completed reviews." The actual gate is in
+`_auditFromCard` (`RRV8/home.html`): `if (st !== 'complete') return null;`. Demo2's only
+resolution was status `open`, so it produced no audit entry at all. Demo1's PDF worked
+because that database carried **two `complete` resolutions plus an approved DMAAI model**,
+and the model approval enters through `_auditFromModelApproval` with `standing: true`,
+which exempts it from the company/period filter. Seeding the activity log alone would
+have fixed nothing.
+
+Database prep applied to `RapidReconciler_Demo2` before the walk: the `80003 / PER /
+2026-02-28` resolution deleted (there is **no delete endpoint** — see UI-122); `VCHR`
+($42,258.57) and `IAC` ($413.97) seeded `complete` on `80003 / 2026-02-28` using card
+codes and amounts read out of `RCardexLedgerCompare2`; three dated `RAdminActivity` rows;
+and the DMAAI model approved through `POST /inventory/integrity/model-approval`, which is
+honest for Demo2 since it excludes zero GL classes. Result: **"Downloaded Period Activity
+(PDF) — 3 entries"**, live and offline.
+
+### The 8 beats, every figure measured
+
+| # | Beat | Surface | What it shows |
+|---|---|---|---|
+| 1 | Where you stand today | Home, 80003 | Day brief leads |
+| 2 | Every account rolls forward | `inventory-account-rollforward.html?company=80003` | Clean, AI says nothing to correct |
+| 3 | GL class disagrees with itself | Home → `[data-intg-view="glclass"]` | **4 items, `Branch ≠ Location`** |
+| 4 | The two-month variance | `?company=80003&card=PER&period=2026-02-28&expect=4` | Analyzer: 4 DMAAIs, none off the model |
+| 5 | Record it once | drill page | Save the 1,970-char auto-draft |
+| 6 | On the record | Home | Card flips to YOUR RECORDED FINDING |
+| 7 | Two reports, no assembly | Audit Center | 3 entries, two actor groups |
+| 8 | Nothing needs your attention | Home, **80041** | "No variance in scope" |
+
+**Beat 3 is NOT Demo1's story.** Demo1's GL-class beat was item-level vs branch-level.
+Demo2's four rows are **branch class vs location class** (three of them 6101 vs 6102, one
+7358 vs 6101), all in branch B002465. Do not reuse Demo1's wording.
+
+**Beat 4 inverts Demo1 deliberately.** The analyzer clears the configuration —
+*"4 inventory DMAAIs checked — no account mismatch. This rules out mapping only; it does
+not explain the variance."* That is what leaves timing as the cause and lands on INV-5.
+The routing table labels its own columns MODEL TABLE `4152 PI` and MODEL ACCT `1228`,
+which is exactly the distinction Demo1's beat 7 got wrong.
+
+**Beat 8 is company 80041, not 80010.** 80010 is not clean: it carries $21K of recurring
+purchasing residual across both periods and its brief ranks the two. 80041 has zero
+variance rows and zero on every integrity check, and its brief reads *"Feb 28, 2026 is
+clean … mark the period reviewed and move on."*
+
+### The rail is built (2026-08-24) — two files, not one
+
+Owner ruled the three demo databases get **three separate tour pages**, not one
+parameterised template. That is **two files per demo**, because `tour/index.html`
+also hardcodes its database and signs you in before routing by role.
+
+| File | What it is |
+|---|---|
+| `tour/analyst-demo2.html` | The 8-beat rail. Seeded `RapidReconciler_Demo2`, fallback port **45585**, company **80003**, all six licensed companies in the token (the footer chip renders the full roster, and the walk that produced the recording ran with the same six). |
+| `tour/index-demo2.html` | The Demo2 front door. Offers the **analyst only** — the administrator walk was recorded against Demo1, and pointing at it from a Demo2 session would replay Demo1 chrome over a Demo2 token. |
+
+`build-demo.ps1` gained **`RR_TOUR_VARIANT`**. Set it alongside `RR_BUNDLE_DIR` and
+the matching `index-<variant>.html` is copied over `index.html`, so each bundle's
+front door signs you into its own database:
+
+```
+$env:RR_BUNDLE_DIR='bundle-demo2'; $env:RR_TOUR_VARIANT='demo2'
+.\publish\build-demo.ps1 -Recording .\publish\capture\recording-demo2.json
+```
+
+It **throws** rather than shipping a bundle whose front door points at the wrong
+database. Demo1 is unaffected: the variable is only read when set.
+
+**Verified 2026-08-24** by walking the tour's own Next button on :8772 — all 8 beats,
+`misses()` empty at every one, every spotlight on a visible element, the analyzer
+re-spotlit after its own click clears it, the Save click flipping the card to YOUR
+RECORDED FINDING, and the front door handing off to `analyst-demo2.html` on
+`RapidReconciler_Demo2` / co 80003.
+
+**Residual footgun:** every bundle still stages every tour page, so
+`:8772/analyst.html` is Demo1's rail on Demo2's recording — a wall of misses if
+anyone types it. Nothing links to it. Tracked as UI-126; the better fix is for each
+rail to assert its expected database on entry, which also protects Demo3 and Angie.
+
+---
+
+### Two tooling defects found during the re-record
+
+1. **`merge-recording.ps1` corrupts a large base.** Merging a one-entry delta spliced the
+   new entry **inside another entry's escaped body string**, at char 41,666,807 — it
+   matched a `},{"` sequence occurring in the payload data and treated it as an entry
+   boundary. The output parsed in neither Python nor the browser, and the browser symptom
+   was `fetch('/recording.json')` returning **4 bytes of `null`** while `curl` returned
+   the full 48.9 MB. Repaired by excising the spliced text (the base then parsed at
+   exactly the pre-merge byte count, which proved the excision) and appending the entry
+   as a real object. **Do not use this script on a base whose bodies contain `},{"`
+   until it is fixed.**
+2. **The 5b dedupe snippet eats the save-and-reflect sequence.** Consecutive-identical
+   dedupe collapsed `[before ×3, after ×4]` to `[before, after]`, which would flip the
+   card on Home's own boot. The signature has to be exempted. Written up in the walk
+   below; 5c warns about the count but not that 5b destroys it.
+
+### Also corrected here
+
+`capture-walk.md` §0.2 points the AI health check at the agent (`localhost:34537`). **AI
+lives on VALC**: `GET http://localhost:8080/api/v1/ai/health?db=<db>`. Without the `db`
+parameter it answers `maxLevel: "off"` from the unauthenticated caller path, which reads
+as a blocker and is not one — all three demo databases are `full`.
+
+---
+
+## DEMO2 RECORDED (2026-08-22) — superseded, kept as the record of the defect
+
 
 `publish/capture/recording-demo2.json` — 88 entries / 62 signatures / 54 MB, built into
 `bundle-demo2/` and served on **:8772**. Companies **80003 Harbor Wholesale Supply**,

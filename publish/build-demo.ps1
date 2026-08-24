@@ -222,6 +222,22 @@ if (Test-Path $TourDir) {
     New-Item -ItemType Directory -Path $dstAssets -Force | Out-Null
     Copy-Item (Join-Path $tourAssets '*') -Destination $dstAssets -Recurse -Force
   }
+  # Per-database front door. Every tour page is staged into every bundle (they are
+  # inert unless opened), but index.html is what launch.ps1 opens, and each bundle
+  # serves exactly one database. Without this the Demo2 bundle's front door signs
+  # you in as Demo1 and hands off to Demo1's rail -- correct data under a wrong
+  # label, which is the failure mode the tour seed comments already warn about.
+  # Set RR_TOUR_VARIANT=demo2 alongside RR_BUNDLE_DIR=bundle-demo2.
+  $variant = $env:RR_TOUR_VARIANT
+  if ($variant) {
+    $variantIndex = Join-Path $TourDir "index-$variant.html"
+    if (Test-Path $variantIndex) {
+      Copy-Item $variantIndex -Destination (Join-Path $BundleDir 'index.html') -Force
+      Write-Host "  front door: index-$variant.html -> index.html" -ForegroundColor Green
+    } else {
+      throw "RR_TOUR_VARIANT='$variant' but $variantIndex does not exist. Refusing to ship a bundle whose front door points at the wrong database."
+    }
+  }
   Write-Host "  staged presenter tour: $((Get-ChildItem -Path $TourDir -Filter '*.html').Count) pages + assets" -ForegroundColor Green
 }
 
