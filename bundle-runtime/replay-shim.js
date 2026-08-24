@@ -53,6 +53,22 @@
 
   // sig -> { entries: [entry,...], ptr: n }
   var index = {};
+  // ref -> body, for recordings written in format v2. A walk loads the same
+  // multi-megabyte grid dozens of times; v2 stores each distinct body once and
+  // every entry points at it. Resolution is LAZY, by reference: rehydrating the
+  // pool back onto the entries would put the pre-pool size (349 MB on the Demo1
+  // walk) into browser memory and defeat the whole point. Strings are immutable
+  // in JS, so 74 entries sharing one ref cost one copy.
+  var bodies = {};
+  // v1 recordings carry the body inline and no pool. Both shapes replay.
+  function bodyOf(entry) {
+    if (!entry) return '';
+    if (entry.bodyRef != null) {
+      var b = bodies[entry.bodyRef];
+      return b == null ? '' : b;
+    }
+    return entry.body == null ? '' : entry.body;
+  }
   var missCounts = {};   // sig -> count
   // sig -> the REQUEST body that missed. A signature alone names the path and a
   // body hash, which is not enough to fix a gap: you cannot tell WHICH report a
@@ -153,6 +169,7 @@
 
   function buildIndex(recording) {
     index = {};
+    bodies = (recording && recording.bodies) || {};
     var entries = (recording && recording.entries) || [];
     for (var i = 0; i < entries.length; i++) {
       var e = entries[i];
@@ -196,10 +213,11 @@
   function materialize(entry) {
     var ct = entry.contentType || (entry.encoding === 'base64'
       ? 'application/octet-stream' : 'application/json');
+    var raw = bodyOf(entry);
     if (entry.encoding === 'base64') {
-      return { bodyInit: base64ToBytes(entry.body), contentType: ct, isBinary: true };
+      return { bodyInit: base64ToBytes(raw), contentType: ct, isBinary: true };
     }
-    return { bodyInit: entry.body == null ? '' : entry.body, contentType: ct, isBinary: false };
+    return { bodyInit: raw, contentType: ct, isBinary: false };
   }
 
   // ---- dev overlay -------------------------------------------------------
@@ -335,7 +353,7 @@
       var status, ct, encoding, rawBody;
       if (entry) {
         status = entry.status; ct = entry.contentType || 'application/json';
-        encoding = entry.encoding; rawBody = entry.body;
+        encoding = entry.encoding; rawBody = bodyOf(entry);
       } else {
         showMiss(sig, self._method, body);
         var mr = missResponse(self._method);
@@ -379,9 +397,20 @@
     // and a verification walk that reads the counts but not the dataset cannot
     // tell a correct run from one served out of the wrong recording.
     stats: function () {
-      var n = 0; for (var k in index) n += index[k].entries.length;
-      return { db: loadedDb || null, file: loadedFile || null,
-               signatures: 0 + Object.keys(index).length, entries: n };
+      var n = 0, bad = 0, k, i, es;
+      for (k in index) {
+        es = index[k].entries; n += es.length;
+        for (i = 0; i < es.length; i++) if (es[i] && es[i].decodeFailed) bad++;
+      }
+      var refs = 0, chars = 0, r;
+      for (r in bodies) if (Object.prototype.hasOwnProperty.call(bodies, r)) { refs++; chars += String(bodies[r]).length; }
+      var o = { db: loadedDb || null, file: loadedFile || null,
+                signatures: 0 + Object.keys(index).length, entries: n,
+                format: refs ? 2 : 1, distinctBodies: refs, pooledChars: chars };
+      // A body the capture failed to decode replays as an empty 200. That is the
+      // silent-wrong shape, so it is counted here rather than left to be noticed.
+      if (bad) o.decodeFailedEntries = bad;
+      return o;
     },
     misses: function () { var o = {}; for (var k in missCounts) o[k] = missCounts[k]; return o; },
     // The request body behind each miss. Pair with misses() when a gap needs

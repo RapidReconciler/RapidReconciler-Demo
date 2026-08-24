@@ -128,15 +128,41 @@ Transaction Variance" instead of "connected, numbers current to Aug 28,
 To capture a second scope of a once-per-session read: `sessionStorage.clear()`,
 set the scope, reload. Do this for each scope the tour will visit.
 
-### 0.2 AI must return 200, not 403
+### 0.2 AI must return 200 — and the health check is a VALC route, not an agent one
 
 `POST /api/v1/ai/explain` is the demo centerpiece. Confirm it answers
 before capturing AI surfaces, or you will record 403s where Opus
-(`claude-opus-4-8`) answers belong. Quick check from a :8765 page:
-`fetch('http://localhost:34537/api/v1/ai/health',{headers:{Authorization:'Bearer '+localStorage.rrv8.token}})`
-should be 200, and a small `ai/explain` POST should return a real body.
-Note `claude-opus-4-8` rejects a `temperature` param (400 → VALC 502) —
-omit it.
+(`claude-opus-5`) answers belong.
+
+**Do not ask the Services agent.** It does not serve `/api/v1/ai/health`
+on any port — it answers **403** there. That is the same status a real
+tier block returns, so the check this section used to prescribe fails its
+own criterion by construction. Ask VALC, and pass the active database:
+
+```
+curl "http://localhost:8080/api/v1/ai/health?db=RapidReconciler_Demo3"
+-> {"configured":true,"model":"claude-opus-5","maxLevel":"full"}
+```
+
+**`?db=` is not optional for the answer to mean anything.**
+`AiController.health` (`@RequestParam(required = false) String db`)
+resolves the tier from the database's owning client; with no `db` it
+falls back to the unauthenticated caller's tier and answers
+`maxLevel:"off"`, which also reads as a hard blocker and is not one.
+
+Measured 2026-08-24 on this box, every call run:
+
+| Call | Answer |
+|---|---|
+| `:34537/api/v1/ai/health` (agent) | **403** |
+| `:8080/api/v1/ai/health` (no `db`) | 200, `maxLevel:"off"` |
+| `:8080/...?db=RapidReconciler_Demo1` | 200, `maxLevel:"full"` |
+| `:8080/...?db=RapidReconciler_Demo2` | 200, `maxLevel:"full"` |
+| `:8080/...?db=RapidReconciler_Demo3` | 200, `maxLevel:"full"` |
+
+Then confirm a small `ai/explain` POST returns a real body. The model is
+**`claude-opus-5`** (`AiService.MODEL`), and it rejects `temperature`,
+`top_p` and `top_k` (400 → VALC 502) — omit them.
 
 ### 0.3 The dev stack is up
 
@@ -283,9 +309,13 @@ control the filename and don't lose the tab to the auto-close race:
 ```js
 // 1. inspect first (the Save button auto-closes the tab after ~900ms)
 window.__demoCapture.count();
+window.__demoCapture.size();   // { entries, distinctBodies, pooledChars, savedPct, decodeFailures }
 // 2. download with an explicit filename
 window.__demoCapture.download('recording-demo3.json');
 ```
+
+`size().decodeFailures` must be **0**. Anything else means at least one response
+was recorded as a hole with a 200 on it; re-walk that screen before saving.
 ```
 POST http://localhost:8080/api/services/capture/stop   // restores the RR App on :8765
 ```
@@ -315,56 +345,115 @@ powershell -ExecutionPolicy Bypass -File recording-sink.ps1 -Port 8791 -OutFile 
 then from the walk tab:
 
 ```js
-await fetch('http://localhost:8791/save', { method:'POST',
-  headers:{'Content-Type':'application/json'}, body: JSON.stringify(rec) });
+await window.__demoCapture.saveTo('http://localhost:8791/save');
+// -> { posted: 200, entries: 115, bodies: 43 }
 ```
+
+**Use `saveTo()`, not your own fetch.** The shim records every network call, so a
+page-level POST of the recording ends up IN the recording: the first Demo3 walk
+shipped a `POST /save` entry that way. `saveTo()` suppresses recording for the
+duration of its own request, so it cannot happen.
 
 The sink is a `System.Net.HttpListener` with permissive CORS that writes
 one request body to a file and exits.
 
-### 5b. DEDUPE before you save, or the recording is ten times too big
+**Use `reconciled()`, not `dump()`.** `dump()` returns the in-memory buffer
+only. The recording accumulates across page navigations through IndexedDB, and
+the union of the in-memory buffer with the persisted snapshot is what
+`download()` builds and what `reconciled()` now exposes. Exporting `dump()` on a
+multi-page walk can silently ship one page short — `count()` looks right a
+tick earlier, which is exactly why it goes unnoticed.
 
-The raw buffer for the Demo1 analyst walk was **349 MB** across 553
-entries. The cause is one endpoint: `POST /inventory/transactions`
-returns the full grid (5,341 rows for co 80002, ~4.5 MB) and the walk
-loaded it 74 times. Collapsing **consecutive byte-identical** responses
-per signature took it to 86 entries / 40 MB with no loss of meaning:
+### 5b. Size is handled in the shim now — do NOT hand-dedupe
 
-```js
-function fnv(s){ let h=0x811c9dc5; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=(h*0x01000193)>>>0; } return h.toString(16); }
-const last = {}, kept = [];
-(window.__demoCapture.dump().entries||[]).forEach(e => {
-  const fp = fnv(e.body||'') + ':' + (e.body||'').length + ':' + e.status;
-  if (last[e.sig] === fp) return;          // consecutive identical -> drop
-  last[e.sig] = fp; kept.push(e);
-});
-```
+**There is no dedupe step in this procedure any more. If you find yourself
+pasting a "drop consecutive identical responses" snippet into the console,
+stop: you are re-introducing a defect that has already been fixed.**
 
-**Consecutive only.** A blanket "keep one per body" would also drop a
-before-state that legitimately recurs after an after-state, and the
-replay pointer walks the sequence in order — see 5c.
+The problem was real. The raw buffer for the Demo1 analyst walk was **349 MB**
+across 553 entries, because `POST /inventory/transactions` returns the full grid
+(5,341 rows for co 80002, ~4.5 MB) and the walk loaded it 74 times.
+
+The old fix was a console snippet that dropped consecutive byte-identical
+responses per signature. It got the size down to ~40 MB, and it was **lossy in
+the one place that matters** — see 5c: a save-and-reflect beat depends on the
+exact NUMBER of before-state reads, and the snippet collapsed
+`[before x3, after x4]` to `[before, after]`, which flips the card on the next
+page's own boot. That is the "appears to work" failure the ordering rule exists
+to prevent, and it was two paragraphs above the warning about it.
+
+`record-shim.js` now solves it losslessly with a **body pool** (recording format
+v2). Every distinct response body is stored once under `bodies`, and each entry
+carries a `bodyRef` into it. Nothing is ever dropped, so:
+
+- sequence lengths are preserved **structurally** — there is no exemption list
+  for anyone to forget;
+- the 74 grid loads cost one copy of the grid, not 74;
+- `replay-shim.js` resolves `bodyRef` lazily, so the pre-pool size never lands
+  in browser memory at replay either.
+
+v1 recordings (inline `body`, no pool) still replay unchanged — `bodyOf()`
+prefers `bodyRef` and falls back to `body` — so `recording-demo1.json` and
+`recording-demo2.json` need no re-record.
+
+**The size is on the Save button.** It reads
+`⬇ Save recording (86 · 40.2 MB)` — entry count and pooled megabytes,
+live. Both numbers used to be invisible until after the save, which is how a
+349 MB buffer got produced twice. `__demoCapture.size()` reports the same thing
+plus `savedPct` and `distinctBodies`.
+
+**Watch the Save button for `DECODE FAIL`.** A response the shim cannot decode
+used to be swallowed into an empty string and recorded as a successful 200 —
+a hole that replays as an empty body with nothing anywhere to say so. It is now
+counted, logged loudly, and marked on the entry (`decodeFailed: true`), and
+`__demoReplay.stats()` reports `decodeFailedEntries` on the replay side. Any
+non-zero count means re-walk that screen; do not build a bundle from it.
 
 ### 5c. A save-and-reflect beat is a COUNT, not just an order
 
-`replay-shim.js` serves a signature's entries in capture order and
-sticks on the last. So the number of before-state entries has to equal
-the number of reads that happen **before** the presenter clicks Save.
-Measured on Demo1: Home's boot reads
-`GET /inventory/txv/resolutions?company=<co>` **twice**, and the
-Transaction Variance tab click reads it a third time. `[before, after]`
-therefore showed the recorded finding before anything was saved.
+`replay-shim.js` serves a signature's entries in capture order and sticks on the
+last. So the number of before-state entries has to equal the number of reads that
+happen **before** the presenter clicks Save. Measured on Demo1: Home's boot reads
+`GET /inventory/txv/resolutions?company=<co>` **twice**, and the Transaction
+Variance tab click reads it a third time. `[before, after]` therefore showed the
+recorded finding before anything was saved.
 
-Two tools exist for this now:
+The pool (5b) means a normal walk now preserves this for free — the counts are
+whatever the walk actually did. Measured on the two shipped recordings: 9
+multi-entry signatures each, `txv/resolutions?company=80003` carrying 7
+(before x3, after x4). Two tools remain for when a count still needs checking:
 
-- `__demoReplay.served('txv/resolutions')` prints which sequence
-  position each signature has served, in call order. Measure, don't
-  guess.
-- `publish/capture/tune-save-sequence.ps1` duplicates the first entry of
-  one signature N times, as a text splice (no 50 MB JSON round-trip).
+- `__demoReplay.served('txv/resolutions')` prints which sequence position each
+  signature has served, in call order. Measure, don't guess.
+- `publish/capture/tune-save-sequence.ps1` duplicates the first entry of one
+  signature N times, as a text splice. **Last resort.** If a count is wrong the
+  honest fix is to re-walk the beat, because a duplicated entry is a fixture, not
+  a capture.
 
-And the shim persists its pointers in `sessionStorage`, so a save on one
-page reflects after navigating to another. Call
-`__demoReplay.resetSequence()` to rewind a run.
+And the shim persists its pointers in `sessionStorage`, so a save on one page
+reflects after navigating to another. Call `__demoReplay.resetSequence()` to
+rewind a run.
+
+### 5c-2. Merging chunks: use merge-recording.ps1, and read what it prints
+
+`merge-recording.ps1 -Base <master> -Delta <chunk> -Out <master>` appends only
+the signatures the base has never seen, so an existing signature's sequence is
+never disturbed. `-Refresh <path prefixes>` is the narrow exception for a surface
+whose data genuinely changed — never for a signature whose sequence a beat
+depends on.
+
+It locates the entries array by a string-aware structural scan, not by searching
+for a `]}` tail, and it reads signatures the same way. The old textual version
+spliced a new entry at char 41,666,807 of the 48.9 MB Demo2 base — inside
+another entry's escaped body — because that file ends
+`..."}],"session":"..."}`, so `entries` is not the last key and there is no `]}`
+at the tail to find. The output parsed in neither Python nor the browser, and the
+browser symptom was `fetch('/recording.json')` returning **4 bytes of `null`**
+while `curl` returned the whole file, which reads as a server bug and is not one.
+
+It verifies its own output and exits 1 if the entry count is wrong, so trust the
+final line, and note that it inlines a v2 delta's pooled bodies into the appended
+entries (a mixed file replays fine).
 
 ### 5d. Stop the bundle server before running build-demo
 
