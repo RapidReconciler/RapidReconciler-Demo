@@ -650,39 +650,64 @@ cards with **Angie / accountant** recommended next. build-demo globs `tour/*.htm
 
 ## Remaining / follow-ups
 
-1. **Offline miss-verify** — rebuild the bundle with a Demo1 recording, serve, walk beats
-   1-4, confirm `__demoReplay.misses()` == {} on each. Blocked this session: `bundle/` was
-   locked by a pre-existing server (:8770 serve.ps1 / :8811, access-denied — owner frees it,
-   then rebuild). The tour CODE is done; this is the last check.
-2. **Variance beats (the analyst's signature)** — after the Transaction Variance + Cardex
-   capture chunk lands, add beats between #3 and the handoff: find a variance → validate vs
-   JDE → decide (source-fix vs disposition / record vs adjust). Slot into `steps[]`; the map
-   gains a "Work the variances" responsibility. This is the meat of the analyst story.
-   **ATTEMPTED 2026-07-23, REVERTED — blocker found.** Authored a Transaction Variance beat
-   on `inventory-transactions.html?company=30001` spotlighting `.tx-analyzer` (the DMAAI
-   Analyzer: "3 routing mismatches" — inventory relieved to 4240 not the model's 4152; source
-   fix = align the Inv DMAAI). Captured `txv-co30001` full (a strong finding) + wired an
-   `openAnalyzer()` onEnter. **But it does NOT replay clean:** on the offline bundle the DMAAI
-   Analyzer shows **"Routings match"** (empty) instead of "3 routing mismatches", and the txv
-   page throws **3 intermittent `/inventory/integrity` misses** (hashes `3c7f4a47`/`7f3dd8a0`/
-   `f972d448`) whose bodies are NOT in the capture buffer (capture fires `5227a455`/`f5e44dd8`/
-   `cf11097a` instead — a body-determinism mismatch, same class as the session-global gotcha).
-   The DMAAI Analyzer appears to fire integrity POSTs whose body differs capture-vs-replay
-   (and/or computes the mismatch set client-side from data that doesn't replay identically),
-   so the analyzer lands on the WRONG verdict offline. **A beat that shows "all clear" when the
-   story is a recurring problem is worse than no beat**, so it's reverted until the txv analyzer
-   replays faithfully. **Next-session task:** re-add the miss-body logger to the replay shim,
-   read the 3 replay bodies, diff them against the captured txv integrity bodies to pin the
-   varying field, then either make the analyzer's integrity body deterministic or capture the
-   exact bodies the analyzer requests on open. The beat copy + `openAnalyzer` helper are in git
-   history at the reverted commit's parent (search `tour/analyst.html` for `key:'variance'`).
-3. **Archetype → DB binding** — the front door's archetype picker (Summit/Harbor/Golden) is
-   cosmetic today; both index.html and the tours hardcode Demo1. Bind the picked archetype
-   to the seeded DB (Demo1/2/3) so the tour runs the chosen dataset.
-4. **Multi-archetype bundle** — the replay bundle serves ONE recording.json. To let the
-   demo run any archetype, merge `recording-demo{1,2,3}.json` into one bundle recording
-   (companies don't overlap, so a merged recording replays all three cleanly).
-5. **One knowledge source** — the beat talking points are the same knowledge as the UI-40
-   analyst training spine; draw from the one catalog, don't author twice (README design note
-   + `feedback_analytical_knowledge_one_source`).
-6. **Accountant tour** — same pattern, Angie persona; the analyst Exit already hands to it.
+**Rewritten 2026-08-24 (session #56). Items 3 and 4 below used to say the
+opposite of the settled architecture and are struck — they are the same class of
+stale line that sent session #55 rebuilding backwards. Read
+`docs/architecture.md`, `tour/README.md` and `publish/merge-spec.md` first.**
+
+1. ~~**Offline miss-verify**~~ — **DONE.** Demo1, Demo2 and Demo3 have all been
+   walked offline with `__demoReplay.misses()` empty.
+
+2. ~~**Variance beats — blocked by the analyzer not replaying faithfully**~~ —
+   **UNBLOCKED 2026-08-24.** The 2026-07-23 revert reason was that the DMAAI
+   Analyzer showed "Routings match" offline instead of the mismatch, with three
+   intermittent `/inventory/integrity` misses whose bodies were not in the capture
+   buffer. **It does not reproduce.** On the Demo3 recording built into `bundle/`
+   and served on :8770, the analyzer replays **"3 of 3 DMAAIs off the cardex
+   model"** — byte-identical to what it showed at capture — with
+   `misses()` and `missBodies()` both empty. Its routing table also labels its own
+   columns MODEL TABLE `4152 PI` / MODEL ACCT `1121`, which is the distinction
+   Demo1's beat 7 got wrong (UI-120). **The variance beat is buildable on Golden
+   Harvest.** Note the beat copy must be derived from the card on screen, not from
+   remembered account numbers — same rule as UI-120.
+
+3. ~~**Archetype → DB binding — the picker is cosmetic, everything hardcodes
+   Demo1**~~ — **STRUCK. This has been false since UI-127.** `tour/index.html`
+   carries the archetype table and `tour/tour-seed.js` mints a token from it; the
+   archetype **is** the dataset selector.
+
+4. ~~**Multi-archetype bundle — merge `recording-demo{1,2,3}.json` into one
+   bundle recording**~~ — **STRUCK, AND DO NOT DO THIS.** It contradicts option A
+   in `publish/merge-spec.md` and `docs/plans/demo-capture-manifest.md`, and it
+   would reintroduce the cross-DB collision: the DB-global GETs
+   (`available-periods`, `inventory/status`, `cardex-tolerance`, `poll`,
+   `service-health`) carry no company or period, so their signatures are identical
+   across databases and one merged file serves whichever database was captured
+   last. The shipped design is **one recording per database inside one bundle**,
+   selected by `replay-shim.js` from `localStorage['rrv8.activeDb']`. As of
+   2026-08-24 `bundle/recordings.json` lists all three.
+
+5. **One knowledge source** — the beat talking points are the same knowledge as
+   the UI-40 analyst training spine; draw from the one catalog, don't author twice
+   (README design note + `feedback_analytical_knowledge_one_source`).
+
+6. **Accountant tour** — same pattern, Angie persona; the analyst Exit already
+   hands to it. Still unbuilt on all three archetypes (UI-128).
+
+## Golden Harvest (Demo3) — what the data actually supports
+
+Measured 2026-08-24, from SQL and from the live walk. **Demo3's story is not
+Demo1's and not Demo2's**, so do not port beat copy across:
+
+| Surface | Demo3 / 30001 | Contrast |
+|---|---|---|
+| Account Roll Forward | **A real break.** `B000022.1121` off **-£68,972.11** in Jun 2022; F0902 doesn't tie to posted F0911. The AI says "Clear the GL first: run Repost Account Balances (R099102), then Reload GL." | Demo1 carries this as a **passing check** only. This is the corrective version the scope doc said was waiting for Demo3. |
+| DMAAI Analyzer | **3 of 3 inventory DMAAIs off the cardex model.** | Demo2 **clears** the configuration (4 checked, none off). |
+| GL Class Integrity | 2 items, both `Branch ≠ Location`, branch B000023 (SI-122251 Pure Fruit Puree Pail, SI-125829 Farmhouse Malt Syrup Bag Export). | Demo2's shape, **not** Demo1's item-vs-branch. |
+| Excluded GL classes | **None** — model review reads "All GL classes used in inventory are in the model". | Demo1's beat 2 has no Demo3 analog. |
+| Frozen cost / UOM conversion | **Both zero**, shown as "Cleared · 2". | Demo1's 301-item frozen-cost beat and its 2 UOM conversions have no Demo3 analog. |
+| Cardex | Clean — on-hand ties. | And the page opens **empty** on a direct visit; see UI-136 (frozen clock Jul 2026 vs data ending May 2023). |
+| Currency | **GBP (£)** | Both other archetypes are USD. Check any copy that hardcodes a currency symbol. |
+
+Data range: 30001 has 1,950 rows across 16 periods to **2023-05-31**; 30002 has
+143 rows across 12 periods to **2023-04-30**.
