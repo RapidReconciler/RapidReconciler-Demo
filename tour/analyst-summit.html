@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RapidReconciler AI &mdash; Administrator walk</title>
+<title>RapidReconciler AI &mdash; Analyst walk</title>
 <style>
   :root{
     --navy:#1f2d4a; --navy-deep:#16223b; --ink:#1d2431; --muted:#5b6472;
@@ -149,57 +149,24 @@
 <!-- Seed the offline session BEFORE the product iframe boots. Same origin as the
      bundled product, so localStorage is shared. The product runs in staging mode
      (real request paths) and the replay shim answers every call from the recording;
-     this synthetic session just tells the product WHICH database + role to render
-     (Summit Industrial / RapidReconciler_Demo1, Administrator). No signature is
-     verified anywhere — the shim intercepts the network — so an unsigned token is
-     the honest, dependency-free way to establish the demo session offline. -->
+     this synthetic session just tells the product WHICH database + role to render.
+
+     The seed itself lives in tour-seed.js -- ONE table and ONE seeder shared by the
+     front door and all nine role x archetype pages. The nine pages each carry their
+     own beats; none of them carries its own copy of the database wiring, because a
+     page that disagreed with its neighbour rendered one dataset's numbers under
+     another's label. The token carries ALL THREE demo databases with this one
+     active, so the product's DB switcher works offline (docs/architecture.md). -->
+<script src="tour-seed.js"></script>
 <script>
-// The Services port is resolved DYNAMICALLY from VALC's Deployment Center
-// (GET /api/services/agent-port) — the same source AuthController stamps into a
-// real login token's ip — so a stale hardcoded port can never strand the demo when
-// an agent is relaunched on a different DB (the bug this replaces). Falls back to
-// the last-known port ONLY if VALC is unreachable (offline replay, where the port is
-// never contacted — the replay shim matches by request path, not host). Exposes
-// window.__rrSeedReady so the tour waits for the token before loading the first frame.
-window.__rrSeedReady = (function seedSession(){
-  function b64url(o){ return btoa(JSON.stringify(o)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_'); }
-  var DB = 'RapidReconciler_Demo1';
-  var VALC = 'http://localhost:8080';
-  var FALLBACK_PORT = 34537;   // last-known Demo1 port; used only when VALC is unreachable (offline replay)
-  function resolvePort(){
-    // Bounded fetch so an unreachable / slow VALC can't stall the tour's first frame.
-    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    var timer = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(_){} }, 1500) : null;
-    return fetch(VALC + '/api/services/agent-port?db=' + encodeURIComponent(DB),
-                 { cache:'no-store', signal: ctrl ? ctrl.signal : undefined })
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(j){ return (j && j.port) ? j.port : FALLBACK_PORT; })
-      .catch(function(){ return FALLBACK_PORT; })
-      .then(function(port){ if (timer) clearTimeout(timer); return port; });
-  }
-  // Default admin persona — matches the front-door "Enter as Arthur" card so
-  // opening this tour directly (dev) lands as the same person the card mints.
-  return resolvePort().then(function(port){
-    var payload = {
-      user: { fn: 'Arthur Admin', u: 'arthur@rrdemo.com' },
-      dbs: [ { n: DB, ip: 'localhost:' + port, t:{ adm:true }, perms:{ dm:true }, i:['80002','80008'] } ],
-      exp: 2082758400
-    };
-    try {
-      localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
-      localStorage.setItem('rrv8.activeDb', DB);
-      localStorage.setItem('rrv8.viewRole', 'admin');
-      localStorage.setItem('rrv8.aiTier', 'grounded');   // start on Basic — the safe, always-answering tier
-    } catch (e) {}
-  });
-})();
+window.__rrSeedReady = RRTour.seed('summit', 'analyst');
 </script>
 
 <!-- ===================== PRESENTER RAIL ===================== -->
 <aside class="rail" id="rail">
   <div class="rail-top">
     <span class="wordmark">RapidReconciler AI<span class="spark"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6l1.9 5.1a5 5 0 0 0 2.9 2.9l5.1 1.9-5.1 1.9a5 5 0 0 0-2.9 2.9L12 21.4l-1.9-5.1a5 5 0 0 0-2.9-2.9L2.1 11.5l5.1-1.9a5 5 0 0 0 2.9-2.9z"/></svg></span></span>
-    <span class="role-tag">Administrator</span>
+    <span class="role-tag">Analyst</span>
   </div>
 
   <div class="progress">
@@ -239,77 +206,223 @@ window.__rrSeedReady = (function seedSession(){
   // a bundled page (null = keep the current one). `onEnter` runs an action inside
   // the iframe (fire a pill, open the help panel, flip a tier) once it's ready.
   var HOME = 'home.html';
-  // The four tour beats -- the three admin responsibilities plus the hand-off --
-  // as a persistent workflow map shown on EVERY page: the current one lit, past
-  // ones done, each clickable to jump. `step` is the index in `steps` that lights it.
-  // `jump` = step to go to when the item is clicked; `last` = the step index the
-  // item stops being "current" after (the AI spans two steps: plan + ask).
+  // The analyst's three responsibilities + the hand-off, as a persistent workflow
+  // map shown on EVERY page: current lit, past done, each clickable to jump.
+  // `jump` = step to go to when clicked; `last` = the step index the item stops
+  // being "current" after (Data Health spans two steps: the read + the tiers).
   var WORKFLOW = [
-    { id:'ai',      n:'1', label:'Set what the AI can see', tag:'AI Plan',           jump:0, last:1 },
-    { id:'lic',     n:'2', label:'Keep it running',         tag:'Licensing',         jump:2, last:2 },
-    { id:'team',    n:'3', label:'Control who sees what',   tag:'Team &amp; Access', jump:3, last:3 },
-    { id:'handoff', n:'4', label:'Wrap up',                 tag:'Next role',         jump:4, last:4 }
+    { id:'stand',   n:'1', label:'See where you stand',  tag:'Day brief',   jump:0,  last:0  },
+    { id:'trust',   n:'2', label:'Trust the numbers',    tag:'Data Health', jump:1,  last:5  },
+    { id:'work',    n:'3', label:'Work the variances',   tag:'Variance',    jump:6,  last:10 },
+    { id:'prove',   n:'4', label:'Show the work',        tag:'Audit',       jump:11, last:13 }
   ];
 
+  // Every surface below is in recording-demo1.json and was walked offline with
+  // __demoReplay.misses() empty (Demo1, Summit Industrial, co 80002 then 80008).
+  // Figures quoted in the copy are the ones the bundle actually replays — if a
+  // re-record changes them, change the copy in the same commit or the narration
+  // starts contradicting the screen.
+  //
+  // Two beats are CLICK-TO-ADVANCE: the cardex item pick (beat 9, the owner's
+  // "select an item, land on the page") and the day-brief Data Health chip, which
+  // is a real link to Account Roll Forward. Next advances both as well.
+  //
+  // Beats 7 and 8 are one story and must stay adjacent and in order: Save on the
+  // drill page, then RETURN to Home to see the card change. The recording holds
+  // three before-state reads of txv/resolutions and one after, sized to the two
+  // reads Home's boot spends plus the tab click. Reordering them, or adding a Home
+  // visit between 6 and 8, spends a before-state read early and the card flips
+  // before the presenter touches Save.
+  var MODEL = 'accounting-model-review.html?company=80002&db=RapidReconciler_Demo1';
+  var RF    = 'inventory-account-rollforward.html?company=80002';
+  var TXV   = 'inventory-transactions.html?company=80002&card=OFF&period=2025-07-31&expect=14';
+  var CDX   = 'inventory-cardex-variance.html?company=80002&item=SI-146048&branch=P027&dim=qty&method=07';
+
   var steps = [
+    // ---- 1. See where you stand ------------------------------------------
     {
-      key:'aiplan', flow:'ai', caption:'Administrator home', frame:HOME, spot:'#aiPlanManage',
-      eyebrow:'Set what the AI can see',
-      intro:'Click the glowing <b>Manage</b> link to open your AI plan.',
+      key:'standing', flow:'stand', caption:'Analyst home', frame:HOME, spot:'#analystDayBriefTop',
+      onEnter:function(){ setTierSafe('grounded'); },   // Basic — the safe, always-answering read
+      eyebrow:'Where you stand today',
+      intro:'Andy opens to a read of his day. The AI leads, above everything.',
       points:[
-        'Three features &mdash; set each on its own.',
-        'All on Full now; dial any one down, or off.',
-        'The AI only ever sees what you allow.'
+        'One line names what to start with, and why it outranks the rest.',
+        'A card per surface below it &mdash; Data Health, Transaction Variance, Cardex &mdash; each a live status, each clickable.',
+        'Nothing was exported and nothing was keyed. The reconciliation already ran against his own JDE.'
       ],
-      kicker:'Set it, hit <b>Home</b>, and I&rsquo;ll show you the questions.'
+      kicker:'Before working a variance, Andy checks the numbers deserve to be trusted.'
+    },
+    // ---- 2. Trust the numbers --------------------------------------------
+    {
+      key:'model', flow:'trust', caption:'Model DMAAI Review', frame:MODEL, spot:'#excludedCard',
+      eyebrow:'What the model does not cover',
+      intro:'The model DMAAI table decides what gets reconciled at all. Andy reads what it leaves out.',
+      points:[
+        'Two GL classes carry on-hand value the model never claims &mdash; SUPP and NS40, $140,346.16 between them.',
+        'Excluded is not the same as wrong. A class holding no value costs nothing; one holding inventory is a hole in the reconciliation.',
+        'Judged on amount, not on principle &mdash; which is why the dollars sit next to each class.'
+      ],
+      kicker:'Next check: does every account roll forward period to period?'
     },
     {
-      key:'aiask', flow:'ai', caption:'Administrator home', frame:'home.html', spot:'#adminAskBar',
-      eyebrow:'Now put it to work',
-      intro:'Back Home &mdash; this is the daily view.',
+      key:'rollfwd', flow:'trust', caption:'Account Roll Forward', frame:RF, spot:'#rfBrief',
+      eyebrow:'What good looks like',
+      intro:'This is the period-to-period integrity check, and on this company it passes.',
       points:[
-        'Tap a question &mdash; the answer comes from your live data.',
-        'Read the board at a glance: green&rsquo;s clear, amber needs you.',
-        'Every change is logged, newest first.'
+        'Closing balance to opening balance, every account, every loaded period.',
+        'The AI says there is nothing to correct &mdash; the GL balance and the reconciliation variance both rolled forward clean.',
+        'Worth seeing green. A break here means the balances moved and the detail behind them did not &mdash; repost in JDE first, then Reload GL. No journal entry closes it.'
       ],
-      kicker:'Next &mdash; keeping it running.'
+      kicker:'Three checks did NOT come back clean. Those are next.'
     },
     {
-      key:'licensing', flow:'lic', caption:'Administrator home', frame:HOME,
-      spot:'a[href="admin-companies.html"]', subPage:'admin-companies.html', pageSpot:'#js-lic-invoice',
-      eyebrow:'Keep it running',
-      intro:'This part&rsquo;s self-service &mdash; click <b>Manage</b> on the Licensing card.',
+      key:'glclass', flow:'trust', caption:'GL Class Integrity', frame:HOME, spot:'#intgModal',
+      onEnter:function(){ openIntg('glclass'); },
+      eyebrow:'GL class disagrees with itself',
+      intro:'Five items carry one GL class at the item level and another at the branch level.',
       points:[
-        'See exactly when the licence is due.',
-        'Need an invoice? Grab it right there &mdash; no ticket.',
-        'All your entities and currencies &mdash; one licence.'
+        'The class decides which account the cost lands in, so two answers means two possible accounts for one item.',
+        'The fix is in the item and branch records, not in an RR setting &mdash; correct it at source and it stops recurring.',
+        'RR shows the whole balance behind each item, so the fix gets prioritised by money rather than by row count.'
       ],
-      kicker:'Next &mdash; who gets in.'
+      kicker:'Same panel, next check &mdash; frozen cost.'
     },
     {
-      key:'team', flow:'team', caption:'Administrator home', frame:HOME,
-      spot:'#teamUsersRow', subPage:'admin-users.html', pageSpot:'#js-new-user',
-      eyebrow:'Control who sees what',
-      intro:'You decide who&rsquo;s in &mdash; click into <b>Team &amp; access</b>.',
+      key:'frozen', flow:'trust', caption:'Frozen Cost Integrity', frame:HOME, spot:'#intgModal',
+      onEnter:function(){ openIntg('frozen'); },
+      eyebrow:'301 items with no frozen standard',
+      intro:'Items with no frozen standard on file.',
       points:[
-        'Add a person, pick their role &mdash; that&rsquo;s it.',
-        'They set their own password from a secure email link.',
-        'Someone leaves? Remove them just as fast.'
+        'Without a standard the transaction still moves quantity but carries no cost, so the two sides separate.',
+        'The count is the story here: 301 on this company alone, which makes it a costing-run gap rather than a handful of exceptions.',
+        'Fix the cost roll, and a whole class of future variance never gets created.'
       ],
-      kicker:'Open it up, then hit <b>Home</b> to wrap up.'
+      kicker:'One more &mdash; unit-of-measure conversions.'
     },
     {
-      key:'handoff', flow:'handoff', caption:'Administrator home', frame:'home.html',
-      eyebrow:'That&rsquo;s the role',
-      intro:'Three jobs, and none of them heavy.',
+      key:'uom', flow:'trust', caption:'UOM Conversion Integrity', frame:HOME, spot:'#intgModal',
+      onEnter:function(){ openIntg('uom'); },
+      eyebrow:'Two conversions that will not resolve',
+      intro:'Only two items, and they are worth reading anyway.',
       points:[
-        'The AI, the licence, the access &mdash; the admin&rsquo;s whole desk.',
-        'The software &mdash; fixes, upgrades, escalations &mdash; stays with GSI.',
-        'Name an admin before go-live and it&rsquo;s a clean start.'
+        'A missing or contradictory conversion makes an item&rsquo;s quantity mean different things on the two sides of the reconciliation.',
+        'Small counts, disproportionate effect &mdash; a bad conversion multiplies through every transaction on that item.',
+        'Two rows to correct at source. Left alone, the same variance comes back every period.'
       ],
-      kicker:'<b>Andy</b> and <b>Angie</b> are up next &mdash; hit <b>Exit</b> to pick who walks.'
+      kicker:'The data is trustworthy now. Time to work the variances.'
+    },
+    // ---- 3. Work the variances -------------------------------------------
+    {
+      key:'analyzer', flow:'work', caption:'Transaction Variance &middot; Offsetting GL Entries',
+      frame:TXV, spot:'.tx-analyzer',
+      onEnter:function(){ expandAnalyzer(); },
+      eyebrow:'The routing is wrong, and here is the proof',
+      intro:'A $7,118 variance where the GL posted two entries that cancel and neither reached inventory.',
+      points:[
+        'The analyzer resolves every inventory DMAAI behind this card against the model: <b>8 of 8 are off it</b>.',
+        'The table gives each one side by side: the account the DMAAI points at, and the inventory account the model names for that GL class. They differ on every row.',
+        'That is the cause, not a symptom. Point the inventory DMAAI at the account the model names for that GL class and the card stops coming back.'
+      ],
+      kicker:'Andy writes what he found so the next person does not re-derive it.'
+    },
+    {
+      key:'save', flow:'work', caption:'Transaction Variance &middot; record the finding',
+      frame:null, spot:'#tx-findings-draft',
+      eyebrow:'Record it once',
+      intro:'The finding is already drafted from the evidence on screen &mdash; Andy reads it and saves.',
+      points:[
+        'What was checked, what was found, and what stops it recurring &mdash; drafted from the evidence, his to edit before it saves.',
+        'One action. The finding attaches to the card it came from.',
+        'Prevention is the deliverable. The journal entry that clears this period belongs to accounting.'
+      ],
+      kicker:'<b>Click Save</b>, then Next &mdash; watch the card on Home.'
+    },
+    {
+      key:'reflect', flow:'work', caption:'Analyst home', frame:HOME, spot:'a[href*="card=OFF"]',
+      onEnter:function(){ openTab('txvar'); },
+      eyebrow:'On the record',
+      intro:'Same card, one minute later.',
+      points:[
+        'It read <b>Likely cause</b> &mdash; RR&rsquo;s own diagnosis of the pattern.',
+        'It now reads <b>Your recorded finding</b> &mdash; Andy&rsquo;s, with the evidence he checked.',
+        'Anyone opening this period sees the work, not just the number.'
+      ],
+      kicker:'Inventory and the GL are one half. The cardex is the other.'
+    },
+    {
+      key:'cardexpick', flow:'work', caption:'Cardex Variance', frame:HOME, spot:'a[href*="item=SI-146048"]',
+      onEnter:function(){ openCardex(); },
+      eyebrow:'On-hand against the cardex',
+      intro:'Three items where the count and the item ledger disagree.',
+      points:[
+        'Quantity variance and amount variance are separated, because they are different problems with different fixes.',
+        'Item SI-146048 is out by 500 EA, $550 &mdash; a quantity break, not a costing one.',
+        'No account appears here. The cardex is judged on quantity and value first; where it posts comes after.'
+      ],
+      kicker:'<b>Click the item</b> to open it (or Next).'
+    },
+    {
+      // #cxvScope is the page's scope strip: DB, company, item, branch, and the
+      // four figures the decision turns on (qty var, amt var, on hand, value).
+      key:'cardexitem', flow:'work', caption:'Cardex Variance &middot; SI-146048', frame:CDX, spot:'#cxvScope',
+      eyebrow:'One item, both sides',
+      intro:'On hand 75,457 EA at $83,002.70, against a quantity variance of 500 and $550.',
+      points:[
+        'Validate in JDE first &mdash; export the item ledger and sum it against the on-hand.',
+        'If JDE is wrong, fix it there and record it; RR clears on the next refresh.',
+        'If RR is wrong and JDE ties, clear the variance here. Either way it is reversible.'
+      ],
+      kicker:'Now Andy shows what he did.'
+    },
+    // ---- 4. Show the work ------------------------------------------------
+    {
+      key:'audit', flow:'prove', caption:'Audit Center', frame:HOME, spot:'.aud-hdr-actions',
+      onEnter:function(){ openTab('audit'); },
+      eyebrow:'Two reports, no assembly',
+      intro:'Everything Andy and the accountant did this period, as documents.',
+      points:[
+        '<b>Audit report</b> &mdash; the period&rsquo;s accounts summary, batches, transactions and physical inventory, one company per page.',
+        '<b>Period Activity</b> &mdash; the findings trail, grouped by who wrote it.',
+        'Built from what is already on screen. Nothing is re-keyed.'
+      ],
+      kicker:'One company down. The same checks run across the rest.'
+    },
+    {
+      // Spot the day-brief band, NOT the company chip: switchCompany() clicks the
+      // chip, and a click on the spotlit element clears its own glow. The brief is
+      // the better target anyway -- it is the thing that visibly re-scopes.
+      key:'crossco', flow:'prove', caption:'Analyst home &middot; co 80008', frame:HOME, spot:'#analystDayBriefTop',
+      onEnter:function(){ switchCompany('80008'); },
+      eyebrow:'Same checks, next company',
+      intro:'Andy switches company and the whole surface re-scopes.',
+      points:[
+        'Data Health, Transaction Variance, Cardex and the Audit Center all follow the company he picks.',
+        'Summit Industrial Ltd. is a cleaner set &mdash; fewer variance cards, and its UOM conversions come back clean.',
+        'The workflow is identical. Nothing was set up per company to make that happen.'
+      ],
+      kicker:'That is the analyst&rsquo;s day.'
+    },
+    {
+      key:'handoff', flow:'prove', caption:'Analyst home', frame:HOME,
+      eyebrow:'Where the analyst stops',
+      intro:'Find it, prove it against JDE, fix it at the source so it does not come back.',
+      points:[
+        'Andy keeps inventory and the GL in step, and records why they drifted.',
+        'What clears the GL this period &mdash; the journal entry &mdash; is Angie&rsquo;s work, not his.',
+        'The evidence goes with the handoff, so Angie is not starting from the number alone.'
+      ],
+      kicker:'<b>Angie</b> is up next &mdash; hit <b>Exit</b> to hand off.'
     }
   ];
+
+  // Set the AI tier inside the product iframe, defensively (no-op if RRAI isn't
+  // ready yet). Every tier for these surfaces is captured, so any state replays.
+  function setTierSafe(tier){
+    whenReady(function(){
+      var w = fwin();
+      if (w && w.RRAI && typeof w.RRAI.set === 'function'){ try { w.RRAI.set(tier); } catch(e){} }
+    });
+  }
 
   var TIER_BLURB = {
     grounded: '<b>Basic.</b> The AI sees only the figures already on your screen &mdash; nothing else leaves the page.',
@@ -344,6 +457,71 @@ window.__rrSeedReady = (function seedSession(){
     setTimeout(function(){ whenReady(fn, tries + 1); }, 150);
   }
 
+  // ---- beat actions ------------------------------------------------------
+  // whenReady() gates on an ADMIN chrome selector (.admin-ask-pill / .topbar-help),
+  // neither of which exists on the analyst surfaces, so it falls through on a
+  // ~1.8s timer. That is fine for setting a tier and wrong for clicking a control
+  // that only exists once replayed data has painted. whenEl polls for the actual
+  // element instead, so every action below waits for the thing it operates on.
+  function whenEl(sel, fn, tries){
+    tries = tries || 0;
+    var d = fdoc();
+    var el = d && d.querySelector(sel);
+    if (el) { try { fn(el); } catch(e){} return; }
+    if (tries > 100) return;                       // ~15s, then give up quietly
+    setTimeout(function(){ whenEl(sel, fn, tries + 1); }, 150);
+  }
+  function clickIn(sel, then){
+    whenEl(sel, function(el){
+      el.click();
+      // A beat's own action is NOT the presenter clicking the spotlit element, but
+      // _applySpot cannot tell the difference: it attaches a one-shot click listener
+      // that clears the glow, and an action click BUBBLES into it. Measured
+      // 2026-08-20: expandAnalyzer clicks #tx-analyzer-toggle, which sits inside
+      // .tx-analyzer, so the analyzer beat cleared its own spotlight and rendered
+      // with no glow at all while the panel underneath was correct and expanded.
+      // Re-assert the current step's spot once the action has settled.
+      var s = steps[i];
+      if (s && s.spot) setTimeout(function(){ spotlight(s.spot); }, 700);
+      if (then) setTimeout(then, 400);
+    });
+  }
+  // Home's four analyst tabs. data-sv values read off the live markup:
+  // work = Data Health, txvar = Transaction Variance, reports = Cardex, audit = Audit Center.
+  function openTab(sv){ clickIn('[data-sv="' + sv + '"]'); }
+  // Data Health integrity modals. The three uncleared checks on co 80002 are
+  // glclass (5 rows), frozen (301) and uom (2); they render from data the tab
+  // already fetched, so opening one costs no request and cannot MISS.
+  function openIntg(key){
+    clickIn('[data-sv="work"]', function(){
+      whenEl('[data-intg-view="' + key + '"]', function(b){ b.click(); });
+    });
+  }
+  function expandAnalyzer(){ clickIn('#tx-analyzer-toggle'); }
+  // Cardex tab, then expand both variance cards so the item rows are on screen
+  // for the spotlight to land on.
+  function openCardex(){
+    clickIn('[data-sv="reports"]', function(){
+      var d = fdoc(); if (!d) return;
+      Array.prototype.forEach.call(d.querySelectorAll('button'), function(b){
+        if (/Show items/.test((b.innerText || '').trim())) b.click();
+      });
+    });
+  }
+  // The footer company chip. The menu renders company numbers in <span>s rather
+  // than buttons, so match on text within #haCosMenu instead of a control selector.
+  function switchCompany(co){
+    clickIn('#haCosBtn', function(){
+      var d = fdoc(); if (!d) return;
+      var menu = d.getElementById('haCosMenu'); if (!menu) return;
+      var hit = null;
+      Array.prototype.forEach.call(menu.querySelectorAll('*'), function(e){
+        if (e.children.length <= 2 && (e.innerText || '').trim() === String(co)) hit = e;
+      });
+      if (hit) hit.click();
+    });
+  }
+
   function loadFrame(src, after){
     // Compare the step's target page to the page ACTUALLY loaded -- Bud may have
     // navigated the iframe himself (e.g. clicking the Manage link), so the tracked
@@ -370,34 +548,53 @@ window.__rrSeedReady = (function seedSession(){
   // selector) and wipes it on the next step; the product's source is untouched,
   // so demo == product still holds. Selectors couple to product markup -- if one
   // no longer matches, the spotlight silently no-ops (never crashes).
+  // _spotSel = the selector the CURRENT step wants lit. Re-asserts (below) check it
+  // so a re-apply scheduled for a past step can't paint after the step changed.
+  var _spotSel = null;
   function clearSpotlight(){
+    _spotSel = null;
     var d = fdoc(); if (!d) return;
     var el = d.querySelector('[data-demo-spot]');
     if (el) el.removeAttribute('data-demo-spot');
   }
+  function _applySpot(selector){
+    var d = fdoc(); if (!d) return;
+    if (_spotSel !== selector) return;                 // step moved on -- abort
+    if (!d.getElementById('demo-spot-style')){
+      var st = d.createElement('style');
+      st.id = 'demo-spot-style';
+      st.textContent = '[data-demo-spot]{outline:3px solid #f08a24 !important; outline-offset:3px; border-radius:8px !important;'
+        + ' box-shadow:0 0 0 6px rgba(240,138,36,.28), 0 0 22px rgba(240,138,36,.6) !important;'
+        + ' animation:demoSpotPulse 1.6s ease-in-out infinite !important}'
+        + '@keyframes demoSpotPulse{0%,100%{box-shadow:0 0 0 6px rgba(240,138,36,.22),0 0 18px rgba(240,138,36,.5)}'
+        + '50%{box-shadow:0 0 0 9px rgba(240,138,36,.36),0 0 30px rgba(240,138,36,.8)}}';
+      (d.head || d.body).appendChild(st);
+    }
+    var prev = d.querySelector('[data-demo-spot]');
+    var t = d.querySelector(selector);
+    if (prev && prev !== t) prev.removeAttribute('data-demo-spot');
+    if (t && !t.hasAttribute('data-demo-spot')){
+      t.setAttribute('data-demo-spot', '');
+      t.scrollIntoView({behavior:'smooth', block:'center'});
+      // Clicking the spotlit element IS the action -- clear its glow on click.
+      t.addEventListener('click', function(){ clearSpotlight(); }, { once:true });
+    }
+  }
   function spotlight(selector){
-    whenReady(function(){
-      var d = fdoc(); if (!d) return;
-      if (!d.getElementById('demo-spot-style')){
-        var st = d.createElement('style');
-        st.id = 'demo-spot-style';
-        st.textContent = '[data-demo-spot]{outline:3px solid #f08a24 !important; outline-offset:3px; border-radius:8px !important;'
-          + ' box-shadow:0 0 0 6px rgba(240,138,36,.28), 0 0 22px rgba(240,138,36,.6) !important;'
-          + ' animation:demoSpotPulse 1.6s ease-in-out infinite !important}'
-          + '@keyframes demoSpotPulse{0%,100%{box-shadow:0 0 0 6px rgba(240,138,36,.22),0 0 18px rgba(240,138,36,.5)}'
-          + '50%{box-shadow:0 0 0 9px rgba(240,138,36,.36),0 0 30px rgba(240,138,36,.8)}}';
-        (d.head || d.body).appendChild(st);
-      }
-      clearSpotlight();
-      var t = d.querySelector(selector);
-      if (t){
-        t.setAttribute('data-demo-spot', '');
-        t.scrollIntoView({behavior:'smooth', block:'center'});
-        // Clicking the spotlit element IS the action -- clear its glow on click so
-        // the highlight doesn't linger after Bud acts on it. It only returns if the
-        // tour re-applies it (next step / restart). One-shot: the listener self-removes.
-        t.addEventListener('click', function(){ clearSpotlight(); }, { once:true });
-      }
+    _spotSel = selector;
+    // POLL for the target rather than guess at a settle time. whenReady gates on an
+    // admin chrome selector that does not exist on the analyst surfaces, so it fell
+    // through on a ~1.8s timer -- and the transaction drill page needs roughly 8s of
+    // replayed fetches before .tx-analyzer exists at all. Measured 2026-08-20: that
+    // beat rendered its copy with NO glow while the analyzer underneath was correct
+    // and already expanded, which reads on camera as a dead beat.
+    whenEl(selector, function(){ if (_spotSel === selector) _applySpot(selector); });
+    // Product surfaces render their AI brief ASYNC (replay + tier re-render), which
+    // can replace the spotlit node right after the first apply. Re-assert on a
+    // schedule that outlasts the slowest beat; each re-apply is guarded by _spotSel
+    // so it stops the moment the step changes.
+    [700, 1600, 3000, 4800, 7000, 10000].forEach(function(ms){
+      setTimeout(function(){ if (_spotSel === selector) _applySpot(selector); }, ms);
     });
   }
 
@@ -483,12 +680,15 @@ window.__rrSeedReady = (function seedSession(){
   // Which product page the iframe currently shows (filename only).
   function iframePage(){ try { return (frame.contentWindow.location.pathname.split('/').pop() || ''); } catch(e){ return ''; } }
 
-  // Guided AI loop -- follow Bud's OWN navigation on the aiplan step. He clicks
-  // Manage (spotlit on Home) -> plan page: spotlight the product Home button to
-  // guide him back. He clicks Home -> back on Home: advance to the "ask a
-  // question" step, where the pill bar lights up. `_visitedPlan` distinguishes the
-  // initial Home load (stay, spotlight Manage) from the RETURN to Home (advance).
-  var _visitedPlan = false, _visitedLic = false, _visitedTeam = false;
+  // Advance to a beat by KEY, never by index. The walk is 14 beats and gets
+  // reordered every time the owner tweaks it; a hardcoded index survives that
+  // silently and lands the presenter on the wrong beat.
+  function jumpToKey(key){
+    for (var k = 0; k < steps.length; k++){
+      if (steps[k].key === key){ i = k; render(); return true; }
+    }
+    return false;
+  }
 
   // ---- demo layer: BEAT SETUP (part A -- idempotent) -----------------------
   // Apply the current step's SUB-PAGE spotlight + interaction listeners for the
@@ -504,43 +704,22 @@ window.__rrSeedReady = (function seedSession(){
   // in onIframeNav so a render() can never trigger an advance loop.
   function setupBeat(pg){
     var s = steps[i]; if (!s) return;
-    if (s.key === 'aiplan'){
-      if (pg === 'admin-claude-assistant.html'){ _visitedPlan = true; spotlight('.topbar-home'); }
-      return;
+    // The three integrity-modal beats and the two tab-scoped beats re-run their
+    // own onEnter action here, not just on step entry. A step that renders while
+    // the iframe is ALREADY on home.html fires no `load` event, so without this a
+    // rail jump straight to (say) the frozen-cost beat would spotlight #intgModal
+    // while the modal was never opened -- a glow on a hidden element, which reads
+    // as a dead beat. Every action is a click on a live control and idempotent:
+    // re-opening a modal that is open just re-renders it.
+    if (pg === 'home.html'){
+      if (s.key === 'glclass' || s.key === 'frozen' || s.key === 'uom'){ openIntg(s.key); return; }
+      if (s.key === 'reflect'){ openTab('txvar'); return; }
+      if (s.key === 'audit'){   openTab('audit'); return; }
+      if (s.key === 'cardexpick'){ openCardex(); return; }
     }
-    // Licensing beat: on the licensing page, spotlight Request an invoice.
-    if (s.key === 'licensing'){
-      if (pg === 'admin-companies.html'){ _visitedLic = true; spotlight('#js-lic-invoice'); }
-      return;
-    }
-    // Team beat: on the Users page, spotlight New Team Member and wire the
-    // modal's Cancel / X so dismissing it lights the Home button.
-    if (s.key === 'team'){
-      if (pg === 'admin-users.html'){
-        _visitedTeam = true;
-        spotlight('#js-new-user');
-        whenReady(function(){
-          var d = fdoc(); if (!d) return;
-          // Light Home when the New Team Member modal is DISMISSED, not when it
-          // opens: the modal is z-index:200 and the Home button is z-index:auto, so
-          // a glow applied on the open click is painted UNDER the modal and can't be
-          // seen until it closes. Wiring Home to the Cancel / X buttons makes the
-          // highlight appear exactly as the modal disappears -- and removes any gap
-          // between page load and the listener attaching. Mirrors the licensing beat
-          // (invoice modal Close -> spotlight Home). The data-demo-wired guard stops
-          // a second setupBeat pass (load + render) from stacking a duplicate
-          // handler on the same live button.
-          ['#js-nu-cancel', '#js-nu-close'].forEach(function(sel){
-            var b = d.querySelector(sel);
-            if (b && !b.hasAttribute('data-demo-wired')){
-              b.setAttribute('data-demo-wired', '');
-              b.addEventListener('click', function(){ spotlight('.topbar-home'); }, { once:true });
-            }
-          });
-        });
-      }
-      return;
-    }
+    // The analyzer beat lives on the transactions drill page and its panel starts
+    // collapsed, so re-expand on a render that finds the page already loaded.
+    if (s.key === 'analyzer' && pg === 'inventory-transactions.html'){ expandAnalyzer(); return; }
     // General card pattern: any remaining step's sub-page spotlight.
     if (s.subPage && s.pageSpot && pg === s.subPage){ spotlight(s.pageSpot); }
   }
@@ -550,13 +729,17 @@ window.__rrSeedReady = (function seedSession(){
     neutralizeMailto();                   // block email-client links in the demo
     var s = steps[i]; if (!s) return;
     var pg = iframePage();
-    // ADVANCE-ON-NAVIGATION (part B -- load-only): when Bud navigates back Home
-    // after visiting a beat's sub-page, advance the tour. Kept out of setupBeat
-    // (and thus out of render) so a render() can never re-trigger an advance.
-    // The `_visited*` flags distinguish the RETURN to Home from the initial load.
-    if (s.key === 'aiplan'  && pg === 'home.html' && _visitedPlan){ _visitedPlan = false; i = 1; render(); return; }
-    if (s.key === 'licensing' && pg === 'home.html' && _visitedLic){ _visitedLic = false; i = 3; render(); return; }
-    if (s.key === 'team'    && pg === 'home.html' && _visitedTeam){ _visitedTeam = false; i = 4; render(); return; }
+    // ADVANCE-ON-NAVIGATION (part B -- load-only): the presenter clicks a real
+    // product link and the tour follows him. Kept out of setupBeat (and thus out of
+    // render) so a render() can never re-trigger an advance.
+    //
+    // Both hops are guarded to the beat the presenter can only be on when the click
+    // is his, so a beat's OWN frame load cannot re-trigger the jump.
+    //   day brief -> the spotlit Data Health chip is a live link to Account Roll
+    //                Forward, so land him on that beat rather than the model beat.
+    //   cardex    -> the spotlit item row is a live link to the item's page.
+    if (s.key === 'standing' && pg === 'inventory-account-rollforward.html'){ jumpToKey('rollfwd'); return; }
+    if (s.key === 'cardexpick' && pg === 'inventory-cardex-variance.html'){ jumpToKey('cardexitem'); return; }
     // Advance didn't fire -> wire this step's beat for the page now showing.
     // AFTER the advance checks so a real navigation Home still advances first.
     setupBeat(pg);
@@ -600,9 +783,6 @@ window.__rrSeedReady = (function seedSession(){
   // ---- render --------------------------------------------------------------
   function render(){
     var s = steps[i];
-    if (s.key === 'aiplan') _visitedPlan = false;   // fresh entry to the AI-plan step
-    if (s.key === 'licensing') _visitedLic = false; // fresh entry to the licensing step
-    if (s.key === 'team') _visitedTeam = false;     // fresh entry to the team step
 
     caption.textContent = (s.caption || '').replace(/&middot;/g,'·').replace(/&amp;/g,'&');
 
@@ -650,6 +830,7 @@ window.__rrSeedReady = (function seedSession(){
       // this still wires that beat (belt-and-suspenders alongside the load event).
       if (s.spot) spotlight(s.spot); else clearSpotlight();
       setupBeat(iframePage());
+      if (s.onEnter) s.onEnter();
     });
   }
 
@@ -673,11 +854,11 @@ window.__rrSeedReady = (function seedSession(){
     else { i = 0; render(); }
   });
   prevBtn.addEventListener('click', function(){ if (i > 0){ i--; render(); } });
-  // Exit -> the front door at the role cards, with the next persona (Andy the
-  // Analyst) recommended. index.html reads these on load.
+  // Exit -> the front door at the role cards, with the next persona (Angie the
+  // Accountant) recommended. index.html reads these on load.
   var exitBtn = document.getElementById('exitBtn');
   if (exitBtn) exitBtn.addEventListener('click', function(){
-    try { sessionStorage.setItem('rrdemo.stage', 'roles'); sessionStorage.setItem('rrdemo.recRole', 'analyst'); } catch(e){}
+    try { sessionStorage.setItem('rrdemo.stage', 'roles'); sessionStorage.setItem('rrdemo.recRole', 'accountant'); } catch(e){}
     window.location.href = 'index.html';
   });
   document.addEventListener('keydown', function(e){

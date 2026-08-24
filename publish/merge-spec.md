@@ -68,9 +68,31 @@ because the signature drops origin and they carry no DB discriminator.
   `recording-demo2.json`. `merge-recordings.ps1` only ever unions chunks
   that share a DB.
 - `replay-shim.js` gains a small enhancement: pick the recording matching
-  the active DB (by `activeDb().n`) and re-index on DB switch. Chunk 1
-  (Demo3 only) works today with a single `recording.json` and needs no
-  shim change; the enhancement lands when the second DB is added.
+  the active DB and re-index on DB switch.
+
+**DONE 2026-08-24.** The shim reads a `recordings.json` manifest
+(`{byDb:{<db>:<file>}, default:<file>}`) that `build-demo.ps1` writes, and
+indexes the file matching `localStorage['rrv8.activeDb']`. Two corrections
+to the sketch above, both measured:
+
+- **Not `activeDb().n`.** That function lives inside `home.html` and is not
+  reachable from the shim, which loads before any product code. The durable
+  hook is `localStorage['rrv8.activeDb']`, written by
+  `RRV8.setActiveDatabase()` in `sidebar.js`.
+- **Not "on DB switch" as an event.** The product's switcher does NOT
+  reload: `home.html`'s `dbSelect` handler writes the key, then immediately
+  re-runs `loadActiveDbSurfaces()`. There is no load to hook. The swap is
+  therefore lazy, at the top of `pick()`, so it happens on the first
+  request after the switch and before that request's lookup.
+
+Also: sequence pointers had to be namespaced per DB. They were one flat
+`rrv8.demoReplay.ptr`, which is correct for one dataset and wrong the
+instant two share a session -- Demo1's pointer for a colliding signature
+would be applied to Demo2's entry list.
+
+Verified on :8770 from one bundle: `GET /available-periods` returns
+`2025-08-28...` under Demo1 and `2026-03-31...` under Demo2, swapping both
+directions mid-session with no reload.
 
 If instead the product is changed so those GETs carry the DB name (option
 B in the manifest), a single merged master is safe and this partition is

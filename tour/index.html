@@ -216,6 +216,7 @@
   </div>
 </section>
 
+<script src="tour-seed.js"></script>
 <script>
 (function(){
   'use strict';
@@ -225,6 +226,13 @@
   var note = document.getElementById('note');
 
   function store(k,v){ try{ sessionStorage.setItem('rrdemo.'+k, v); }catch(e){} }
+  function read(k){ try{ return sessionStorage.getItem('rrdemo.'+k) || ''; }catch(e){ return ''; } }
+
+  // The archetype table, the personas and the seeder all live in tour-seed.js,
+  // shared with the nine role pages. Duplicating them here is what let the picker
+  // and the rails disagree about which database a choice meant.
+  function arch(){ return RRTour.ARCHETYPES[read('archetype')] || null; }
+  function tourPageFor(role){ return RRTour.pageFor(role, read('archetype')); }
 
   // Presenter's recommendation (from discovery, or a setup page) — highlight one
   // card as "Recommended". Driven by ?rec=summit|harbor|golden, default golden.
@@ -248,57 +256,50 @@
     store('archetypeName', card.getAttribute('data-name'));
     note.classList.remove('show'); note.innerHTML='';
     roles.classList.add('show');
+    markBuiltRoles();
     roles.scrollIntoView({behavior:'smooth', block:'start'});
   });
 
-  // The three demo personas — one per role. Selecting a card "logs them in"
-  // by minting this persona's offline session (same unsigned-token shape the
-  // tour shell uses); the replay shim answers the network, so this only tells
-  // the product WHO + which DB/role to render.
-  var PERSONAS = {
-    administrator: { fn:'Arthur Admin',     first:'Arthur', u:'arthur@rrdemo.com', viewRole:'admin',      adm:true  },
-    analyst:       { fn:'Andy Analyst',     first:'Andy',   u:'andy@rrdemo.com',   viewRole:'analyst',    adm:false },
-    accountant:    { fn:'Angie Accountant', first:'Angie',  u:'angie@rrdemo.com',  viewRole:'accountant', adm:false }
-  };
-  function b64url(o){ return btoa(JSON.stringify(o)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_'); }
-  // The Services port is resolved DYNAMICALLY from VALC's Deployment Center
-  // (GET /api/services/agent-port) — the same source AuthController stamps into a
-  // real login token's ip — so a stale hardcoded port can never strand the demo when
-  // an agent is relaunched on a different DB (the bug this replaces). Falls back to
-  // the last-known port ONLY if VALC is unreachable (offline replay, where the port is
-  // never contacted — the replay shim matches by request path, not host).
-  var DB = 'RapidReconciler_Demo1';
-  var VALC = 'http://localhost:8080';
-  var FALLBACK_PORT = 34537;   // last-known Demo1 port; used only when VALC is unreachable (offline replay)
-  function resolvePort(){
-    // Bounded fetch so an unreachable / slow VALC can't stall the hand-off.
-    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    var timer = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(_){} }, 1500) : null;
-    return fetch(VALC + '/api/services/agent-port?db=' + encodeURIComponent(DB),
-                 { cache:'no-store', signal: ctrl ? ctrl.signal : undefined })
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(j){ return (j && j.port) ? j.port : FALLBACK_PORT; })
-      .catch(function(){ return FALLBACK_PORT; })
-      .then(function(port){ if (timer) clearTimeout(timer); return port; });
-  }
-  // Async (the port lookup) and returns a promise — the click handler waits on it
-  // before handing off, so the tour page never loads before the token is written.
-  function seedSession(role){
-    var p = PERSONAS[role]; if(!p) return Promise.resolve();
-    return resolvePort().then(function(port){
-      var payload = {
-        user: { fn:p.fn, u:p.u },
-        dbs: [ { n: DB, ip: 'localhost:' + port, t:{ adm:p.adm }, perms:{ dm:true }, i:['80002','80008'] } ],
-        exp: 2082758400
-      };
-      try {
-        localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
-        localStorage.setItem('rrv8.activeDb', DB);
-        localStorage.setItem('rrv8.viewRole', p.viewRole);
-        localStorage.setItem('rrv8.aiTier', 'grounded');
-      } catch(e){}
+  // Not every combination is recorded yet. Probe the nine pages rather than
+  // hardcoding a list that goes stale the moment one ships: a HEAD against the
+  // bundle's own origin is a static file check, not a backend call. A role whose
+  // page is not in this bundle is disabled and SAYS SO, instead of handing the
+  // presenter a 404 mid-demo.
+  function markBuiltRoles(){
+    var a = read('archetype'); if(!a) return;
+    Array.prototype.forEach.call(roles.querySelectorAll('.begin'), function(btn){
+      var role = btn.getAttribute('data-role');
+      var page = tourPageFor(role);
+      btn.disabled = true;
+      btn.dataset.built = '';
+      // GET, not HEAD. The bundle can be hosted anywhere, and a static host that
+      // mishandles HEAD would report every page as missing -- which is exactly what
+      // the bundle's own launch.ps1 did until 2026-08-24 (500 on HEAD, 200 on GET).
+      // Three ~50KB pages once per archetype pick is not worth the dependency.
+      fetch(page, { method:'GET', cache:'no-store' })
+        .then(function(r){ return r.ok; })
+        .catch(function(){ return false; })
+        .then(function(ok){
+          btn.disabled = !ok;
+          btn.dataset.built = ok ? '1' : '';
+          btn.title = ok ? '' : 'Not recorded for this company model yet';
+          var card = btn.closest('.role-card') || btn.parentElement;
+          if (card) card.classList.toggle('is-unbuilt', !ok);
+          if (!ok && btn.textContent.indexOf('not yet') < 0) btn.textContent = btn.textContent.replace(/\s*\u2192\s*$/,'') + ' \u2014 not yet';
+        });
     });
   }
+
+  // Sign in as the persona on the chosen dataset. RRTour.seed writes a token
+  // carrying ALL THREE demo databases with this one active, so the product's DB
+  // switcher works offline -- the archetype picks where the tour OPENS, it is not
+  // a lock (docs/architecture.md; owner confirmed 2026-08-24).
+  function seedSession(role){
+    var a = read('archetype');
+    if (!a) return Promise.resolve(null);
+    return RRTour.seed(a, role);
+  }
+
   function signInFlourish(first, done){
     var o = document.createElement('div'); o.className = 'signin';
     o.innerHTML = '<div class="signin-card"><span class="signin-spin"></span>Signing in as <b>' + first + '</b>&hellip;</div>';
@@ -310,12 +311,10 @@
   roles.addEventListener('click', function(e){
     var b = e.target.closest('.begin'); if(!b) return;
     var role = b.getAttribute('data-role');
-    var p = PERSONAS[role]; if(!p) return;
+    var p = RRTour.PERSONAS[role]; if(!p) return;
     store('role', role);
     var seeded = seedSession(role);          // behind-the-scenes login as the persona
-    var tourPage = (role === 'administrator') ? 'administrator.html'
-                 : (role === 'analyst')       ? 'analyst.html'
-                 : null;
+    var tourPage = tourPageFor(role);
     if(tourPage){
       // Hand off only after the seed has written the token — the flourish and the
       // async port lookup run in parallel, so whichever finishes last gates the jump.

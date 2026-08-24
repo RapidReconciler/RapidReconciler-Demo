@@ -120,10 +120,54 @@ foreach ($f in @('date-freeze.js', 'request-signature.js', 'replay-shim.js', 'la
   else { Write-Host "  WARN: runtime file missing: $f" -ForegroundColor Yellow }
 }
 
-# 5d. Recording.
-if ($Recording -and (Test-Path $Recording)) {
+# 5d. Recordings -- ONE PER DATABASE, plus a manifest the shim reads.
+#
+#   -Recording '<db>=<path>[,<db>=<path>...]'   multi-DB bundle (the target shape)
+#   -Recording '<path>'                          single-DB bundle (legacy, unchanged)
+#
+# Why per-DB: request-signature.js drops scheme/host/port, so the DB-global GETs
+# (available-periods, inventory/status, cardex-tolerance, poll, ...) collide across
+# databases. One merged recording serves whichever DB was captured last, on every
+# DB. See publish/merge-spec.md, option A.
+#
+# NOTE the parameter is a single [string] that this splits itself. A [string[]]
+# parameter is FLATTENED into one token by `powershell -File`, so every element
+# test silently fails -- the bug that made merge-recording.ps1 report
+# "refreshed: 0" with no error.
+function Get-DbSlug([string]$dbName) {
+  $slug = ($dbName -replace '[^A-Za-z0-9]', '').ToLowerInvariant()
+  if ($slug.StartsWith('rapidreconciler')) { $slug = $slug.Substring('rapidreconciler'.Length) }
+  if (-not $slug) { throw "Cannot derive a recording filename from database name '$dbName'." }
+  return $slug
+}
+
+$recSpecs = @($Recording -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$multiDb  = @($recSpecs | Where-Object { $_ -match '=' }).Count -gt 0
+
+if ($multiDb) {
+  $byDb = [ordered]@{}
+  foreach ($spec in $recSpecs) {
+    $eq = $spec.IndexOf('=')
+    if ($eq -lt 1) { throw "Bad -Recording entry '$spec'. Expected '<database>=<path>'." }
+    $dbName  = $spec.Substring(0, $eq).Trim()
+    $recPath = $spec.Substring($eq + 1).Trim()
+    if (-not (Test-Path $recPath)) { throw "-Recording '$dbName' points at a file that does not exist: $recPath" }
+    $outName = 'recording-' + (Get-DbSlug $dbName) + '.json'
+    Copy-Item $recPath -Destination (Join-Path $BundleDir $outName) -Force
+    $byDb[$dbName] = $outName
+    Write-Host ("  recording: {0,-26} -> {1}" -f $dbName, $outName)
+  }
+  # The manifest the shim reads at boot. `default` is the first DB listed, so a
+  # session with no rrv8.activeDb yet still gets a real dataset rather than a
+  # bundle-wide MISS.
+  $first = @($byDb.Keys)[0]
+  $manifest = [ordered]@{ byDb = $byDb; default = $byDb[$first] }
+  ($manifest | ConvertTo-Json -Depth 4) | Set-Content -Path (Join-Path $BundleDir 'recordings.json') -Encoding UTF8
+  Write-Host ("  recordings.json: {0} databases, default {1}" -f $byDb.Count, $byDb[$first]) -ForegroundColor Green
+}
+elseif ($Recording -and (Test-Path $Recording)) {
   Copy-Item $Recording -Destination (Join-Path $BundleDir 'recording.json') -Force
-  Write-Host "  recording: $Recording"
+  Write-Host "  recording: $Recording (single-database bundle)"
 } else {
   # Empty recording keeps the shim happy; every call will register as a MISS in
   # the dev overlay -- exactly the signal that the capture walk has not run.
@@ -216,29 +260,23 @@ if (Test-Path $TourDir) {
   Get-ChildItem -Path $TourDir -Filter '*.html' | ForEach-Object {
     Copy-Item $_.FullName -Destination (Join-Path $BundleDir $_.Name) -Force
   }
+  # tour-seed.js -- the shared session seeder every tour page loads. Staging only
+  # *.html left the nine pages loading a script that was not in the bundle, so the
+  # front door threw on RRTour and no tour could start.
+  Get-ChildItem -Path $TourDir -Filter '*.js' | ForEach-Object {
+    Copy-Item $_.FullName -Destination (Join-Path $BundleDir $_.Name) -Force
+  }
   $tourAssets = Join-Path $TourDir 'assets'
   if (Test-Path $tourAssets) {
     $dstAssets = Join-Path $BundleDir 'assets'
     New-Item -ItemType Directory -Path $dstAssets -Force | Out-Null
     Copy-Item (Join-Path $tourAssets '*') -Destination $dstAssets -Recurse -Force
   }
-  # Per-database front door. Every tour page is staged into every bundle (they are
-  # inert unless opened), but index.html is what launch.ps1 opens, and each bundle
-  # serves exactly one database. Without this the Demo2 bundle's front door signs
-  # you in as Demo1 and hands off to Demo1's rail -- correct data under a wrong
-  # label, which is the failure mode the tour seed comments already warn about.
-  # Set RR_TOUR_VARIANT=demo2 alongside RR_BUNDLE_DIR=bundle-demo2.
-  $variant = $env:RR_TOUR_VARIANT
-  if ($variant) {
-    $variantIndex = Join-Path $TourDir "index-$variant.html"
-    if (Test-Path $variantIndex) {
-      Copy-Item $variantIndex -Destination (Join-Path $BundleDir 'index.html') -Force
-      Write-Host "  front door: index-$variant.html -> index.html" -ForegroundColor Green
-    } else {
-      throw "RR_TOUR_VARIANT='$variant' but $variantIndex does not exist. Refusing to ship a bundle whose front door points at the wrong database."
-    }
-  }
-  Write-Host "  staged presenter tour: $((Get-ChildItem -Path $TourDir -Filter '*.html').Count) pages + assets" -ForegroundColor Green
+  # ONE front door for every dataset. index.html's archetype picker sets the
+  # database and routes to that dataset's role page, so there is no per-bundle
+  # front door to select -- RR_TOUR_VARIANT existed only while the bundle held a
+  # single database, and that was the wrong shape (docs/architecture.md).
+  Write-Host "  staged presenter tour: $((Get-ChildItem -Path $TourDir -Filter '*.html').Count) pages + $((Get-ChildItem -Path $TourDir -Filter '*.js').Count) scripts + assets" -ForegroundColor Green
 }
 
 # 5f. Entry page. launch.ps1 opens index.html by default; point it at the demo
