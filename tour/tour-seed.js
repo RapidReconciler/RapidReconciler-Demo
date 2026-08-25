@@ -161,7 +161,20 @@
     })).then(function (ports) {
       var dbs = keys.map(function (k, i) {
         var X = ARCHETYPES[k];
-        return { n: X.db, ip: 'localhost:' + ports[i], t: { adm: P.adm },
+        // `a` AND `t.adm` both carry the admin grant, and BOTH are required --
+        // they are read by two different consumers and neither falls back to
+        // the other. MEASURED 2026-08-25 walking administrator-summit on Demo1:
+        // seeding only `t.adm` renders the Administrator lane (home.html's
+        // isAdmin() reads dbs[].t.adm) while the Services agent refuses its
+        // admin-gated routes 403, because JwtAuthFilter reads dbs[].a
+        // (`userRequest.setAdmin(asBool(db.get("a")))`) and requireAdmin()
+        // fails on the absent key. Symptom was GET
+        // /inventory/fiscal-period-end-detect -> 403 on a page the UI had
+        // already decided the user could administer. A real login token cannot
+        // disagree with itself this way: AuthController stamps `a` and `t.adm`
+        // from the same `rTabAdm`, so mirroring that here is what makes the
+        // fixture honest rather than merely admin-looking.
+        return { n: X.db, ip: 'localhost:' + ports[i], a: P.adm, t: { adm: P.adm },
                  perms: { dm: true }, i: X.cos.slice() };
       });
       var payload = { user: { fn: P.fn, u: P.u }, dbs: dbs, exp: 2082758400 };
