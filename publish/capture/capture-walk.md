@@ -330,6 +330,144 @@ in there is signed out. Sign back in if the next walk needs a real login.
 
 ---
 
+### 3c. An admin walk needs `a` on the token, not just `t.adm`
+
+**Measured 2026-08-25 walking `administrator-summit` on Demo1.** The Administrator
+lane rendered, every card painted, and `GET /inventory/fiscal-period-end-detect`
+came back **403** anyway. Two consumers read the admin grant from two different
+per-database claims and neither falls back to the other:
+
+| Consumer | Reads | Source |
+|---|---|---|
+| `home.html` `isAdmin()` | `dbs[].t.adm` | `RRV8/home.html:3598` |
+| Services agent `requireAdmin()` | `dbs[].a` | `JwtAuthFilter:172` |
+
+`tour-seed.js` used to mint only `t.adm`, so a seeded admin token was admin to the
+UI and **non-admin to the agent** — the worst shape, because the page had already
+decided the user could administer and then the data refused. A real login token
+cannot disagree with itself: `AuthController:735` stamps `a` and `t.adm` from the
+same `rTabAdm`. `tour-seed.js` now mirrors that. Fixed and confirmed by control on
+one page load: 403 before, 200 after, nothing else changed.
+
+If you add a claim to the seeder, check BOTH consumers. The agent also reads
+`as`, `aite`, `aprs`, `rs` and `su` off the same entry.
+
+### 3d. Seed BEFORE the first page load, or you record the last walk's database
+
+**Measured 2026-08-25 capturing Demo2's admin lane.** `rrv8.activeDb` persists per
+origin, so opening `home.html` on :8765 boots against whatever database the
+PREVIOUS walk left active. Seeding after that first load and reloading is too
+late: the first load's reads are already in the recording, scoped to the wrong
+database. The Demo2 delta arrived carrying
+`ai/health?db=RapidReconciler_Demo3` and three
+`license-usage?database=RapidReconciler_Demo3` entries.
+
+Those entries are inert at replay — a Demo2 rail never asks with `db=Demo3` — but
+they are one dataset's rows filed under another's label, which is the thing the
+per-database manifest exists to prevent. Strip them before merging; do not argue
+they are harmless.
+
+Two ways to avoid it, both cheap: land on a page that makes no scoped reads
+(`index.html`), seed there, THEN navigate to `home.html` — or walk the rail
+itself, which seeds before its iframe loads and is what §3b tells you to do
+anyway.
+
+Verify per-database scope on any delta before merging:
+
+```
+python -c "import json,collections;d=json.load(open('delta.json',encoding='utf-8'));print(collections.Counter(q for e in d['entries'] for q in [e.get('query') or ''] if 'Demo' in q))"
+```
+
+### 3e. A 401 or 403 does NOT belong in a merged recording
+
+A replayed 401 makes `misses()` read **clean** while the panel behind it is still
+degraded — the gap stops reporting itself. Leave the failed entry out and the
+signature stays missing, which is what puts it in `misses()` and in the bundle's
+own red "missing recordings" toast, on screen, where somebody sees it.
+
+Measured 2026-08-25: the three VALC routes behind `parseBearer` →
+`JwtService.verify` (`clients/current`, `clients/current/access-reviews`,
+`api/v1/messages`) cannot be captured with a tour-seeded token at all —
+`verify()` is `parseSignedClaims(...).verifyWith(publicKey)` and the seed mints
+`alg:none`. They need a real signed login. Excluding them left exactly two
+signatures in `misses()` across the whole admin rail, both naming the one root
+cause, which is a better handoff than a rail that looks finished.
+
+---
+
+### 3f. A seeded token BLOCKS a later real sign-in, silently
+
+**Measured 2026-08-25, and it cost three round-trips with the owner.** After a
+rail walk leaves a `tour-seed.js` token on the :8765 origin, sending the owner to
+`http://localhost:8765/login.html` does **not** show them the form.
+`login.html` has an "already signed in -> resume" branch: if
+`localStorage.rrv8.token` exists and passes `isAdminToken()`, it redirects
+straight to Home without rendering the sign-in fields. The seeded token passes
+that test easily &mdash; `adm: true`, `exp` in 2036 &mdash; so the page bounces
+them to a Home that greets them by name. From their side they are signed in.
+Nothing is wrong with that branch; it just assumes the token is real.
+
+**And `last_login_at` is NOT proof a token was issued.**
+`AuthController` stamps `user.setLastLoginAt(Instant.now())` and saves at line
+~160, **before** the client-eligibility check and before `jwt.mint()`. It also
+updates for a sign-in to the VALC dashboard on :8080, which shares the `users`
+table. So the owner's credentials updating `last_login_at` twice, while no JWT
+appeared on any origin, was entirely consistent &mdash; and it read like the
+login was working.
+
+Before asking for a real sign-in, clear the fixture first:
+
+```js
+['rrv8.token','rrv8.activeDb','rrv8.viewRole','rrv8.aiTier',
+ 'rrv8.sessionStart','rrv8.lastActivity'].forEach(k => localStorage.removeItem(k));
+```
+
+Then confirm the form actually renders (no token -> stays on `login.html` with
+the email + password inputs visible) rather than assuming it will. Note the
+email field pre-fills from `rrv8.lastEmail`, which after an analyst walk holds
+`andy@rrdemo.com` &mdash; submitting the prefill signs you in as the wrong
+persona.
+
+Diagnosing it the other way round is the cheap route: `rrv8.token`'s third
+segment is the literal string `demo` on a seeded token, and a real login token's
+`dbs[0]` carries 13 keys (`as`, `aite`, `aprs`, `rs`, `su`, `rn`, `m` ...) where
+the seeder writes 6.
+
+---
+
+### 3g. Run merge-recording.ps1 from PowerShell, never through Bash
+
+**Measured 2026-08-25.** `-Refresh '/api/v1/admin/clients/license-usage'` passed
+through the Bash tool arrives at the script as
+`C:/Program Files/Git/api/v1/admin/clients/license-usage` &mdash; MSYS rewrites a
+leading-slash argument into a Windows path. `Test-Refresh` uses `StartsWith`, so
+nothing matches and the stale response ships.
+
+**It does not look like a failure.** With two prefixes in the list, the second one
+still matched, so the run reported a confident `refreshed (already present): 3`
+and printed a list of appended entries. Only reading the merged file showed the
+licence body was still `used:12, atLimit:true` after a merge that had announced
+success. The script's own header documents this same symptom from 2026-08-22 via
+a different route (PS 5.1 splitting) &mdash; the lesson generalises: **the
+refresh count is not evidence the right path was refreshed.**
+
+Two rules:
+
+- Invoke it with the PowerShell tool, and pass **absolute** paths for `-Base`,
+  `-Delta` and `-Out`. The script resolves relative paths against the process's
+  original working directory, not `Set-Location`, so a relative `-Base` fails to
+  read from the wrong folder.
+- After any `-Refresh`, read the merged file and confirm the **last** entry for
+  that signature carries the new body &mdash; `pick()` sticks on the last one:
+
+```
+python -c "import json,base64; d=json.load(open('recording-demo1.json',encoding='utf-8')); \
+b=d.get('bodies') or {}; e=[x for x in d['entries'] if 'license-usage' in x['path']]; \
+v=b.get(str(e[-1].get('bodyRef'))) or e[-1].get('body'); print(v[:120])"
+```
+
+---
+
 ## 4. Verify coverage before saving
 
 - `window.__demoCapture.count()` grew across the walk and matches roughly
