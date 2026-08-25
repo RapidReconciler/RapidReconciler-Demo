@@ -228,7 +228,7 @@ entries / 59 sigs, co 80002); Harbor → Andy loads `recording-demo2.json` (78 /
 co 80003); both zero misses. Switching `rrv8.activeDb` mid-session swaps the index
 on the next request, both directions, and `GET /available-periods` — the signature
 that used to collide — returns `2025-08-28…` on Demo1 and `2026-03-31…` on Demo2
-from the same bundle. The role matrix reports 3 of 9 built. The product's own DB switcher offers all
+from the same bundle. The role matrix reports 3 of 9 built. (That count was true on 2026-08-24 and is left as measured; it is **6 of 9** as of 2026-08-25 -- the three accountant cells are the remainder, blocked on UI-141.) The product's own DB switcher offers all
 three databases and swaps datasets mid-tour: Harbor opened on Demo2 / co 80003,
 switched to Demo1 / co 80002 with zero misses, then to the uncaptured Demo3 where
 it degraded to 0 entries + 9 misses + the overlay naming the dataset, then back to
