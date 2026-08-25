@@ -287,6 +287,49 @@ validation run, fire one representative Ask per AI surface.
 
 ---
 
+## 3b. WALK THE TOUR, NOT THE SCREENS — for any surface a rail will replay
+
+**Added 2026-08-24 after three failed attempts to reproduce two signatures by
+hand.** If the surface you are capturing is going to be replayed by a tour rail,
+capture it by driving **the rail itself**, not by visiting the same screens in
+the same order.
+
+Copy the rail and the seeder into the staging directory and open it on :8765:
+
+```
+copy tour\analyst-golden.html  capture-staging\
+copy tour\tour-seed.js         capture-staging\
+```
+then walk `http://localhost:8765/analyst-golden.html` with its own Next button.
+
+The staging build serves flat, which is the same layout the bundle serves, so the
+rail's iframe loads the product from the same origin and the injected record shim
+sits inside that iframe. `__demoCapture` therefore lives on the **iframe's**
+window — reach it as
+`document.querySelector('iframe').contentWindow.__demoCapture`.
+
+**Why this is not just tidier — it is the difference between a hit and a miss.**
+`ai/explain` keys on the body hash, and the day brief **re-asks as its facts
+arrive**: measured on Demo3, one page load fired the same `ctx` with THREE
+different body hashes (`2ceaefac`, `08a8a0a9`, `3cb20515`). So "the prompt for
+company X period Y" is not one request, it is a family of them, and which member
+fires depends on the exact state and timing of the walk. Visiting the same
+screens by hand produced a different member every time and never the one the
+bundle was asking for — that one had been produced against data that had since
+moved.
+
+Driving the rail removes the guesswork: every request recorded is by construction
+a request the rail makes, because the rail made it. This is what
+`docs/architecture.md` means by "keep the tour definition and the capture list as
+one thing", and `tour/README.md` by the same rule.
+
+Restore afterwards: delete the copied rail and seeder from `capture-staging\`
+(the next `capture/start` rebuilds the directory anyway), and note that
+`tour-seed.js` **mints its own token on the :8765 origin**, so whoever was signed
+in there is signed out. Sign back in if the next walk needs a real login.
+
+---
+
 ## 4. Verify coverage before saving
 
 - `window.__demoCapture.count()` grew across the walk and matches roughly

@@ -82,14 +82,35 @@
   // Rewind everything a previous run of any archetype could have left behind.
   function clearRunState() {
     try {
-      // Replay sequence pointers, every dataset. They are namespaced per DB, so a
-      // single key no longer names them. A pointer left parked on its after-states
-      // makes that dataset's save-and-reflect beat change nothing on the click --
-      // the "appears to work" the recording ordering exists to prevent.
+      // EVERY per-session key, not just the replay pointers.
+      //
+      // Replay sequence pointers were the original target: namespaced per DB, and a
+      // pointer left parked on its after-states makes that dataset's
+      // save-and-reflect beat change nothing on the click -- the "appears to work"
+      // the recording ordering exists to prevent.
+      //
+      // But the pointers were never the only per-session state, and the rest of it
+      // changes what the AI is ASKED. MEASURED 2026-08-24 on analyst-golden: the
+      // product keeps the viewed period in sessionStorage, so a second run of the
+      // tour opened with Apr 30 already viewed (the transaction beat had set it on
+      // the first run). The day brief grounds on the viewed period, its prompt
+      // signature is tier|db|company|facts, so a different viewed period is a
+      // different prompt -- and a prompt the capture walk never asked is a MISS.
+      // Beat 1's AI card came up neutral on the second run and clean on the first,
+      // which is the worst possible failure shape: it works in rehearsal and not in
+      // front of the prospect, or the reverse. Proved by control: clearing
+      // sessionStorage restored the captured 2023-05-31 brief and emptied misses().
+      //
+      // So this clears the WHOLE store rather than a list of prefixes, because an
+      // allowlist is a list somebody has to keep up to date and the failure mode is
+      // silent. The one exception is the `rrdemo.` handoff pair (stage / recRole),
+      // which a rail's Exit writes for index.html to read on the next page -- those
+      // are cross-page, not per-run, and clearing them would lose the "Angie next"
+      // recommendation.
       var ss = root.sessionStorage, kill = [];
       for (var i = 0; i < ss.length; i++) {
         var k = ss.key(i);
-        if (k && k.indexOf('rrv8.demoReplay.ptr') === 0) kill.push(k);
+        if (k && k.indexOf('rrdemo.') !== 0) kill.push(k);
       }
       for (var j = 0; j < kill.length; j++) ss.removeItem(kill[j]);
     } catch (e) {}
@@ -99,10 +120,23 @@
       // and localStorage is NOT rewound by the pointer reset. Measured 2026-08-22:
       // after one presenter run the card opened already reading "Your recorded
       // finding", so the Save beat changed nothing -- same failure, different route.
+      // Plus the per-company run state that also feeds the brief's facts: the
+      // period-review flag (the brief cites REVIEW STATE), the disposition store and
+      // the balancing-entry export log. Same reasoning as the sessionStorage sweep
+      // above -- these are things a previous run DID, and a tour should open on the
+      // state the recording was captured in, not on the state of the last rehearsal.
+      // Left alone deliberately: rrv8.token, rrv8.activeDb, rrv8.viewRole,
+      // rrv8.aiTier and rrv8.analystCompany, because seed() sets all five itself a
+      // few lines below and clearing them here would just race its own writes.
       var ls = root.localStorage, drop = [];
       for (var a = 0; a < ls.length; a++) {
         var key = ls.key(a);
-        if (key && key.indexOf('rrv8.txvCards.') === 0) drop.push(key);
+        if (key && (key.indexOf('rrv8.txvCards.') === 0
+                 || key.indexOf('rrv8.analystReview.') === 0
+                 || key.indexOf('rrv8.dispos.') === 0
+                 || key.indexOf('rrv8.beExports.') === 0
+                 || key === 'rrv8.subview'
+                 || key === 'rrv8.homeSections')) drop.push(key);
       }
       for (var b = 0; b < drop.length; b++) ls.removeItem(drop[b]);
     } catch (e) {}
