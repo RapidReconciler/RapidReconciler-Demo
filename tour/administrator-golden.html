@@ -207,11 +207,13 @@ window.__rrSeedReady = RRTour.seed('golden', 'administrator');
   // Each step drives the REAL bundled admin product in the iframe. `frame` loads
   // a bundled page (null = keep the current one).
   //
-  // `onEnter` is a TRAP inherited from the Summit original: its comment there says
-  // it "runs an action inside the iframe once it's ready", but render() never
-  // invokes it, so declaring one on a beat does nothing at all. No beat here
-  // declares one -- the presenter clicks the spotlit control himself. Wire the
-  // call into render()'s loadFrame callback before relying on it.
+  // `onEnter` runs an action inside the iframe (fire a pill, open the help panel,
+  // flip a tier) once it's ready. It was a TRAP until 2026-08-26: all three
+  // administrator rails documented it and none of them invoked it, so a beat that
+  // declared one silently did nothing and the presenter got copy describing a panel
+  // that never opened. render()'s loadFrame callback now calls it, matching the six
+  // analyst and accountant rails. No beat here declares one yet -- the presenter
+  // clicks the spotlit control himself -- but declaring one now works.
   var HOME = 'home.html';
   // The four rail rows -- the desk, the two things you keep running, who gets in,
   // and the hand-off -- as a persistent workflow map shown on EVERY beat: the
@@ -670,6 +672,7 @@ window.__rrSeedReady = RRTour.seed('golden', 'administrator');
       // this still wires that beat (belt-and-suspenders alongside the load event).
       if (s.spot) spotlight(s.spot); else clearSpotlight();
       setupBeat(iframePage());
+      if (s.onEnter) s.onEnter();
     });
   }
 
