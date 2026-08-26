@@ -627,6 +627,7 @@ window.__rrSeedReady = RRTour.seed('harbor', 'administrator');
       // this still wires that beat (belt-and-suspenders alongside the load event).
       if (s.spot) spotlight(s.spot); else clearSpotlight();
       setupBeat(iframePage());
+      if (s.onEnter) s.onEnter();
     });
   }
 

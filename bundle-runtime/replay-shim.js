@@ -33,9 +33,12 @@
  * On a MISS (a request whose signature was never captured):
  *   - fail loud: log + show a dev overlay listing the missed signatures, so gaps
  *     in the capture walk are obvious to whoever builds the demo;
- *   - but degrade so the page does not crash:
- *       write-type call (POST/PUT/PATCH/DELETE) -> canned 200 {"ok":true}
- *       read call (GET/HEAD)                    -> neutral 200 JSON null
+ *   - and answer 503 with a JSON {reason} naming the gap, for BOTH reads and
+ *     writes, so the page runs its own failure path (UI-154, 2026-08-26).
+ *     It used to answer 200 -- `null` for a read, {"ok":true} for a write -- to
+ *     keep the page running. It kept running and it lied: an empty read and an
+ *     uncaptured one were the same value, and a save that was never recorded
+ *     reported success. See the note above missResponse() for the measurement.
  *
  * Vanilla ES5 + the Response constructor / Promise / setTimeout (all present in
  * any browser that already runs the product).
@@ -260,13 +263,36 @@
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // ---- neutral / canned miss responses -----------------------------------
-  // Returns { status, contentType, encoding:'text', body } for a miss.
-  function missResponse(method) {
-    if (Sig.isWriteMethod(method)) {
-      return { status: 200, contentType: 'application/json', body: '{"ok":true}', miss: true };
-    }
-    return { status: 200, contentType: 'application/json', body: 'null', miss: true };
+  // ---- miss responses ----------------------------------------------------
+  // A MISS MUST NOT LOOK LIKE AN ANSWER. Until 2026-08-26 this returned 200 with
+  // `null` for a read and 200 `{"ok":true}` for a write, on the reasoning that the
+  // page should "still run on neutral responses". It ran, and it lied: `null` is
+  // indistinguishable from a successful empty read, so a page that treats it as
+  // "nothing recorded yet" paints a benign empty state and the analyst is told
+  // there is no work when the truth is that nobody captured the request.
+  //
+  // MEASURED on the Demo2 bundle: UI-137 shipped a fix that makes
+  // accounting-dmaais.html say WHICH of two things went wrong, the fix changed the
+  // request signature, no recording covered the new one, the shim answered 200/null
+  // -- and the page showed NO banner at all while every finding read untriaged.
+  // That is the exact defect UI-137 removed from the product, reintroduced here.
+  // A write was worse in kind: `{"ok":true}` reports a save that was never recorded.
+  //
+  // 503 because it is true -- this data is not available from this bundle -- and
+  // because every page's rrFetch already rejects on !ok and surfaces a JSON
+  // `reason` on screen (home.html:3564). So the page runs its OWN failure path and
+  // says something accurate, instead of inventing an empty state. Rails are
+  // zero-miss by design, so nothing a presenter walks reaches this.
+  function missResponse(method, sig) {
+    var reason = 'Demo replay: nothing recorded for this request'
+      + (loadedDb ? ' in ' + loadedDb : '')
+      + (sig ? ' (' + sig + ')' : '')
+      + '. The bundle is missing a capture, not the data.';
+    return {
+      status: 503, contentType: 'application/json',
+      body: JSON.stringify({ reason: reason, replayMiss: true, signature: sig || '' }),
+      miss: true
+    };
   }
 
   // ---- fetch -------------------------------------------------------------
@@ -289,7 +315,7 @@
       bodyInit = m.bodyInit;
     } else {
       showMiss(sig, method, body);
-      var mr = missResponse(method);
+      var mr = missResponse(method, sig);
       status = mr.status; statusText = 'Demo Replay Miss';
       headers = { 'Content-Type': mr.contentType };
       bodyInit = mr.body;
@@ -356,7 +382,7 @@
         encoding = entry.encoding; rawBody = bodyOf(entry);
       } else {
         showMiss(sig, self._method, body);
-        var mr = missResponse(self._method);
+        var mr = missResponse(self._method, sig);
         status = mr.status; ct = mr.contentType; encoding = 'text'; rawBody = mr.body;
       }
       self.status = status;
