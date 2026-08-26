@@ -468,6 +468,50 @@ v=b.get(str(e[-1].get('bodyRef'))) or e[-1].get('body'); print(v[:120])"
 
 ---
 
+### 3h. Never copy a product file into the bundle by hand. Rebuild.
+
+**Measured 2026-08-25 after session #59 did it to two files.** There is no
+"refresh one page from main" operation. `build-demo.ps1` step 5e injects
+
+```
+<script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+```
+
+at the top of every `<head>` in the OUTPUT directory. The line does not exist in
+`RapidReconciler-AI/RRV8/`, so a hand-copied page arrives without it and the
+shim never patches `fetch`.
+
+What that looks like from the outside: the page renders normally. There is no
+error, no toast, and no miss &mdash; `misses()` cannot report a gap because the
+object that counts them was never created. `home.html` and
+`admin-claude-assistant.html` were served this way on `:8770` and were talking to
+the live VALC on `:8080` and the live agent on `:34537`. Both happen to run on
+the build box, which is precisely why nothing looked wrong here and Home would
+have been dead on a presenter's laptop. `date-freeze.js` goes with it, so the
+demo clock unpins too.
+
+Check it in one line before trusting any bundle:
+
+```
+for f in *.html; do grep -q "replay-shim.js" "$f" || echo "NO SHIM: $f"; done
+```
+
+Seven files are SUPPOSED to be listed: the six rails and `index.html`. They are
+staged after 5e on purpose (a shimmed tour shell would try to replay its own
+static asset reads). Anything else in that output is a broken bundle.
+
+And do not argue from file identity. "Byte-identical to the file that was
+verified live" was the reasoning that skipped the confirming walk, and it is
+backwards: **a correct bundle page is never byte-identical to main.** The
+rebuild's diff is what identity should look like &mdash; 157 files in both, two
+files differing, 128 bytes each (3 BOM + 123 boot line + 2 newline).
+
+Rebuild per the trap note: build to `bundle-next` with `RR_BUNDLE_DIR`, verify it
+on its own port, stop the serve, then rename. Keep the old directory until the
+re-walk passes.
+
+---
+
 ## 4. Verify coverage before saving
 
 - `window.__demoCapture.count()` grew across the walk and matches roughly

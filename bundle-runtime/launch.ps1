@@ -74,6 +74,94 @@ Write-Host ""
 Write-Host "  RapidReconciler demo -- serving:" -ForegroundColor Cyan
 Write-Host "    root : $Root"
 Write-Host "    url  : $prefix$Entry"
+
+# ---------------------------------------------------------------------------
+# STARTUP INTEGRITY CHECK -- is every product page still shimmed? (UI-152)
+#
+# build-demo.ps1 step 5e injects date-freeze.js + request-signature.js +
+# replay-shim.js at the top of every <head> in the OUTPUT directory. That line
+# does not exist in the RRV8 source, so a page hand-copied in from the UI repo
+# AFTER the build arrives without it and the shim never patches fetch.
+#
+# None of that is visible from the page. It renders normally, and misses()
+# cannot report the gap because the object that counts misses was never
+# created. Worse, on the build box the live agent and VALC answer the
+# unintercepted calls, so the bundle looks healthy there and Home is dead on a
+# presenter's laptop. Measured 2026-08-25 on home.html and
+# admin-claude-assistant.html: fetch was native, __demoReplay was absent, and
+# RR_CONFIG was still pointing at localhost:8080 / localhost:34537.
+#
+# 5e is a build-time loop, so it cannot see a file dropped in afterwards. That
+# is why this check lives here instead: at serve time, against the artifact
+# actually being served.
+#
+# The product/shell split is DERIVED, not a hardcoded name list. A tour shell
+# loads tour-seed.js and drives the product inside an iframe, so it must NOT be
+# shimmed (a shimmed shell tries to replay its own static asset reads -- see
+# build-demo.ps1 step 5-tour). Every other root page is product and must be.
+# Measured on the 2026-08-25 bundle: 21 root pages carry the shim and no seed,
+# 7 carry the seed and no shim. An exact complement, which is what makes the
+# derivation safe for rails nobody has written yet.
+#
+# Subdirectories are skipped on purpose: RRUniversity/ holds the static help
+# docs, staged after 5e and correctly unshimmed.
+function Test-BundleIntegrity {
+  param([string]$Dir)
+  $need = @('date-freeze.js', 'request-signature.js', 'replay-shim.js')
+  $broken = @(); $shimmedShell = @(); $product = 0; $shell = 0
+  foreach ($f in (Get-ChildItem -Path $Dir -Filter '*.html' -File)) {
+    $html = ''
+    try { $html = Get-Content $f.FullName -Raw -Encoding UTF8 } catch { continue }
+    if ($null -eq $html) { $html = '' }
+    $has = @($need | Where-Object { $html -like ('*' + $_ + '*') })
+    if ($html -like '*tour-seed.js*') {
+      $shell++
+      if ($has.Count -gt 0) { $shimmedShell += ($f.Name + ' -- carries ' + ($has -join ', ')) }
+    } else {
+      $product++
+      if ($has.Count -lt $need.Count) {
+        $missing = @($need | Where-Object { $has -notcontains $_ })
+        $broken += ($f.Name + ' -- missing ' + ($missing -join ', '))
+      }
+    }
+  }
+  return New-Object psobject -Property @{
+    Product = $product; Shell = $shell
+    Broken = $broken; ShimmedShell = $shimmedShell
+  }
+}
+
+$integrity = Test-BundleIntegrity -Dir $Root
+if ($integrity.Broken.Count -gt 0 -or $integrity.ShimmedShell.Count -gt 0) {
+  Write-Host ""
+  Write-Host "  ###########################################################" -ForegroundColor Red
+  Write-Host "  #  THIS BUNDLE IS BROKEN. OFFLINE REPLAY WILL NOT WORK.   #" -ForegroundColor Red
+  Write-Host "  ###########################################################" -ForegroundColor Red
+  Write-Host ""
+  foreach ($b in $integrity.Broken)       { Write-Host "    UNSHIMMED PRODUCT PAGE : $b" -ForegroundColor Red }
+  foreach ($s in $integrity.ShimmedShell) { Write-Host "    SHIMMED TOUR SHELL     : $s" -ForegroundColor Red }
+  Write-Host ""
+  Write-Host "    $($integrity.Broken.Count) of $($integrity.Product) product pages and $($integrity.ShimmedShell.Count) of $($integrity.Shell) tour shells are wrong." -ForegroundColor Red
+  if ($integrity.Broken.Count -gt 0) {
+    Write-Host "" 
+    Write-Host "    An unshimmed product page was copied in by hand instead of" -ForegroundColor Yellow
+    Write-Host "    built. It will call the live server and show nothing on a" -ForegroundColor Yellow
+    Write-Host "    machine that has none. See capture-walk.md section 3h." -ForegroundColor Yellow
+  }
+  if ($integrity.ShimmedShell.Count -gt 0) {
+    Write-Host "" 
+    Write-Host "    A shimmed tour shell means the shell was in the output dir" -ForegroundColor Yellow
+    Write-Host "    when step 5e ran, so it now tries to replay its own static" -ForegroundColor Yellow
+    Write-Host "    asset reads. It must be staged AFTER 5e, not before." -ForegroundColor Yellow
+  }
+  Write-Host "" 
+  Write-Host "    Do not demo this bundle. Rebuild it: publish/build-demo.ps1" -ForegroundColor Yellow
+  Write-Host ""
+  Write-Host "    Serving anyway so you can still inspect it." -ForegroundColor Yellow
+  Write-Host ""
+} else {
+  Write-Host "    replay : $($integrity.Product) product pages shimmed, $($integrity.Shell) tour shells clean" -ForegroundColor Green
+}
 Write-Host ""
 Write-Host "  Press Ctrl+C in this window to stop the demo." -ForegroundColor Yellow
 Write-Host ""

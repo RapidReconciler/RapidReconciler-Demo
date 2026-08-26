@@ -45,3 +45,15 @@ bundle-all._old/
 # because DB-global GETs collide in a merged recording - see analyst-tour-scope.md).
 bundle-demo2/
 bundle-demo3/
+
+# Staging output for a build-and-swap. The serve holds /bundle/ open, so a rebuild
+# goes to bundle-next first, gets verified on its own port, and is renamed into
+# place once the rail walk passes. Same "build output, never source" status as
+# /bundle/ -- 157 files including three recordings.
+bundle-next/
+
+# Numbered retirees from repeated build-and-swap rounds (bundle._old2, ._old3 ...).
+# The single-name entries above missed these and a git add -A would have staged
+# 157 regenerable files per directory -- the same gap this file already records
+# for bundle-all/.
+bundle._old*/
