@@ -57,3 +57,7 @@ bundle-next/
 # 157 regenerable files per directory -- the same gap this file already records
 # for bundle-all/.
 bundle._old*/
+
+# Python bytecode from the capture harness
+__pycache__/
+*.pyc

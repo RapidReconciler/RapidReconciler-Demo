@@ -177,7 +177,17 @@
         return { n: X.db, ip: 'localhost:' + ports[i], a: P.adm, t: { adm: P.adm },
                  perms: { dm: true }, i: X.cos.slice() };
       });
-      var payload = { user: { fn: P.fn, u: P.u }, dbs: dbs, exp: 2082758400 };
+      // `sub` mirrors user.u, and it is NOT decoration. The Services agent reads
+      // the username from user.u and only falls back to sub (JwtAuthFilter), so a
+      // token without sub is fine there -- which is why this was missing and why
+      // nothing looked wrong. VALC does not fall back: MEASURED 2026-08-27 with
+      // two RS256 tokens signed by the same key and differing ONLY in sub,
+      // GET /api/v1/messages answered 401 without it and 200 with it. So Home's
+      // Message Center could not be captured at all, and the failure presented as
+      // an auth problem rather than a missing claim. AuthController mints both
+      // from the same user, so mirroring them here is what makes the fixture
+      // honest rather than merely agent-shaped.
+      var payload = { user: { fn: P.fn, u: P.u }, sub: P.u, dbs: dbs, exp: 2082758400 };
       try {
         root.localStorage.setItem('rrv8.token', 'eyJhbGciOiJub25lIn0.' + b64url(payload) + '.demo');
         root.localStorage.setItem('rrv8.activeDb', A.db);      // the archetype picks the OPENING dataset

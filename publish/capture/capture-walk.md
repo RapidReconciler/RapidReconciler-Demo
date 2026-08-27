@@ -1,11 +1,27 @@
 # capture-walk.md — the reusable capture-walk driver
 
 The repeatable procedure for recording a demo chunk against the LIVE
-product, driven by an MCP browser agent. Re-run this to reproduce or
-extend a capture. It is the automation companion to
-`build-capture-staging.ps1` / `record-shim.js` / `request-signature.js`
-and the coverage plan in
+product. Re-run this to reproduce or extend a capture. It is the automation
+companion to `build-capture-staging.ps1` / `record-shim.js` /
+`request-signature.js` and the coverage plan in
 `RapidReconciler-AI/docs/plans/demo-capture-manifest.md`.
+
+**The walk is now a program, not just a runbook.** These live beside this
+file; the prose below is why they do what they do, and stays the place to
+read before changing them:
+
+| File | What it is |
+|---|---|
+| `cdp.py` | drives a dedicated headless Chrome over CDP (§0.4b) |
+| `capture-drive.py` | one database per run: rails, then the audit exports, then the pages no rail touches |
+| `capture-sign.js` | appended to the **capture-staging copy** of `tour-seed.js` to re-sign its token (§3c-2) |
+| `sign-service.py` | the capture-time signer it posts to; holds the private key, and stays out of `bundle/` |
+| `audit-cover.js` | the per-company focus + Excel export sequence (§3i) |
+| `reload-cardex-preview.js` | fires the preview by hand on a database whose end-of-day snooze stops it firing by itself (§3i) |
+| `rail-walk.py` | the OFFLINE control: walk a built bundle's rail and report `misses()` per beat |
+| `page-check.py` | the same control for the pages NO rail visits — seeds on a rail first, because a direct visit redirects to a `login.html` the bundle does not contain and then reports zero misses for a page that never ran |
+| `recording-inspect.py` | run this on a delta BEFORE merging (§4) |
+| `recording-prune.py` | REMOVES entries — the operation merge cannot do, and §3j explains why appending is not always enough |
 
 The walk runs THROUGH VALC (`capture/start`), not by self-serving :8765.
 VALC (LocalSystem) stops the RR App, restages `capture-staging\` with the
@@ -171,14 +187,50 @@ Then confirm a small `ai/explain` POST returns a real body. The model is
 DB is serving the RIGHT data (hit `/available-periods` on its port and
 check the period range matches the DB you expect).
 
-### 0.4 An MCP-connected Chrome with the :8765 session
+### 0.4 A browser that is not the owner's — two ways, and the second is better
 
-The owner's Chrome, connected to the MCP server. The dev token persists
-per-origin, so a tab on :8765 already carries it. **Do NOT hijack the
-owner's working tab** — create your own with `tabs_create_mcp`, do all
-work there, and close it when done. Because capture-staging serves on
-:8765, the same-origin token carries straight into the walk with no
-re-paste.
+**(a) The MCP-connected Chrome.** The dev token persists per-origin, so a
+tab on :8765 already carries it. **Do NOT hijack the owner's working
+tab** — create your own with `tabs_create_mcp`, do all work there, and
+close it when done.
+
+**(b) A dedicated headless Chrome over CDP. Prefer this.** Measured
+2026-08-27, when the MCP browser tools were unavailable for the whole
+session and the entire capture cluster would otherwise have been blocked:
+
+```
+chrome.exe --headless=new --disable-gpu
+           --remote-debugging-port=9333
+           --user-data-dir=<scratchpad>/cprof9333
+           --remote-allow-origins=*        # without this the CDP websocket
+                                           # handshake is refused 403
+           --no-first-run --no-default-browser-check
+```
+
+Then `PUT /json/new?<url>`, open the returned `webSocketDebuggerUrl`, and
+drive `Page.navigate` / `Runtime.evaluate`. A ~150-line driver is enough;
+`websocket-client` is the only dependency.
+
+Three reasons it is the better option, not merely the fallback:
+
+- **Isolation is structural.** `feedback_dont_share_browser` notes that a
+  separate TAB in the owner's browser still shares the profile's
+  localStorage, which is why the fix was two different browser apps. A
+  separate `--user-data-dir` is a third, stronger separation: its own
+  localStorage, IndexedDB and cookies. Nothing a walk does can reach the
+  owner's session, and `rrv8.activeDb` cannot race.
+- **It composites.** `reference_headless_analyzer_verification` records
+  that on this box `document.visibilityState` is `hidden` and
+  `requestAnimationFrame` NEVER fires. That is a property of the attached
+  browser, not of the box: in this instance `visibilityState` is
+  `visible` and rAF fires. Anything gated on rAF actually runs.
+- **The walk is a file.** The driver is diffable and re-runnable, which is
+  the "in-page walker" durability the bottom of this doc asks for, without
+  having to inject anything into the product.
+
+Because capture-staging serves on :8765, the token still carries by
+origin — but a fresh profile has no token at all, so a CDP walk MUST
+establish its own session. See §3c-2.
 
 ---
 
@@ -352,6 +404,87 @@ one page load: 403 before, 200 after, nothing else changed.
 If you add a claim to the seeder, check BOTH consumers. The agent also reads
 `as`, `aite`, `aprs`, `rs` and `su` off the same entry.
 
+### 3c-2. The agents verify RS256 now, so a CAPTURE has to sign. A replay never does.
+
+**Live since VLC-32 was ruled option B, 2026-08-27.** `auth.jwt.key-dir` on
+VALC points at `C:\Users\EdwardGutkowski\.rr-valc-jwt-keys`, and every
+VALC-spawned agent logs `JWT signature verification enabled (RS256, key=…
+public.pem)`. Verification did not go away; only the trust anchor moved to a
+keypair a walk can sign with.
+
+`tour-seed.js` still mints `alg:none`, **and that stays true.** Replay
+intercepts the network and verifies nothing, so a shipped bundle carrying a
+private key would buy nothing and leak everything. The file's own header says
+so. Signing is a CAPTURE-time concern and lives in `publish/capture/` —
+never in `bundle/`, never in `tour/`.
+
+**Re-sign the seeder's own payload; do not mint a parallel token.** A
+hand-built token drifts from the seeder — the dynamically resolved ports, the
+company lists, the `a` / `t.adm` pair of §3c. Take the JWT the seeder just
+wrote, keep its payload segment byte-for-byte, swap the header to
+`{"alg":"RS256"}` and sign. The claims then ARE the seeder's claims and
+cannot disagree with it. The capture driver does this by appending a wrapper
+around `RRTour.seed` to the **capture-staging copy** of `tour-seed.js`
+(gitignored, rebuilt by every `capture/start`), pointed at a scratchpad
+signing service holding the private key.
+
+Assert the result before walking a single beat:
+
+```js
+JSON.parse(atob(localStorage.getItem('rrv8.token').split('.')[0])).alg   // 'RS256'
+```
+
+If that is not `RS256`, **abort the walk**. An unsigned token records 403s,
+and §3e is about why those must never reach a recording.
+
+**`sub` is not optional, and the agent will not tell you.** `JwtAuthFilter`
+reads the username from `user.u` and only falls back to `sub`, so an
+agent-only walk works fine without it. VALC does not fall back. MEASURED
+2026-08-27 with two RS256 tokens signed by the same key differing ONLY in
+`sub`: `GET /api/v1/messages` answered **401 without it and 200 with it**.
+Every `/api/v1/messages` entry in that day's Demo3 delta was a 401, at every
+position in the walk, while `/api/v1/ai/explain` on the same VALC and the
+same token answered 200 twenty times — which reads as a per-route auth quirk
+and is a missing claim. `tour-seed.js` now mints `sub`, mirroring
+`AuthController`.
+
+---
+
+### 3c-3. The first page of a NEW capture session can report the OLD session's count
+
+**Measured 2026-08-27, and it silently threw away most of two walks.**
+`build-capture-staging.ps1` stamps a fresh `__rrCaptureSession` per build, and
+`record-shim.js` starts a new walk clean on a new stamp — but it hydrates from
+IndexedDB asynchronously. So the FIRST page loaded after a `capture/start` can
+answer `__demoCapture.count()` with the PREVIOUS session's total, and the reset
+lands afterwards.
+
+What that looks like: Demo2's `home.html` reported **41** — which was Demo1's
+final count from the previous session — and the very next page reported **4**.
+Everything home.html recorded was gone, and the walk log read like a page that
+had simply made fewer requests.
+
+**A quiescence gate cannot see this.** The number is not moving because it is
+the old one, so waiting longer confirms it harder. Nothing throws, the save
+succeeds, and the delta is short by exactly one page.
+
+**The reload trick is not enough on its own, and the reason is the HTTP cache.**
+Reloading first and counting after still lost the page, twice. The stamp is
+INLINE in each page's `<head>`, so a page Chrome serves from cache arrives
+carrying the PREVIOUS build's stamp — and then two pages in one walk disagree
+about which session they are in, and the one with the newer stamp wipes the
+other's entries on its first `persist()`. Nothing errors; the save reports a
+cheerful count of whatever survived.
+
+So a capture walk must run with the cache off. `cdp.py` sends
+`Network.setCacheDisabled(true)` on every tab it opens. In a hand-driven walk,
+open DevTools and tick "Disable cache", or hard-reload every page. Belt and
+braces: land on a THROWAWAY shimmed page first, so the page you actually care
+about is never the one absorbing the reset, and read `__rrCaptureSession` on
+each page — every page of one walk must report the same value.
+
+---
+
 ### 3d. Seed BEFORE the first page load, or you record the last walk's database
 
 **Measured 2026-08-25 capturing Demo2's admin lane.** `rrv8.activeDb` persists per
@@ -392,6 +525,18 @@ Measured 2026-08-25: the three VALC routes behind `parseBearer` →
 `alg:none`. They need a real signed login. Excluding them left exactly two
 signatures in `misses()` across the whole admin rail, both naming the one root
 cause, which is a better handoff than a rail that looks finished.
+
+**SUPERSEDED IN PART, 2026-08-27.** A capture is no longer limited to what an
+unsigned token can reach: §3c-2's re-signing gives the walk a real RS256
+token, and `GET /api/v1/messages` answers 200 with one — provided it carries
+`sub`, which `tour-seed.js` now mints. So the Message Center IS capturable.
+It has NOT been captured: all three recordings still hold that signature as a
+401 from an older walk, and because merge is append-only-if-absent, a delta
+that finally records the 200 is dropped. Closing it needs a
+`-Refresh '/api/v1/messages'` on all three, and that is a demo-CONTENT
+decision — it puts an operator message banner above everything on Home — so
+it is the owner's call, not a merge detail. The rule above is unchanged: do
+not let a 401 into a recording.
 
 ---
 
@@ -512,6 +657,113 @@ re-walk passes.
 
 ---
 
+### 3i. A per-company AI surface needs the company control, and it is not where you'd look
+
+**Measured 2026-08-27 capturing UI-153's `auditcover` ctx.** The audit Excel
+export is scoped to the accountant's FOCUS company (`_auditCo` =
+`_acctFocusCo(...)` in `RRV8/home.html`), so one export yields one
+`?ctx=auditcover-<tier>-co<NN>-<period>` and the walk has to move the focus
+between exports. Three things about that control cost a run:
+
+- The only thing that moves it is `input[data-cos-acctco]` in the footer
+  company menu, and the menu renders those inputs **only on the accountant
+  detail tabs** (`data-sv="account"` / `"perpetual"`). On Overview the same
+  menu renders `data-cos-co` CHECKBOXES, which are the include/exclude
+  what-if filter and change the focus company not at all.
+- Picking one **persists to `rrv8.acctCompany.<db>` and reloads the page**
+  (UI-31). The export has to wait for that reload, not just for the click.
+- The menu's rows read `Co 30001`, not `30001`. A scrape that matches a bare
+  number finds nothing and reports an empty company list, which looks like a
+  scope problem and is a selector problem. Read the focus back off
+  `.aud-hdr-co` / `.aud-hdr-cn` after the tab opens and print it — the export
+  is only worth what the header says it was.
+
+The whole sequence, per company: `[data-sv="account"]` → `#haCosBtn` →
+`input[data-cos-acctco="<co>"]` → wait for the reload → `[data-sv="audit"]`
+→ `#auditReportMenu` open → `[data-audit-report="excel"]`.
+
+**A request the LIVE product does not make can still be one the REPLAY makes.**
+Same shape, different page. `admin-reload-cardex.html` auto-previews only when
+the end-of-day snooze is clear, and the snooze is a SERVER ack read from
+`/admin/acks` — so on a snoozed database `loadPreview()` never fires at capture
+time, while an older `acks` body sitting first in that signature's sequence lets
+it fire at replay. The bundle then asks for
+`reload-cardex/preview?fromDate=…` and misses, and the walk log shows nothing
+wrong because the walk genuinely never made that call.
+
+The fix is not to clear the snooze on a demo database to suit a fixture. It is
+to make the request the way the admin does — set `#js-from` and dispatch
+`change`, which is the page's own handler
+(`$('js-from').addEventListener('change', loadPreview)`). `reload-cardex-preview.js`
+does exactly that, with the `suggestedDate` read out of the recording's own
+`eod-check` response rather than constructed.
+
+### 3i-2. Rebuilding the bundle snapshots whatever `RRV8/` is RIGHT NOW
+
+`build-demo.ps1` copies the product from `RapidReconciler-AI/RRV8` every time.
+So a rebuild does not only publish your new recordings — it publishes whatever
+else has landed in the UI repo since the last one, and any request that new
+code makes is a request nothing has captured.
+
+**Measured 2026-08-27.** A rebuild picked up UI-162's `RRV8.offsetStore`, which
+calls `GET /inventory/gl-offset-account` from the accountant Home. All three
+agents answered **404** — the agent half was written and compiled, but the
+deployed jar predated it — so the capture recorded a 404 and the three
+accountant rails each grew one miss. Neither half was wrong; they were just
+hours apart, and the bundle sat in between.
+
+Two habits close it:
+
+- **Record the UI repo's SHA and `git status` at build time**, and check the log
+  between it and the previous bundle. Anything touching `RRV8/` is a candidate
+  for a new uncaptured request.
+- **Re-run the rail control after every rebuild, not only after a capture.** A
+  rebuild changes the product half of the pair; that is exactly as likely to
+  introduce a miss as a re-record is.
+
+And when the miss is a 404 rather than a gap: do NOT capture it (§3e). Wait for
+the jar, confirm the endpoint answers 200, then walk the one page. That is what
+happened here — jar rebuilt, agents respawned, endpoint 200 on all three ports,
+one short pass per database, done.
+
+### 3j. `aai-responses?runId=` is captured pinned to one analysis run
+
+`GET /inventory/integrity/aai-responses` takes a REQUIRED `runId` and
+`accounting-dmaais.html` reads it out of `aai-analysis-latest._meta.runId`.
+That value is the timestamp of the latest DMAAI analysis
+(`2026-08-27T13:35:12.759Z` on Demo3 the day this was written), and
+`request-signature.js` folds the sorted query into the key. So the captured
+entry matches only while that run is still the latest one; the next analysis
+on that database changes the runId and the recording can never match again.
+It is stable within a session — three calls returned the same runId — so it
+captures cleanly; it just does not survive a re-analysis. If a bundle starts
+missing this one signature, re-analysis is the first thing to check, not the
+capture.
+
+**And the two endpoints are a KEY AND A LOCK. Refresh both or neither.**
+This is the part that a merge silently gets wrong, measured 2026-08-27 on
+the rebuilt Demo1 bundle. `merge-recording.ps1` appends only signatures the
+base has never seen, so a freshly captured
+`aai-responses?runId=2026-08-27T13:08:44.795Z` merged cleanly — while the
+base's `aai-analysis-latest` body still carried
+`runId=2026-08-20T12:51:26.440Z`. At replay the page read the OLD runId out
+of the OLD analysis body and asked for a response nothing had recorded, so
+`accounting-dmaais.html` reported exactly the miss the capture existed to
+close, and the entry that would have answered it sat unreachable in the same
+file.
+
+The fix is `-Refresh '/inventory/integrity/aai-analysis-latest'`, and it is
+safe to a degree worth measuring rather than assuming: diffing the base body
+against the new one on all three databases, `fixFirst`, `askCustomer`,
+`modules` and `ignoreBlurb` were byte-identical and **only `_meta` differed**
+(the runId and the analysis date). `home.html`'s Transaction Variance tab
+reads `fixFirst` off the same endpoint and is on every analyst rail, so that
+check is what makes the refresh safe rather than merely convenient.
+
+Generalise it: **whenever a captured request's query is derived from another
+recorded response, the pair moves together.** Refreshing the derived half
+alone is a guaranteed miss, and it is a miss that looks like a capture gap.
+
 ## 4. Verify coverage before saving
 
 - `window.__demoCapture.count()` grew across the walk and matches roughly
@@ -523,6 +775,21 @@ re-walk passes.
 - Spot-check that company-scoped POSTs returned real data (a body with
   `total>0` where the DB has variance), not `total:0` — that catches the
   0.1 token/scope trap immediately.
+
+Then run the delta through `recording-inspect.py` before merging anything.
+It reports the four things a walk gets silently wrong — foreign-database
+query strings (§3d), 401/403 entries (§3e), decode holes, and whether the
+endpoints the walk existed to capture are actually in it — and it takes a
+list of files, so a base and its delta can be compared side by side:
+
+```
+python recording-inspect.py delta-demo2-s62.json
+```
+
+**A walk that "went fine" is not evidence.** The Demo3 delta of 2026-08-27
+reported `companies in scope: []` and completed exit 0 with zero audit
+exports in it; the driver's own log said nothing was wrong because nothing
+had thrown. The inspector's `ctx=auditcover  0` is what caught it.
 
 ---
 
@@ -667,6 +934,19 @@ never disturbed. `-Refresh <path prefixes>` is the narrow exception for a surfac
 whose data genuinely changed — never for a signature whose sequence a beat
 depends on.
 
+**`-Refresh` out-votes; it does not replace. See §3j.** The appended entry only
+wins once the sequence has been drained, so a signature the base holds several
+times still serves its stale HEAD to the first caller. When the stale copies have
+to go, `recording-prune.py` is the tool; a `-Refresh` on top of a many-entry
+sequence is the failure mode that looks like a fix.
+
+**Append-only also means a merge can put back what a prune removed.** A delta
+captured before the prune still carries the entry; merging it afterwards
+re-adds it, because the base no longer holds that signature and it therefore
+counts as new. Measured 2026-08-27: a 404 pruned from `recording-demo1.json`
+came back on the next top-up merge. Re-run the prune report after the LAST
+merge, not after the first.
+
 It locates the entries array by a string-aware structural scan, not by searching
 for a `]}` tail, and it reads signatures the same way. The old textual version
 spliced a new entry at char 41,666,807 of the 48.9 MB Demo2 base — inside
@@ -696,9 +976,26 @@ partition-by-DB plan (manifest option A) name it per DB
 
 ## 6. Teardown / restore
 
+**:8765 IS THE OWNER'S PRODUCT URL. A capture takes it away from him.**
+Staging serves the V8 app FLATTENED — `home.html` at the root, no `RRV8/`
+prefix, no `index.html` — so while a walk is running, every bookmarked
+product path and the bare `http://localhost:8765/` answer 404. That is the
+design (§1: the shim has to be in place from t=0 and only VALC can free the
+port), but nobody watching from outside can tell it from a broken server.
+Two rules follow, and they cost nothing:
+
+- **Say so before a long capture, and say when it is back.** A multi-database
+  walk holds the port for the better part of an hour.
+- **`POST capture/stop` the moment the last save lands** — not at the end of
+  the whole session, and not after the merge and rebuild, which need nothing
+  from :8765. Do this even if another pass may follow later; re-taking the
+  port costs one request.
+
 - Confirm the RR App is back: `curl http://localhost:8765/RRV8/home.html`
   → 200 (Save's auto-stop, or the explicit `capture/stop`, rebinds :8765
-  to the UI repo root). If not, `POST capture/stop` again.
+  to the UI repo root). If not, `POST capture/stop` again. A 404 on the bare
+  `/` is NOT a leftover — the UI repo root has no `index.html`; check
+  `/rapidreconciler-help.html` instead, which is the customer-facing cover.
 - Restore the browser state you changed: put `rrv8.activeDb` and
   `rrv8.token` back to what you recorded in step 2 (matters when you
   used the 0.1 dev-token shortcut).
@@ -708,19 +1005,33 @@ partition-by-DB plan (manifest option A) name it per DB
 
 ---
 
-## Durability tradeoff — MCP-agent walk vs in-page walker
+## Durability — the walk is code now, and where it still is not
 
-Today the walk is driven by an MCP browser agent following this runbook.
-That is fine for producing a recording, but the walk logic lives in the
-agent's head (this doc), not in code — re-running it depends on an agent
-re-reading and re-executing it consistently. A more durable design is an
-**in-page walker**: a small script injected alongside the shim that
-encodes the manifest entry list + scope steps + terminal-status gates and
-drives itself, so a capture is one button, deterministic and diffable.
-The MCP approach is right for now (fast to iterate while the entry list is
-still moving); promote to an in-page walker once the entry list and drill
-sequence stabilize, and keep it as one source with the tour definition so
-a new screen is always visited.
+This section used to say the walk lived in an agent's head and should be
+promoted to an in-page walker. **Half of that happened on 2026-08-27**, out
+of necessity rather than tidiness: the MCP browser tools were unavailable
+for a whole session, so the walk had to become a program to happen at all.
+`capture-drive.py` + `cdp.py` now encode the page list, the scope steps and
+the terminal-status gates, and `rail-walk.py` encodes the control. Three
+sessions' worth of runbook prose is executable, deterministic and diffable.
+
+What is still prose, and matters:
+
+- **The gate is entry-count quiescence, not a network filter.** The driver
+  waits for `__demoCapture.count()` to stop growing. That is cheaper than
+  §3's `read_network_requests` polling and covers the same failure (moving
+  on mid-load), but it cannot tell "finished" from "stalled" — a hung
+  request looks exactly like a quiet one. It has a hard cap and reports the
+  count it stopped at; read that number.
+- **It is not one source with the tour definition.** The rails are walked by
+  their own Next button, so those surfaces stay in sync by construction
+  (§3b). The pages NO rail visits are a hand-maintained list at the top of
+  `capture-drive.py`. Adding a product page still means adding it there, and
+  nothing will tell you if you forget — which is exactly how UI-158's six
+  endpoints went uncaptured for a month.
+- **An in-page walker is still the better end state** for the same reason it
+  always was: injected alongside the shim, it cannot disagree with the
+  product about what loaded.
 
 ---
 
