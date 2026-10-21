@@ -4,9 +4,14 @@ The self-contained sales demo for RapidReconciler V8. A prospect (guided by a
 presenter) picks the company closest to their operation, then walks a short tour
 of each role against realistic data. It runs with no live backend.
 
-**Private. Never make this repo or its hosting public** without a deliberate
-data-hygiene sign-off. It carries sales scripts, prospect archetypes, and
-captured demo data.
+**Public since 2026-10-21, on the owner's data-hygiene sign-off** ("All demo data
+was scrubbed. No need to verify again.", 2026-10-20). The built tour is served at
+**https://demo.rapidreconciler.getgsi.com/**, published from the `gh-pages` branch by
+`publish/publish-pages.ps1` (one force-pushed commit per publish, so the bundle never
+enters `main`'s history). Everything here, including the sales scripts and prospect
+archetypes, is readable by anyone. Never commit a secret: the dev JWT signer
+(`publish/capture/sign-service.py`) reads its key from the user's home folder, and
+that is the only way it may get it.
 
 ## What this is, and is not
 
