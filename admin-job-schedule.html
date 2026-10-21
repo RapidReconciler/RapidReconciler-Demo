@@ -1,0 +1,419 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Administrator > Utilities — Review Job Schedule (confirm + request-change)
+  =============================================================================
+  GET admin/refresh-schedule returns the NIGHTLY refresh for this database
+  (On/Off, time, last run + outcome, next run) — display only, no initial load.
+  The schedule is set by the customer's on-site DBA and changed at the user's
+  request (NOT by GSI): the admin confirms it here via a 30/60/Never review
+  reminder (no attestation, client-side rrv8.scheduleReview.<db>, shared with
+  the Home dot through RRV8.scheduleReviewState) and can send a change request
+  (a pre-filled mailto) to their DBA. Graceful fallback to a neutral
+  "unavailable" state if the endpoint is absent. Admin-page standard chrome:
+  floating Home button + help "?" circle.
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Schedule &mdash; RapidReconciler Admin</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="sidebar.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<style>
+  /* Shared admin-page chrome (palette, wash, Home button, page shell, cards)
+     lives in admin-chrome.css, linked above. Only page-specific rules below. */
+  .note { display:flex; gap:12px; padding:13px 16px; border-radius:9px; background:var(--bg-soft); border:1px solid var(--rule); color:var(--text-soft); margin-top:14px; font-size:13px; }
+  .row { display:flex; align-items:flex-start; gap:12px; }
+  /* Colour is derived from data-state; JS sets the state and never a colour
+     class. See docs/plans/shared-state-registry.md. */
+  .row-dot { width:9px; height:9px; border-radius:50%; background:var(--text-muted); flex-shrink:0; margin-top:6px; }
+  .row-dot[data-state="ok"] { background:var(--green); }
+  .row-dot[data-state="attention"] { background:var(--red); }
+  .row-dot[data-state="unknown"] { background:var(--text-muted); }
+  .row-dot[data-state="watch"] { background:var(--orange); }
+  .row-main { flex:1; min-width:0; }
+  .row-title { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:15px; color:var(--navy); display:flex; align-items:center; gap:10px; }
+  .row-sub { font-size:13px; color:var(--text-soft); margin-top:3px; line-height:1.5; }
+  .sched-pill { display:inline-block; padding:2px 9px; border-radius:100px; font-family:'Source Sans 3',sans-serif; font-size:10.5px; font-weight:700; letter-spacing:.04em; background:var(--rule); color:var(--text-soft); }
+  .sched-pill.on { background:var(--green-pale); color:var(--green); }
+  .sched-pill.off { background:var(--rule); color:var(--text-muted); }
+  .actions { margin-top:18px; }
+  .btn { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:13.5px; border-radius:6px; padding:9px 18px; cursor:pointer; border:1px solid transparent; }
+  .btn-ghost { color:var(--text-soft); background:var(--bg-card); border-color:var(--rule-strong); }
+  .btn-ghost:hover { color:var(--navy); border-color:var(--text-muted); }
+  .gate-notice { display:none; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); }
+  .gate-notice svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .gate-notice.is-visible { display:flex; }
+  .gate-notice.halt-notice { background:var(--red-pale); border-color:var(--red); }
+  .gate-notice.halt-notice svg { color:var(--red); }
+  body.is-gated #js-tool { display:none; }
+  .btn-primary { color:#fff; background:var(--blue); border-color:var(--blue); }
+  .btn-primary:hover { filter:brightness(1.07); }
+  /* Review reminder band (no attestation) — mirrors the Complex Passwords page. */
+  .review-band { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; border:1px solid var(--rule); border-left:4px solid var(--rule-strong); border-radius:10px; background:var(--bg-card); box-shadow:var(--shadow-sm); padding:12px 16px; margin-bottom:18px; }
+  .review-band[data-state="ok"] { border-left-color:var(--green); background:var(--green-pale); }
+  .review-band[data-state="todo"] { border-left-color:var(--orange); background:var(--orange-pale); }
+  .review-main { display:flex; align-items:center; gap:9px; min-width:240px; }
+  .review-dot { width:9px; height:9px; border-radius:50%; background:var(--text-muted); flex-shrink:0; }
+  .review-band[data-state="ok"] .review-dot { background:var(--green); }
+  .review-band[data-state="todo"] .review-dot { background:var(--orange); }
+  .review-text { font-size:13px; color:var(--text-soft); }
+  .review-text b { color:var(--navy); }
+  .review-action { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .review-label { font-size:12.5px; font-weight:600; color:var(--text-soft); }
+  .review-btn { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:12.5px; border:1px solid var(--rule-strong); background:var(--bg-card); color:var(--navy); border-radius:100px; padding:5px 11px; cursor:pointer; }
+  .review-btn:hover { border-color:var(--green); color:var(--green); }
+  .review-never:hover { border-color:var(--text-muted); color:var(--text-muted); }
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--navy); color:#fff; padding:10px 18px; border-radius:6px; font-family:'Source Sans 3',sans-serif; font-weight:600; font-size:13px; opacity:0; pointer-events:none; transition:opacity .2s ease,transform .2s ease; z-index:100; }
+  .toast.is-visible { opacity:1; transform:translateX(-50%) translateY(0); }
+  /* Prominent schedule readout. */
+  .sched-hero { display:flex; gap:14px; align-items:flex-start; }
+  .sched-hero .row-dot { margin-top:10px; }
+  .sched-hero-main { flex:1; min-width:0; }
+  .sched-hero-top { display:flex; align-items:center; gap:10px; }
+  .sched-hero-label { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:13px; color:var(--text-soft); letter-spacing:.06em; text-transform:uppercase; }
+  .sched-hero-time { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:34px; color:var(--navy); line-height:1.1; margin:5px 0 7px; }
+  .sched-hero-runs { font-size:13px; color:var(--text-soft); line-height:1.55; }
+</style>
+</head>
+<body data-help-src="../RRUniversity/administrator-start-here.html#data" data-help-title="Data refresh schedule">
+
+<div class="app">
+
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <div class="toast" id="js-toast" role="status" aria-live="polite"></div>
+
+  <main class="main">
+    <div class="page">
+
+      <header class="page-header">
+        <h1 class="page-title">Review Job Schedule</h1>
+        <p class="page-lede">Your nightly data refresh time, set and changed by your <strong>on-site DBA</strong>. <strong>GSI cannot change it.</strong> Confirm it&rsquo;s still right below; to move the timing, send a change request to your DBA.</p>
+      </header>
+
+      <div class="note gate-notice" id="js-gate" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div>This is an administrator function. <b>Contact your administrator</b> to review the job schedule.</div>
+      </div>
+
+      <!-- Halt states. Neither one is a permission answer: the first means a
+           required part of the page never loaded, the second means the sign-in
+           carried no answer about this user's access either way. Both close the
+           page instead of rendering the admin surface on a guess. -->
+      <div class="note gate-notice halt-notice" id="js-halt-asset" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Part of this page didn&rsquo;t load, so RapidReconciler can&rsquo;t tell what you&rsquo;re allowed to see here &mdash; nothing was loaded. Reload the page. If it happens again, <b>contact your IT department</b>.</div>
+      </div>
+
+      <div class="note gate-notice halt-notice" id="js-halt-claim" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Your sign-in didn&rsquo;t say what you&rsquo;re allowed to do here, so nothing was loaded. Reload the page. If it happens again, ask your <b>IT department</b> to check your RapidReconciler account.</div>
+      </div>
+
+      <div id="js-tool">
+
+        <!-- Review reminder (NOT an attestation): set a 30 / 60-day reminder, or
+             turn it off with Never, to confirm the nightly schedule is still
+             right. Greens this band + the Home dot. Stored per-db in
+             rrv8.scheduleReview.<db>. -->
+        <div class="review-band" id="js-review-band" role="status">
+          <div class="review-main">
+            <span class="review-dot" id="js-review-dot" aria-hidden="true"></span>
+            <span class="review-text" id="js-review-text"></span>
+          </div>
+          <div class="review-action">
+            <span class="review-label">Remind me in</span>
+            <button type="button" class="review-btn" data-days="30">30 days</button>
+            <button type="button" class="review-btn" data-days="60">60 days</button>
+            <button type="button" class="review-btn review-never" data-never="1">Never</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="card-title">Data refresh schedule</span></div>
+          <div class="card-body">
+            <div class="sched-hero">
+              <span class="row-dot" data-state="unknown" id="js-daily-dot"></span>
+              <div class="sched-hero-main">
+                <div class="sched-hero-top"><span class="sched-hero-label">Nightly refresh</span> <span class="sched-pill" id="js-daily-state">&mdash;</span></div>
+                <div class="sched-hero-time" id="js-daily-time">&mdash;</div>
+                <div class="sched-hero-runs" id="js-daily-sub">Pulls the latest from JD&nbsp;Edwards each night.</div>
+              </div>
+            </div>
+            <div class="actions"><button type="button" class="btn btn-primary" id="js-request-change">Request a change</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const RR_CONFIG = window.RR_CONFIG || {};
+  const URL_MODE  = new URLSearchParams(window.location.search).get('mode');
+  const MODE      = URL_MODE || RR_CONFIG.mode || 'demo';
+  const IS_DEMO   = (MODE === 'demo');
+  const _testAgentAreas    = new Set(window.RR_TEST_AGENT_AREAS || []);
+  const _testAgentPrefixes = window.RR_TEST_AGENT_PREFIXES || [];
+  const _valcPrefixes      = window.RR_VALC_PREFIXES || [];
+  function _routesToTestAgent(area) {
+    if (_testAgentAreas.has(area)) return true;
+    for (let i = 0; i < _testAgentPrefixes.length; i++) if (area.startsWith(_testAgentPrefixes[i])) return true;
+    return false;
+  }
+  function _routesToValc(area) { for (let i = 0; i < _valcPrefixes.length; i++) if (area.startsWith(_valcPrefixes[i])) return true; return false; }
+  function prodHeaders(contentType) {
+    const h = { 'Accept': 'application/json' };
+    try { const t = localStorage.getItem('rrv8.token'); if (t) h['Authorization'] = 'Bearer ' + t; } catch (_) {}
+    if (contentType) h['Content-Type'] = contentType;
+    return h;
+  }
+  function rrFetch(area, opts) {
+    opts = opts || {};
+    let base;
+    if (_routesToValc(area)) { base = RR_CONFIG.valcBase || 'http://localhost:8080'; }
+    else if (_routesToTestAgent(area)) {
+      base = window.RRDB.agentBase();   // canonical active-DB agent resolver (config.js RRDB)
+    } else {
+      const sess = window.RR_SESSION; const db = sess && sess.dbs && sess.dbs[sess.activeDbIndex || 0];
+      if (!db || !db.ip) return Promise.reject(new Error('No active database. Sign in first.'));
+      base = (/^(?:localhost|127\.0\.0\.1)\b/i.test(db.ip) ? 'http://' : 'https://') + db.ip;
+    }
+    const url = base + '/' + area + (opts.query ? '?' + new URLSearchParams(opts.query) : '');
+    const init = {
+      method:  opts.method || 'GET',
+      headers: prodHeaders(opts.body ? 'application/json;charset=UTF-8' : null),
+      body:    opts.body ? JSON.stringify(opts.body) : undefined
+    };
+    return fetch(url, init).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json().catch(() => null); });
+  }
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+  function activeDb() { const s = window.RR_SESSION || {}; const d = Array.isArray(s.dbs) ? s.dbs : []; return d[s.activeDbIndex || 0] || d[0] || null; }
+  function isAdmin() { const a = activeDb(); return !!(a && a.t && a.t.adm === true); }
+  // The access claim has THREE states and each gets its own answer. `true` opens
+  // the page; `false` is a real "no" and shows the gate notice above; anything
+  // else (no session, no tab claims, an older token shape) means we were never
+  // told, so the page halts visibly instead of guessing. Guessing "false" would
+  // lock out a legitimate admin whose token carries a different shape; guessing
+  // "true" is the fail-open this replaces.
+  function admClaim() { const a = activeDb(); return (a && a.t && typeof a.t.adm === 'boolean') ? a.t.adm : null; }
+  // Close the page loudly. `id` names one of the halt notices in the markup.
+  function haltPage(id) { document.body.classList.add('is-gated'); const el = $(id); if (el) el.classList.add('is-visible'); }
+
+  function fmtDateLong(iso) {
+    if (!iso) return '—';
+    try { return new Date(String(iso) + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); }
+    catch (_) { return String(iso); }
+  }
+  function fmtTime12(hhmm) {
+    if (!hhmm || typeof hhmm !== 'string') return '—';
+    const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+    if (!m) return hhmm;
+    let h = parseInt(m[1], 10); const min = m[2];
+    if (isNaN(h) || h < 0 || h > 23) return hhmm;
+    const ap = h < 12 ? 'AM' : 'PM'; let h12 = h % 12; if (h12 === 0) h12 = 12;
+    return h12 + ':' + min + ' ' + ap;
+  }
+  function fmtRunStamp(stamp) {
+    if (!stamp) return null;
+    const parts = String(stamp).trim().split(/\s+/);
+    const d = fmtDateLong(parts[0]);
+    const t = parts[1] ? fmtTime12(parts[1].slice(0, 5)) : '';
+    return t ? (d + ' at ' + t) : d;
+  }
+  function outcomeNote(o) {
+    if (!o || o === 'Unknown') return '';
+    if (o === 'Succeeded') return ' (succeeded)';
+    if (o === 'Failed') return ' (failed)';
+    if (o === 'Canceled') return ' (canceled)';
+    return ' (' + esc(o) + ')';
+  }
+  // Returns a STATE, never a colour. 'unknown' covers both "the job is switched
+  // off" and "the outcome is a value this build doesn't recognise" — neither
+  // claims a check ran, which is the point.
+  function outcomeDotState(seg) {
+    if (!seg || seg.enabled === false) return 'unknown';
+    if (seg.lastOutcome === 'Failed') return 'attention';
+    if (seg.lastOutcome === 'Succeeded') return 'ok';
+    return 'unknown';
+  }
+  function renderSchedule(s) {
+    // Three cases, and they used to collapse into one wrong one. The endpoint
+    // documents dailyRefresh as the schedule entry OR null when the job/schedule is
+    // absent, so:
+    //   key absent   -> we didn't get an answer. Say unavailable.
+    //   key null     -> a real answer: no nightly refresh job exists. Say THAT.
+    //   entry object -> render it.
+    // Previously all three fell through with `daily` possibly undefined, and the
+    // pill read "Off" / "Hasn't run yet" — an admin sees that as "someone disabled
+    // our nightly refresh" and escalates over a field the page never received.
+    if (!s || typeof s !== 'object' || !('dailyRefresh' in s)) {
+      console.error('[job schedule] refresh-schedule reply carried no dailyRefresh field:', s);
+      setUnavailable();
+      return;
+    }
+    const daily = s.dailyRefresh;
+    if (!daily || typeof daily !== 'object') {
+      _schedRunTime = null;
+      setUnavailable('No nightly refresh job is set up on this database. Ask your IT department to have the RapidReconciler refresh job created.');
+      return;
+    }
+    _schedRunTime = daily.runTime || null;
+    const dot = $('js-daily-dot'), state = $('js-daily-state'), time = $('js-daily-time'), sub = $('js-daily-sub');
+    // `enabled` is a documented field. Absent means unknown, not off.
+    const known = (daily.enabled != null);
+    const on = !!daily.enabled;
+    state.textContent = known ? (on ? 'On' : 'Off') : '—';
+    state.className = 'sched-pill ' + (known ? (on ? 'on' : 'off') : '');
+    RRV8.setDotState(dot, known ? outcomeDotState(daily) : 'unknown');
+    if (time) time.textContent = daily.runTime ? fmtTime12(daily.runTime) : '—';
+    const bits = [];
+    if (!known) bits.push('Couldn’t tell whether the schedule is switched on');
+    const last = fmtRunStamp(daily.lastRun);
+    bits.push(last ? ('Last run ' + last + outcomeNote(daily.lastOutcome)) : 'Hasn’t run yet');
+    const next = fmtRunStamp(daily.nextRun);
+    if (next) bits.push('Next run ' + next);
+    sub.innerHTML = bits.join(' &middot; ');
+  }
+  function setUnavailable(msg) {
+    $('js-daily-state').textContent = '—'; $('js-daily-state').className = 'sched-pill';
+    RRV8.setDotState($('js-daily-dot'), 'unknown');
+    const t = $('js-daily-time'); if (t) t.textContent = '—';
+    $('js-daily-sub').textContent = msg || 'Couldn’t read the refresh schedule just now — this isn’t a sign the schedule is off. Reopen this page in a moment.';
+  }
+
+  var _schedRunTime = null;
+  function toast(msg) { const el = $('js-toast'); if (!el) return; el.textContent = msg; el.classList.add('is-visible'); setTimeout(() => el.classList.remove('is-visible'), 3000); }
+
+  // ---- Review reminder (no attestation — a client-side reminder) ----
+  // 30 / 60 days or Never, stored per-db (rrv8.scheduleReview.<db>). Greens this
+  // band AND Home's Review Job Schedule dot via the shared RRV8.scheduleReviewState.
+  // The nightly time itself is owned by the customer's on-site DBA; this only
+  // records that the admin has recently confirmed it looks right.
+  function reviewKey() { const a = activeDb(); return 'rrv8.scheduleReview.' + ((a && a.n) || ''); }
+  // Server ack (kind 'schedule-review') is the source of truth — recorded per
+  // database by the agent and shared with the Home dot via GET /admin/acks.
+  // localStorage is a write-through fallback for databases whose ack table
+  // predates this build.
+  var _schedAck = null;
+  function loadSchedAck() {
+    if (!isAdmin()) return Promise.resolve();
+    return rrFetch('admin/acks').then(function (rows) {
+      _schedAck = null; (rows || []).forEach(function (r) { if (r && r.kind === 'schedule-review') _schedAck = r; });
+    }).catch(function () { _schedAck = null; });
+  }
+  function schedReviewVal() {
+    var v = (_schedAck && window.RRV8 && window.RRV8.ackToReviewValue) ? window.RRV8.ackToReviewValue(_schedAck) : '';
+    if (!v) { try { v = localStorage.getItem(reviewKey()) || ''; } catch (_) {} }
+    return v;
+  }
+  function renderReviewBand() {
+    const band = $('js-review-band'); if (!band) return;
+    let val = schedReviewVal();
+    const today = new Date().toISOString().slice(0, 10);
+    const state = (window.RRV8 && window.RRV8.scheduleReviewState)
+      ? window.RRV8.scheduleReviewState(val, today) : 'todo';
+    band.setAttribute('data-state', state);
+    const txt = $('js-review-text');
+    if (val === 'never')     txt.innerHTML = 'Periodic review reminders are <b>off</b>. You can set one anytime.';
+    else if (state === 'ok') txt.innerHTML = 'Confirmed &mdash; we&rsquo;ll remind you to re-check on <b>' + esc(fmtDateLong(val)) + '</b>.';
+    else                        txt.innerHTML = 'Confirm your nightly refresh time is still right, then set a reminder.';
+  }
+  function wireReviewBand() {
+    const band = $('js-review-band'); if (!band) return;
+    band.querySelectorAll('.review-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        let val, cadenceDays = null, never = false;
+        if (btn.dataset.never) { never = true; val = 'never'; }
+        else { cadenceDays = parseInt(btn.dataset.days, 10) || 30; const d = new Date(); d.setDate(d.getDate() + cadenceDays); val = d.toISOString().slice(0, 10); }
+        rrFetch('admin/activity/ack', { method: 'POST', body: { kind: 'schedule-review', cadenceDays: cadenceDays, never: never } })
+          .then(function (ack) { if (ack) _schedAck = ack; })
+          .catch(function () { /* no ack table on this DB — localStorage fallback below */ })
+          .then(function () { try { localStorage.setItem(reviewKey(), val); } catch (_) {} renderReviewBand(); });
+        toast(val === 'never' ? 'Review reminders turned off.' : 'Confirmed — reminder set for ' + fmtDateLong(val) + '.');
+      });
+    });
+  }
+
+  // ---- Request a change ----
+  // The on-site DBA owns the schedule, so this drafts an email the admin sends to
+  // them. Recipient is intentionally blank (the admin addresses their own DBA);
+  // the current nightly time + database are pre-filled into the body.
+  function wireRequestChange() {
+    const btn = $('js-request-change'); if (!btn) return;
+    btn.addEventListener('click', function () {
+      const a = activeDb(); const dbn = (a && a.n) || 'this database';
+      const cur = _schedRunTime ? fmtTime12(_schedRunTime) : '(see RapidReconciler › Review Job Schedule)';
+      const subject = 'RapidReconciler — nightly refresh schedule change request';
+      const body =
+        'Please change the nightly RapidReconciler data refresh for ' + dbn + '.\n\n' +
+        'Current nightly run time: ' + cur + '\n' +
+        'Requested new time: ____\n\n' +
+        'Reason / notes: ____\n';
+      window.location.href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+    });
+  }
+
+  // Run once the session is hydrated. The review reminder is keyed on the
+  // active database name (rrv8.scheduleReview.<db>), shared with the Home dot —
+  // so it MUST run after hydrateSession resolves. Reading the session too early
+  // left activeDb() null, stored the reminder under an empty-db key, and Home
+  // (which hydrates) read a different key and never went green.
+  function startWithSession() {
+    const a = activeDb();
+    // Topbar/footer chrome retired (admin-page standard); this element no longer
+    // exists, so guard before touching it.
+    const dbEl = $('js-topbar-db');
+    if (dbEl && a && a.n) dbEl.textContent = a.n;
+    const _adm = admClaim();
+    if (_adm === false) { document.body.classList.add('is-gated'); $('js-gate').classList.add('is-visible'); return; }
+    if (_adm !== true) { haltPage('js-halt-claim'); return; }
+    renderReviewBand();                  // immediate paint from localStorage fallback …
+    loadSchedAck().then(renderReviewBand); // … then refine from the server ack
+    wireReviewBand();
+    wireRequestChange();
+    rrFetch('admin/refresh-schedule').then(renderSchedule).catch(function (e) {
+      // Wrapped, not passed directly: setUnavailable now takes a MESSAGE, and
+      // handing it the error object would print the error into the card.
+      console.error('[job schedule] refresh-schedule failed:', e);
+      setUnavailable();
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const ver = $('js-app-ver');
+    if (ver) ver.textContent = (RR_CONFIG.release || 'v8') + (RR_CONFIG.buildStamp ? ' · ' + RR_CONFIG.buildStamp : '');
+    if (IS_DEMO) return;
+    // sidebar.js owns session hydration (decodes localStorage.rrv8.token into
+    // RR_SESSION). Mirror the other admin pages: hydrate, THEN read the session.
+    if (window.RRV8 && typeof window.RRV8.hydrateSession === 'function') {
+      window.RRV8.hydrateSession().then(startWithSession).catch(startWithSession);
+    } else {
+      // sidebar.js owns session hydration. If it did not load there is no session
+      // to read, so close the page and say so -- never render admin controls on a
+      // blind guess. (This branch used to boot the page wide open.)
+      haltPage('js-halt-asset');
+    }
+  });
+})();
+</script>
+</body>
+</html>
+

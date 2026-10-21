@@ -1,0 +1,8 @@
+﻿{
+    "byDb":  {
+                 "RapidReconciler_Demo1":  "recording-demo1.json",
+                 "RapidReconciler_Demo2":  "recording-demo2.json",
+                 "RapidReconciler_Demo3":  "recording-demo3.json"
+             },
+    "default":  "recording-demo1.json"
+}

@@ -1,0 +1,32 @@
+{
+  "_meta": {
+    "captured": "2026-05-20",
+    "source": "GET /available-periods against rrtest-rrsqltest.getgsi.com:34536 (RapidReconciler_Dev)",
+    "note": "Demo-mode snapshot of the per-DB period list. Same shape the agent returns: 13 month-end close dates plus defaultPeriod + validation."
+  },
+  "availablePeriods": [
+    "2016-08-27",
+    "2016-07-30",
+    "2016-07-02",
+    "2016-05-28",
+    "2016-04-30",
+    "2016-04-02",
+    "2016-02-27",
+    "2016-01-30",
+    "2015-12-31",
+    "2015-11-28",
+    "2015-10-31",
+    "2015-10-03",
+    "2015-08-29"
+  ],
+  "defaultPeriod": "2016-08-27",
+  "validation": {
+    "color": "success",
+    "tooltip": "Data as of Apr 17 2026 9:48AM\nMinutes:0 Avg:0",
+    "label": "Successful",
+    "minutes": 0,
+    "average": 0,
+    "count": 1
+  },
+  "recalculating": false
+}

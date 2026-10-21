@@ -1,0 +1,61 @@
+{
+  "_meta": {
+    "description": "Demo-mode JWT payload — mimics the real VALC /resource/client/login response shape so the same user-menu / DB-switcher / session code paths work in demo and prod. NOT a real signed JWT; just the decoded payload portion. The mode infrastructure (config.js + IIFE boot) hydrates window.RR_SESSION from this in demo mode in lieu of a real login round-trip. Production decodes the same shape from JWT.payload after a login POST. See RRV8/API.md auth + agent-routing section for the real contract.",
+    "captured": "2026-05-20",
+    "source": "synthetic, modeled on the staging HAR JWT shape"
+  },
+  "user": {
+    "id": 999,
+    "fn": "Demo Analyst",
+    "c":  "GSI Sales Demo",
+    "u":  "demo@getgsi.com",
+    "rm": 0,
+    "rs": "",
+    "wm": null
+  },
+  "dbs": [
+    {
+      "ip": "demo-acme.example.invalid:34536",
+      "k":  "demo000000000000000000000000000000000000",
+      "n":  "RapidReconciler_Dev",
+      "p":  ["00010", "00050"],
+      "i":  ["00010", "00050"],
+      "t":  ["00010", "00050"],
+      "a":   true,
+      "as":  true,
+      "aite":true,
+      "aprs":true,
+      "rs":  true,
+      "su":  false
+    },
+    {
+      "ip": "demo-acme.example.invalid:33198",
+      "k":  "demo111111111111111111111111111111111111",
+      "n":  "RapidReconciler_Dev-staging",
+      "p":  ["00010"],
+      "i":  ["00010", "00050"],
+      "t":  [],
+      "a":   true,
+      "as":  true,
+      "aite":false,
+      "aprs":true,
+      "rs":  true,
+      "su":  false
+    },
+    {
+      "ip": "demo-acme.example.invalid:32650",
+      "k":  "demo222222222222222222222222222222222222",
+      "n":  "RapidReconciler_Dev-train",
+      "p":  [],
+      "i":  ["00001"],
+      "t":  [],
+      "a":   true,
+      "as":  false,
+      "aite":false,
+      "aprs":false,
+      "rs":  true,
+      "su":  false
+    }
+  ],
+  "iat": 1779268990385
+}

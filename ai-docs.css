@@ -1,0 +1,13 @@
+/*
+ * ai-docs.css — the "Learn more" doc-link strip appended beneath an AI answer.
+ * Paired with ai-docs.js the way period-bars.css is paired with period-bars.js.
+ *
+ * Links are built ONLY from the client-side allowlist in ai-docs.js; the model
+ * just names slugs. CALM AND SECONDARY so it never competes with the answer it
+ * sits under — a hairline rule, muted uppercase label, and pill links at body
+ * size rather than a call-to-action block.
+ */
+.ai-doc-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--rule); }
+.ai-doc-strip-label { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
+.ai-doc-link { font-size: 12.5px; color: var(--navy); text-decoration: none; border: 1px solid var(--rule); border-radius: 999px; padding: 2px 10px; background: var(--bg-card); }
+.ai-doc-link:hover { border-color: var(--navy); text-decoration: underline; }

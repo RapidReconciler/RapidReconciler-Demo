@@ -1,0 +1,447 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Reconciliation > Account Roll Forward — Re-roll Companies
+  =============================================================================
+  Step 1 of the Account Roll Forward banded redesign (the only NEW surface —
+  Reload GL / Reload Cardex reuse the existing admin pages). This is the
+  VarOK corrective: re-roll the selected companies, then rebuild the account
+  summary so the report refreshes. Backed by the agent's async, activity-lock-
+  guarded POST /inventory/recalc (runs usp8_recalc_inventory_rollforward), with
+  DB-authoritative progress polled from GET /inventory/recalc-status.
+
+  Analyst-facing (perms.dm), NOT admin — the Reconciliation Analyst owns
+  keeping the source accurate. JD Edwards is never touched; this recomputes
+  RapidReconciler's perpetual balance from the baseline forward.
+
+  Standard admin-page chrome (topbar + help "?" + footer), mirrored from
+  admin-reload-gl.html. The re-roll/poll logic is lifted from the (superseded)
+  inline action-bar in inventory-account-rollforward.html.
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Re-roll Companies &mdash; RapidReconciler</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="sidebar.js"></script>
+<style>
+  /* Shared chrome (canonical palette, command-center wash, corner-chrome Home
+     button, page shell, card primitives) lives in admin-chrome.css, linked above.
+     Only page-specific rules below. */
+  * { margin:0; padding:0; box-sizing:border-box; }
+  h1,h2,h3 { font-family:'Source Sans 3',sans-serif; font-weight:700; }
+  a { color:inherit; text-decoration:none; }
+
+  /* Card-width shell (880px) matches admin-chrome; top padding bumped to clear
+     the fixed corner-chrome Home button. */
+  .main { padding:64px 32px 48px; overflow-y:auto; }
+  .page { max-width:880px; margin:0 auto; }
+  .page-header { margin-bottom:18px; }
+  .page-title { font-size:26px; color:var(--navy); font-weight:800; }
+  .page-lede { color:var(--text-soft); margin-top:8px; max-width:64ch; }
+
+  .card { background:var(--bg-card); border:1px solid var(--rule); border-radius:10px; box-shadow:var(--shadow-sm); margin-bottom:18px; overflow:hidden; }
+  .card-head { padding:14px 18px; border-bottom:1px solid var(--rule); background:var(--bg-soft); display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .card-title { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:14px; color:var(--navy); letter-spacing:.02em; }
+  .card-body { padding:18px; }
+
+  .note { display:flex; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); margin-bottom:18px; }
+  .note svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .note b { color:var(--navy); }
+
+  /* Company scope picker */
+  .scope-tools { display:flex; gap:10px; align-items:center; }
+  .scope-link { font-family:'Source Sans 3',sans-serif; font-size:12px; font-weight:700; color:var(--blue); cursor:pointer; background:none; border:none; padding:2px 4px; }
+  .scope-link:hover { text-decoration:underline; }
+  .scope-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px 16px; }
+  .scope-co { display:flex; gap:8px; align-items:center; font-size:13.5px; color:var(--text-soft); cursor:pointer; }
+  .scope-co input { flex-shrink:0; }
+  .scope-empty { color:var(--text-muted); font-size:13px; }
+  .scope-summary { font-size:12.5px; color:var(--text-muted); margin-top:12px; }
+  .scope-summary b { color:var(--navy); }
+
+  .attest { display:flex; gap:10px; align-items:flex-start; margin:16px 0 4px; font-size:13.5px; color:var(--text-soft); cursor:pointer; }
+  .attest input { margin-top:3px; flex-shrink:0; }
+
+  .btn { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:13.5px; border-radius:6px; padding:9px 18px; cursor:pointer; border:1px solid transparent; }
+  .btn-primary { color:#fff; background:var(--blue); border-color:var(--blue); }
+  .btn-primary:hover:not(:disabled) { filter:brightness(1.06); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; filter:none; }
+  .actions { margin-top:18px; display:flex; gap:10px; align-items:center; }
+
+  /* Progress / status line */
+  .run-status { display:none; margin-top:16px; padding:12px 15px; border-radius:8px; font-size:13.5px; border:1px solid var(--rule-strong); background:var(--bg-soft); color:var(--text-soft); align-items:center; gap:10px; }
+  .run-status.is-visible { display:flex; }
+  .run-status.ok  { background:var(--green-pale); border-color:#bfe6cd; color:var(--text); }
+  .run-status.err { background:var(--red-pale); border-color:#e8b8b0; color:var(--text); }
+  .run-status .spin { width:15px; height:15px; flex-shrink:0; border:2px solid var(--rule-strong); border-top-color:var(--blue); border-radius:50%; animation:spin 0.8s linear infinite; }
+  .run-status.ok .spin, .run-status.err .spin { display:none; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .run-status .spin { animation:none; } }
+
+  .fetch-error { display:none; background:var(--red-pale); border:1px solid var(--red); color:var(--red); padding:10px 14px; border-radius:6px; margin-bottom:16px; font-size:13px; font-weight:600; }
+  .fetch-error.is-visible { display:block; }
+
+  /* Busy guard: a re-roll can't run while a deploy / B-to-C / another recalc
+     holds the database activity lock. Shown + the action disabled while busy;
+     re-enables when the lock clears (polled). */
+  .busy-guard { display:none; gap:12px; padding:13px 16px; border-radius:9px; background:var(--orange-pale); border:1px solid #f0d2a8; color:var(--text); margin-bottom:18px; }
+  .busy-guard.is-visible { display:flex; }
+  .busy-guard svg { width:18px; height:18px; flex-shrink:0; color:var(--orange-deep); margin-top:2px; }
+
+  .gate-notice { display:none; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); }
+  .gate-notice svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .gate-notice.is-visible { display:flex; }
+  body.is-gated #js-tool { display:none; }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <main class="main">
+    <div class="page">
+
+      <header class="page-header">
+        <h1 class="page-title">Re-roll Companies</h1>
+        <p class="page-lede">Recompute the perpetual inventory balance from the baseline date forward for the companies you choose, then rebuild the account roll-forward so the report reflects it. This settles most variance breaks. It runs for a few minutes and <b>changes nothing in JD Edwards</b>.</p>
+      </header>
+
+      <!-- Non-analyst gate -->
+      <div class="note gate-notice" id="js-gate" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div>Re-rolling is a reconciliation function. <b>Contact your administrator</b> if you need access.</div>
+      </div>
+
+      <div id="js-tool">
+
+        <div class="fetch-error" id="js-fetch-error" role="alert"></div>
+
+        <!-- Activity-lock guard -->
+        <div class="busy-guard" id="js-busy-guard" role="status">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 7v5l3 2"/></svg>
+          <span id="js-busy-text"><b>The database is busy.</b> Another process is running, so a re-roll is paused until it finishes. This re-enables on its own.</span>
+        </div>
+
+        <div class="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 8v5M12 16h.01"/></svg>
+          <span><b>This recomputes RapidReconciler&rsquo;s working balance &mdash; it does not pull from or write to JD Edwards.</b> A re-roll and a data refresh / deploy can&rsquo;t run at the same time, so it&rsquo;s safe to run whenever the database is idle.</span>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Companies to re-roll</span>
+            <span class="scope-tools">
+              <button type="button" class="scope-link" id="js-scope-all">Select all</button>
+              <button type="button" class="scope-link" id="js-scope-none">Clear</button>
+            </span>
+          </div>
+          <div class="card-body">
+            <div class="scope-grid" id="js-scope-grid">
+              <span class="scope-empty" id="js-scope-empty">Loading your companies&hellip;</span>
+            </div>
+            <div class="scope-summary" id="js-scope-summary"></div>
+
+            <label class="attest" id="js-attest-row">
+              <input type="checkbox" id="js-attest">
+              <span>I understand this recomputes the perpetual balance from the baseline date forward for the selected companies, runs for a few minutes, and changes nothing in JD Edwards.</span>
+            </label>
+
+            <div class="actions">
+              <button class="btn btn-primary" id="js-run" type="button" disabled>Re-roll companies</button>
+            </div>
+
+            <div class="run-status" id="js-run-status" role="status" aria-live="polite">
+              <span class="spin" aria-hidden="true"></span>
+              <span id="js-run-status-text"></span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- helpers ----------
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+  function showFetchError(msg) { var b = $('js-fetch-error'); b.textContent = msg; b.classList.add('is-visible'); }
+  function clearFetchError() { $('js-fetch-error').classList.remove('is-visible'); }
+
+  var RR_CONFIG = window.RR_CONFIG || {};
+  var MODE = (new URLSearchParams(window.location.search).get('mode')) || RR_CONFIG.mode || 'demo';
+  var IS_DEMO = (MODE === 'demo');
+
+  // ---------- agent API (mirrors the recalc caller in inventory-account-rollforward.html) ----------
+  function corrApi() {
+    var token; try { token = localStorage.getItem('rrv8.token'); } catch (_) {}
+    var base = (window.RRDB && RRDB.agentBase()) || (RR_CONFIG && RR_CONFIG.testAgentBase);
+    return (token && base) ? { base: base, token: token } : null;
+  }
+
+  // ---------- session: active DB + allowed companies (JWT db.i claim) ----------
+  // Decode the active DB's company allow-list straight from the token, the same
+  // source every inventory page uses (API.md: dbs[i].i drives the company universe).
+  // Three outcomes, all distinguishable — the old single `null` conflated them, and
+  // renderScope(null ? … : []) then told the analyst "No companies are in your scope.
+  // Contact your administrator." off a session it simply could not READ. That sends
+  // them to an administrator to fix a licence that is probably fine.
+  //   null            -> no token at all (not signed in)
+  //   {unreadable:1}  -> a token is present but could not be decoded
+  //   {name,allowed}  -> read successfully
+  function _scopeCtx() {
+    var token = null;
+    try { token = localStorage.getItem('rrv8.token'); } catch (_) { return { unreadable: true }; }
+    if (!token) return null;
+    try {
+      var b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      var pad = b64.length % 4; if (pad) b64 += '='.repeat(4 - pad);
+      var p = JSON.parse(decodeURIComponent(atob(b64).split('').map(function (c) { return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2); }).join('')));
+      var dbs = p.dbs || []; var idx = (window.RRDB && window.RRDB.index()) || 0; var dbObj = dbs[idx] || dbs[0] || {};
+      return { name: dbObj.n || null, allowed: (Array.isArray(dbObj.i) ? dbObj.i.map(String) : []), perms: p.perms || {} };
+    } catch (e) {
+      console.error('[scope] could not decode the session token:', e && e.message);
+      return { unreadable: true };
+    }
+  }
+  function isAnalyst(ctx) {
+    // perms.dm === true gates the Reconciliation Analyst lane (API.md §2). Fail
+    // open when the claim is absent so a hydrating session isn't locked out.
+    if (!ctx || ctx.unreadable) return true;
+    return ctx.perms && ctx.perms.dm !== false;
+  }
+
+  // ---------- company picker ----------
+  function selectedCompanies() {
+    return Array.prototype.slice.call(document.querySelectorAll('.scope-co input:checked')).map(function (i) { return i.value; });
+  }
+  // `why` distinguishes an empty company list from a session we couldn't read.
+  function renderScope(allowed, why) {
+    var grid = $('js-scope-grid');
+    if (why === 'unreadable' || why === 'signedout') {
+      grid.innerHTML = '<span class="scope-empty">' + (why === 'signedout'
+        ? 'You&rsquo;re not signed in, so RapidReconciler can&rsquo;t tell which companies you can re-roll. Sign in and reopen this page.'
+        : 'RapidReconciler couldn&rsquo;t read your sign-in, so it can&rsquo;t tell which companies you can re-roll. This is not the same as having no companies &mdash; sign out and back in, and if it keeps happening ask your IT department to check it.')
+        + '</span>';
+      $('js-attest-row').style.display = 'none';
+      return;
+    }
+    if (!allowed || !allowed.length) {
+      grid.innerHTML = '<span class="scope-empty">No companies are in your scope. Contact your administrator.</span>';
+      $('js-attest-row').style.display = 'none';
+      return;
+    }
+    grid.innerHTML = allowed.map(function (co) {
+      return '<label class="scope-co"><input type="checkbox" value="' + esc(co) + '" checked>' + esc(co) + '</label>';
+    }).join('');
+    Array.prototype.forEach.call(grid.querySelectorAll('input'), function (i) { i.addEventListener('change', syncRun); });
+    syncScopeSummary();
+  }
+  function syncScopeSummary() {
+    var total = document.querySelectorAll('.scope-co input').length;
+    var picked = selectedCompanies().length;
+    var el = $('js-scope-summary');
+    if (!total) { el.textContent = ''; return; }
+    el.innerHTML = (picked === total)
+      ? '<b>All ' + total + '</b> of your companies will re-roll.'
+      : '<b>' + picked + '</b> of ' + total + ' companies selected.';
+  }
+
+  // ---------- run state ----------
+  var _running = false, _sawRunning = false, _startPolls = 0, _busy = false;
+  // Consecutive failed status polls. The poll loop used to retry forever on any
+  // failure, so a dropped connection left the page spinning "Running…" indefinitely —
+  // a confident claim about a job whose state we had stopped being able to read.
+  var _pollFails = 0;
+  var POLL_FAIL_LIMIT = 5;
+
+  function syncRun() {
+    syncScopeSummary();
+    var picked = selectedCompanies().length;
+    $('js-run').disabled = !(picked > 0 && $('js-attest').checked && !_running && !_busy);
+  }
+  function setRunStatus(html, kind) {
+    var el = $('js-run-status'); if (!el) return;
+    el.className = 'run-status is-visible' + (kind ? (' ' + kind) : '');
+    $('js-run-status-text').innerHTML = html;
+  }
+
+  // Click -> POST /inventory/recalc -> poll /inventory/recalc-status -> done.
+  // Lifted from the (superseded) inline action-bar; the agent + the in-DB
+  // activity lock serialize everything, this just drives + reports it.
+  function runReroll() {
+    if (_running || _busy) return;
+    var api = corrApi();
+    if (!api) { setRunStatus('Sign in so the page can run this from the data service.', 'err'); return; }
+    var companies = selectedCompanies();
+    if (!companies.length) return;
+    _running = true; _sawRunning = false; _startPolls = 0; _pollFails = 0;
+    $('js-run').disabled = true; $('js-run').textContent = 'Re-rolling…';
+    setRunStatus('Starting…');
+    fetch(api.base + '/inventory/recalc', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + api.token, 'Content-Type': 'application/json;charset=UTF-8', 'Accept': 'application/json' },
+      body: JSON.stringify({ reconciliationFilter: { companies: companies } })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.started) {
+          // busyWith => another activity holds the lock; surface it cleanly.
+          var why = (d && d.busyWith) ? (' (' + esc(d.busyWith) + ' is running)') : '';
+          throw new Error(((d && d.message) || 'Could not start') + why);
+        }
+        setRunStatus('Running… ' + esc(d.message || ''));
+        if (window.RRV8 && RRV8.logActivity) RRV8.logActivity('Account re-roll started', 'Perpetual roll-forward recalc started for ' + companies.length + ' compan' + (companies.length === 1 ? 'y' : 'ies') + (companies.length ? ' (' + companies.join(', ') + ')' : ''));
+        setTimeout(function () { pollReroll(api); }, 2500);
+      })
+      .catch(function (e) { _running = false; resetRunBtn(); setRunStatus(esc(e.message || 'Could not start.'), 'err'); });
+  }
+  function pollReroll(api) {
+    fetch(api.base + '/inventory/recalc-status', { headers: { 'Authorization': 'Bearer ' + api.token, 'Accept': 'application/json' }, cache: 'no-store' })
+      // A non-2xx body is not a status. Reading `{}` out of a 401 and then reporting
+      // "Finished, but the last step was unknown" declares an outcome for a job that
+      // may still be running.
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (s) {
+        _pollFails = 0;
+        if (s.running) { _sawRunning = true; setRunStatus('Running… ' + esc(s.currentStep || s.activity || 'working')); setTimeout(function () { pollReroll(api); }, 3000); return; }
+        // Not running. Until we've seen it start, treat as still spinning up so we
+        // don't read the prior run's last log line as this run's result.
+        if (!_sawRunning && _startPolls < 8) { _startPolls++; setTimeout(function () { pollReroll(api); }, 2000); return; }
+        _running = false; resetRunBtn();
+        if (s.ok) {
+          setRunStatus('Done &mdash; the companies re-rolled and the report rebuilt. <a href="inventory-account-rollforward.html">Review the roll-forward</a>.', 'ok');
+        } else {
+          var blocked = s.blockedBy ? (' &mdash; ' + esc(s.blockedBy) + ' is holding the database') : '';
+          setRunStatus('Finished, but the last step was &ldquo;' + esc(s.lastStep || 'unknown') + '&rdquo;' + (s.lastError ? (' (error ' + esc(s.lastError) + ')') : '') + blocked + '. Check with support if breaks remain.', 'err');
+        }
+      })
+      .catch(function () {
+        // Retry a few times for a transient blip, then STOP claiming to know what the
+        // re-roll is doing. An endless "Running…" is a status we can no longer read
+        // dressed up as a status we can.
+        if (++_pollFails < POLL_FAIL_LIMIT) { setTimeout(function () { pollReroll(api); }, 3000); return; }
+        _running = false; resetRunBtn();
+        setRunStatus('RapidReconciler lost contact with the data service, so it can no longer tell you '
+          + 'whether the re-roll is still running. It was started, and it does not stop when this page does. '
+          + 'Reopen this page in a few minutes, or <a href="inventory-account-rollforward.html">check the roll-forward</a> '
+          + 'to see whether it finished. If the connection stays down, ask your IT department to check it.', 'err');
+      });
+  }
+  function resetRunBtn() { $('js-run').textContent = 'Re-roll companies'; syncRun(); }
+
+  // ---------- busy guard: poll recalc-status on load so a deploy / B-to-C /
+  //            another recalc disables the button until the lock clears. ----------
+  function checkBusy() {
+    var api = corrApi(); if (!api) return;
+    fetch(api.base + '/inventory/recalc-status', { headers: { 'Authorization': 'Bearer ' + api.token, 'Accept': 'application/json' }, cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (s) {
+        // Busy when something OTHER than our own in-flight run holds the lock.
+        var blocking = (s.running && !_running) || !!s.blockedBy;
+        applyBusy(blocking, s.blockedBy || s.activity);
+      })
+      .catch(function (e) {
+        // The guard used to swallow this entirely. That left Run ENABLED with
+        // nothing on screen, because "guard as-is" on a page load means "not busy" —
+        // so a failed check reads exactly like a free database and an analyst can
+        // fire a re-roll into one a deploy or another recalc is holding. The number
+        // that gates this control has to be next to it.
+        //
+        // Deliberately does NOT disable Run: a transient blip must not block real
+        // work, and the endpoint enforces the lock server-side regardless. It says
+        // what it does and does not know, and lets the analyst decide.
+        console.warn('[reroll] busy check failed:', e);
+        applyBusyUnknown();
+      });
+  }
+  function applyBusyUnknown() {
+    var g = $('js-busy-guard'), t = $('js-busy-text');
+    if (!g || !t) return;
+    _busy = false;   // not "busy" — unknown. Run stays available.
+    t.innerHTML = '<b>Couldn&rsquo;t check whether the database is busy.</b> Re-roll is still available, '
+      + 'but this page can&rsquo;t confirm another job isn&rsquo;t already running. Reopen the page to re-check; '
+      + 'if a re-roll is refused when you start it, that is the other job still holding the database.';
+    g.classList.add('is-visible');
+    syncRun();
+  }
+  function applyBusy(busy, who) {
+    _busy = busy;
+    var g = $('js-busy-guard');
+    if (busy) {
+      $('js-busy-text').innerHTML = '<b>The database is busy' + (who ? (' (' + esc(who) + ')') : '') + '.</b> A re-roll is paused until it finishes. This re-enables on its own.';
+      g.classList.add('is-visible');
+    } else {
+      g.classList.remove('is-visible');
+    }
+    syncRun();
+  }
+
+  // ---------- boot ----------
+  function startBoot() {
+    var ctx = _scopeCtx();
+    // Topbar/footer chrome retired (product-page standard); these nodes no longer
+    // exist, so guard before touching them.
+    var dbEl = $('js-topbar-db');
+    if (dbEl && ctx && ctx.name) dbEl.textContent = ctx.name;
+    var ver = $('js-app-ver');
+    if (ver) ver.textContent = (RR_CONFIG.release || 'v8') + (RR_CONFIG.buildStamp ? ' · ' + RR_CONFIG.buildStamp : '');
+
+    // Client gate (UX only — the endpoint resolves scope from the JWT too).
+    if (localStorage.getItem('rrv8.token') && !isAnalyst(ctx)) {
+      document.body.classList.add('is-gated');
+      $('js-gate').classList.add('is-visible');
+      return;
+    }
+
+    $('js-attest').addEventListener('change', syncRun);
+    $('js-run').addEventListener('click', runReroll);
+    $('js-scope-all').addEventListener('click', function () { Array.prototype.forEach.call(document.querySelectorAll('.scope-co input'), function (i) { i.checked = true; }); syncRun(); });
+    $('js-scope-none').addEventListener('click', function () { Array.prototype.forEach.call(document.querySelectorAll('.scope-co input'), function (i) { i.checked = false; }); syncRun(); });
+
+    if (IS_DEMO) {
+      renderScope(['100', '200', '300']);   // illustrative only; live mode reads the JWT
+      syncRun();
+      return;
+    }
+
+    renderScope(ctx && !ctx.unreadable ? ctx.allowed : [],
+                ctx == null ? 'signedout' : (ctx.unreadable ? 'unreadable' : ''));
+    syncRun();
+    checkBusy();
+    setInterval(checkBusy, 12000);
+  }
+
+  // Hydrate the session first (this minimal-topbar page doesn't mount the
+  // workbar that would auto-hydrate), so the token + active DB resolve before
+  // we read the company scope.
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.RRV8 && typeof window.RRV8.hydrateSession === 'function') {
+      window.RRV8.hydrateSession().then(startBoot).catch(startBoot);
+    } else {
+      startBoot();
+    }
+  });
+})();
+</script>
+</body>
+</html>
+

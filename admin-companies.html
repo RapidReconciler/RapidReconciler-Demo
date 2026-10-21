@@ -1,0 +1,1251 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Administrator > Companies
+  =============================================================================
+  Read-only view of the local rcompanies table — the customer's
+  Licensed Companies list as replicated from the central VALC's
+  RCompaniesLic table by the existing Agent + VALC sync.
+
+  Backed by GET /admin/companies (spec at
+  RapidReconciler-Agent/specs/admin-companies.md). JWT-scoped: rows
+  the user can't see in Inventory don't come back.
+
+  Columns: Number / Name / Start Date / Base Currency / AAI Doc /
+  Threshold / Options.
+  Options (edit company config: start date, AAI doc, threshold) opens an
+  edit modal (PUT). The per-company Re-roll was retired from this page;
+  the corrective now lives on the account roll-forward card, which runs
+  re-roll + the summary rebuild together (async, under the activity lock).
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Licensing &mdash; RapidReconciler Admin</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<script src="sidebar.js"></script>
+<script src="vendor/xlsx.full.min.js" defer></script>
+<style>
+  /* Shared admin-page chrome (palette, wash, Home button, page shell, cards)
+     lives in admin-chrome.css, linked above. Only page-specific rules below.
+     .page is overridden here (wider 1280px grid page). */
+  .page { max-width: 1280px; margin: 0 auto; }
+
+  /* .page-header and .page-title come from admin-chrome.css. */
+
+  /* Fetch-error banner — visible-404 over silent-fallback per the
+     agent-first tenet. */
+  .fetch-error {
+    display: none;
+    background: var(--red-pale);
+    border: 1px solid var(--red);
+    color: var(--red);
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .fetch-error.is-visible { display: block; }
+  .fetch-error code { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+  /* F0010 data check — company numbers derive from the JDE company
+     constants (dbo.F0010), populated by the import/SSIS sync. Shown when
+     the agent reports 0 F0010 rows so the empty grids read as "JDE hasn't
+     synced yet", not "no companies". Aligns with the VALC Companies tab. */
+  .f0010-banner {
+    background: #fff4e3;
+    border: 1px solid var(--orange);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+  .f0010-banner strong { color: var(--orange-deep); }
+  .f0010-banner code { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+  /* Licensed Companies card */
+  .grid-card {
+    background: var(--bg-card);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+  }
+  .grid-card-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--bg-soft);
+  }
+  /* Section-title scale — matches the admin-page standard .card-title (18px, 800),
+     one clear step down from .page-title (26px). */
+  .grid-card-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 18px;
+    color: var(--navy);
+    letter-spacing: 0.01em;
+  }
+  .grid-card-count {
+    margin-left: auto;
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .grid-card-count.is-loading { font-style: italic; }
+
+  .grid-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .grid-table th {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-soft);
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule-strong);
+    background: var(--bg-soft);
+    white-space: nowrap;
+  }
+  .grid-table th.is-num,
+  .grid-table td.is-num { text-align: right; font-variant-numeric: tabular-nums; }
+  .grid-table th.is-action,
+  .grid-table td.is-action { text-align: center; width: 64px; }
+  .grid-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 13.5px;
+    color: var(--text);
+  }
+  .grid-table tr:last-child td { border-bottom: 0; }
+  .grid-table tr:hover td { background: var(--bg-soft); }
+  .grid-table td.is-empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 32px 14px;
+    font-style: italic;
+  }
+
+  .row-icon-btn {
+    background: transparent;
+    border: 1px solid var(--rule-strong);
+    border-radius: 4px;
+    padding: 4px 6px;
+    cursor: pointer;
+    color: var(--text-soft);
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .row-icon-btn:hover { color: var(--blue); border-color: var(--blue); background: var(--blue-pale); }
+  .row-icon-btn svg { width: 13px; height: 13px; display: block; }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--navy);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 100;
+  }
+  .toast.is-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* Edit-company modal */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 32, 55, 0.45);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+  }
+  .modal-backdrop.is-visible { display: flex; }
+  .modal {
+    background: var(--bg-card);
+    border-radius: 10px;
+    box-shadow: 0 24px 64px -8px rgba(20, 32, 55, 0.30);
+    width: min(560px, 92vw);
+    max-height: 92vh;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .modal-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--navy);
+  }
+  .modal-close {
+    margin-left: auto;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+  }
+  .modal-close:hover { color: var(--navy); background: var(--bg-soft); }
+  .modal-close svg { width: 16px; height: 16px; }
+  .modal-body { padding: 18px; }
+  .modal-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 16px;
+  }
+  .form-field { display: flex; flex-direction: column; gap: 4px; }
+  .form-field-label {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-soft);
+    letter-spacing: 0.04em;
+  }
+  .form-field input {
+    font-family: inherit;
+    font-size: 14px;
+    color: var(--navy);
+    padding: 8px 10px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 5px;
+    background: var(--bg-card);
+    width: 100%;
+  }
+  .form-field input:focus {
+    outline: none;
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px var(--blue-pale);
+  }
+  .form-field input:disabled,
+  .form-field input[readonly] {
+    background: var(--bg-soft);
+    color: var(--text-soft);
+    cursor: default;
+  }
+  .modal-error {
+    display: none;
+    margin-top: 14px;
+    padding: 8px 12px;
+    background: var(--red-pale);
+    border: 1px solid var(--red);
+    color: var(--red);
+    border-radius: 5px;
+    font-size: 12.5px;
+  }
+  .modal-error.is-visible { display: block; }
+  .modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--rule);
+    background: var(--bg-soft);
+  }
+  .modal-save-btn {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    background: var(--green);
+    color: #fff;
+    border: 1px solid var(--green);
+    border-radius: 5px;
+    padding: 8px 16px;
+    cursor: pointer;
+  }
+  .modal-save-btn:hover { filter: brightness(1.08); }
+  .modal-save-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    filter: none;
+  }
+
+  /* Spacing between the two grid cards (Licensed + Not Licensed) */
+  .grid-card + .grid-card { margin-top: 22px; }
+
+  /* Activity bars on the Not Licensed grid — small inline chart per
+     row. Heights are JS-driven (scaled across the whole section so
+     the analyst can compare companies at a glance). */
+  .activity-bars {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 26px;
+    padding: 2px 0;
+  }
+  .activity-bar {
+    width: 8px;
+    background: var(--blue);
+    border-radius: 1px 1px 0 0;
+    transition: opacity 0.12s;
+    min-height: 1px;
+  }
+  .activity-bar.is-empty { background: var(--rule-strong); opacity: 0.45; }
+  .grid-table tr:hover .activity-bar { opacity: 0.85; }
+  .grid-table td.is-activity {
+    /* Don't let a row's vertical padding squeeze the bars to nothing. */
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  .activity-total {
+    display: inline-block;
+    margin-left: 8px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-soft);
+    font-size: 12px;
+    min-width: 36px;
+    text-align: right;
+  }
+
+  /* Deferred "Not Licensed" scan — the F4111 activity scan is slow, so it
+     runs on demand behind a button (mirrors VALC #81's Licensing tab). */
+  .unlicensed-cta { padding: 18px 16px; }
+  .unlicensed-cta p { margin: 0 0 12px; color: var(--text-muted, #6b7689); font-size: 13.5px; line-height: 1.5; max-width: 640px; }
+  .btn-check-jde {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--bg-card, #fff); border: 1px solid var(--rule-strong, #d2d8e2);
+    border-radius: 8px; padding: 9px 15px; font-family: inherit; font-weight: 700;
+    font-size: 13.5px; color: var(--navy, #1f2d4a); cursor: pointer;
+  }
+  .btn-check-jde:hover:not(:disabled) { border-color: var(--blue, #2f6fb0); color: var(--blue, #2f6fb0); }
+  .btn-check-jde:disabled { opacity: .6; cursor: default; }
+  .btn-check-jde svg { width: 15px; height: 15px; }
+  .unlicensed-cta .cta-err { color: var(--red, #c0392b); font-size: 13.5px; margin-top: 10px; }
+
+  /* License-term card — days remaining + expire-soon (within 60 days) state.
+     Neutral/green by default; amber inside the 60-day window (or red once
+     expired). The snooze greens it again until the chosen reminder date. */
+  .lic-term { margin: 0 0 14px; padding: 14px 16px; border-radius: 10px;
+    border: 1px solid #cfe0f5; background: #eef3f9; }
+  .lic-term.is-amber { background: var(--orange-pale, #fff5e8); border-color: #ffd9a6; }
+  .lic-term.is-red   { background: var(--red-pale, #fbe6e3); border-color: #f1c3bc; }
+  .lic-term.is-green { background: var(--green-pale, #e6f4ec); border-color: #c5e6d2; }
+  .lic-term-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .lic-term-title { font-family: 'Source Sans 3', sans-serif; font-weight: 800; font-size: 14px; color: var(--navy, #1f2d4a); }
+  .lic-term-days { font-weight: 800; font-variant-numeric: tabular-nums; }
+  .lic-term.is-amber .lic-term-days { color: var(--orange-deep, #b45309); }
+  .lic-term.is-red   .lic-term-days { color: var(--red, #c0392b); }
+  .lic-term.is-green .lic-term-days { color: var(--green, #2e8a55); }
+  .lic-term-sub { font-size: 13.5px; color: var(--text-soft, #4a5468); margin-top: 4px; line-height: 1.5; }
+  .lic-term-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+  .lic-term-actions[hidden] { display: none; }
+  .lic-btn { display: inline-flex; align-items: center; gap: 7px; font-family: inherit; font-weight: 700;
+    font-size: 13.5px; border-radius: 7px; padding: 8px 14px; cursor: pointer; border: 1px solid transparent; text-decoration: none; }
+  .lic-btn-primary { background: var(--blue, #2b5fb0); border-color: var(--blue, #2b5fb0); color: #fff; }
+  .lic-btn-primary:hover { filter: brightness(1.07); }
+  .lic-btn svg { width: 15px; height: 15px; }
+  /* Non-admin gate + halt states. Mirrors the standard on the other admin tool
+     pages (admin-purge-data.html et al): the page header stays, the tool region
+     is hidden, and one notice says why. */
+  .gate-notice { display:none; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); margin-bottom:18px; }
+  .gate-notice svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .gate-notice.is-visible { display:flex; }
+  .gate-notice.halt-notice { background:var(--red-pale); border-color:var(--red); }
+  .gate-notice.halt-notice svg { color:var(--red); }
+  body.is-gated #js-tool { display:none; }
+</style>
+</head>
+<body data-help-src="../RRUniversity/administrator-managing-companies.html"
+      data-help-title="Licensing &amp; company seats">
+
+<div class="app">
+
+  <!-- Floating chrome: Home + the help "?" (injected next to it by help-sidebar.js
+       via the .topbar-home hook class). These two are the page's only chrome. -->
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <div class="toast" id="js-toast" role="status" aria-live="polite"></div>
+
+  <!-- Edit-company modal — opened from the Options icon on each
+       grid row. Populated by the row's cached values at open time;
+       Save Changes PUTs to /admin/companies/{n} and patches the
+       grid row in place on success. -->
+  <div class="modal-backdrop" id="js-edit-modal" role="dialog" aria-modal="true" aria-labelledby="js-edit-title">
+    <div class="modal">
+      <div class="modal-head">
+        <span class="modal-title" id="js-edit-title">Edit company</span>
+        <button type="button" class="modal-close" id="js-edit-close" aria-label="Close">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-grid">
+          <div class="form-field">
+            <label class="form-field-label" for="js-edit-number">Company Number</label>
+            <input type="text" id="js-edit-number" readonly>
+          </div>
+          <div class="form-field">
+            <label class="form-field-label" for="js-edit-name">Name</label>
+            <input type="text" id="js-edit-name" maxlength="30">
+          </div>
+          <div class="form-field">
+            <label class="form-field-label" for="js-edit-currency">Base Currency</label>
+            <input type="text" id="js-edit-currency" readonly>
+          </div>
+          <div class="form-field">
+            <label class="form-field-label" for="js-edit-start">Start Date</label>
+            <input type="date" id="js-edit-start">
+          </div>
+          <div class="form-field">
+            <label class="form-field-label" for="js-edit-aaidoc">AAI Doc</label>
+            <input type="text" id="js-edit-aaidoc" maxlength="2">
+          </div>
+          <div class="form-field">
+            <label class="form-field-label" for="js-edit-threshold">Threshold</label>
+            <input type="number" id="js-edit-threshold" step="1">
+          </div>
+        </div>
+        <div class="modal-error" id="js-edit-error" role="alert"></div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="modal-save-btn" id="js-edit-save">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- The per-company Re-roll was retired here: the corrective now lives on the
+       account roll-forward card (where the VarOK break is diagnosed), which runs
+       re-roll + the summary rebuild together, async, under the activity lock. -->
+
+  <main class="main">
+
+    <div class="page">
+
+      <header class="page-header">
+        <h1 class="page-title">Licensing</h1>
+      </header>
+
+      <!-- Non-admin gate -->
+      <div class="gate-notice" id="js-gate" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div>This is an administrator function. <b>Contact your administrator</b> if you need licensing details.</div>
+      </div>
+
+      <!-- Halt states. Neither one is a permission answer: the first means a
+           required part of the page never loaded, the second means the sign-in
+           carried no answer about this user's access either way. Both close the
+           page instead of rendering the admin surface on a guess. -->
+      <div class="gate-notice halt-notice" id="js-halt-asset" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Part of this page didn&rsquo;t load, so RapidReconciler can&rsquo;t tell what you&rsquo;re allowed to see here &mdash; nothing was loaded. Reload the page. If it happens again, <b>contact your IT department</b>.</div>
+      </div>
+
+      <div class="gate-notice halt-notice" id="js-halt-claim" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Your sign-in didn&rsquo;t say what you&rsquo;re allowed to do here, so nothing was loaded. Reload the page. If it happens again, ask your <b>IT department</b> to check your RapidReconciler account.</div>
+      </div>
+
+      <div id="js-tool">
+
+        <!-- Read-only company-seat usage. Customer admins see their entitlement
+             ("Using X of N company licenses") but can't change it — the seat
+             count is a contract term set by GSI. Populated from /license-usage. -->
+        <div id="js-license-usage" role="status" hidden
+             style="margin:0 0 14px; padding:10px 14px; border-radius:8px; font-size:13.5px; font-weight:600;
+                    background:#eef3f9; border:1px solid #cfe0f5; color:var(--navy);"></div>
+
+        <!-- License term: days remaining + expire-soon (within 60 days) state.
+             Amber inside the window, with a request-invoice mailto and a snooze
+             that greens it until the chosen reminder date. Populated from
+             /license-usage (licenseEndDate + daysRemaining). -->
+        <div class="lic-term" id="js-lic-term" role="status" hidden>
+          <div class="lic-term-head">
+            <span class="lic-term-title">License</span>
+            <span class="lic-term-days" id="js-lic-days"></span>
+          </div>
+          <div class="lic-term-sub" id="js-lic-sub"></div>
+          <div class="lic-term-actions" id="js-lic-actions" hidden>
+            <a class="lic-btn lic-btn-primary" id="js-lic-invoice" href="#">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16l-3-2-2 2-3-2-3 2-2-2-3 2V4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+              Request an invoice
+            </a>
+          </div>
+        </div>
+
+        <div class="fetch-error" id="js-fetch-error" role="alert">
+          Couldn&rsquo;t reach <code>/admin/companies</code> &mdash;
+          <span id="js-fetch-error-msg"></span>
+        </div>
+
+        <!-- F0010 data check: shown when the agent reports 0 JDE company
+             constants (companyConstantsCount). Toggled by the admin/companies
+             load. Mirrors the VALC Manage Client > Companies banner. -->
+        <div class="f0010-banner" id="js-f0010-banner" hidden>
+          <strong>No JDE company data yet.</strong> Company numbers come from this database&rsquo;s
+          JDE company constants (<code>F0010</code>), populated by the import / SSIS sync.
+          Run <strong>Import JDE</strong> (or wait for the scheduled run), then reload &mdash;
+          companies appear here once F0010 has data.
+        </div>
+
+        <section class="grid-card" aria-label="Licensed Companies">
+          <div class="grid-card-head">
+            <span class="grid-card-title">Licensed Companies</span>
+            <span class="grid-card-count is-loading" id="js-row-count">Loading&hellip;</span>
+          </div>
+          <table class="grid-table" id="js-companies-table">
+            <thead>
+              <tr>
+                <th>Number</th>
+                <th>Name</th>
+                <th>Start Date</th>
+                <th>Base Currency</th>
+                <th class="is-num">AAI Doc</th>
+                <th class="is-num">Threshold</th>
+                <th class="is-action">Options</th>
+              </tr>
+            </thead>
+            <tbody id="js-companies-tbody">
+              <tr><td class="is-empty" colspan="7">Loading companies&hellip;</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <!-- Companies with F4111 activity but no rcompanies row.
+             Surfaces "JDE companies that exist on this DB but aren't
+             licensed in RR" — the at-a-glance "is there value in
+             licensing this one?" signal. Bars are last-12-months of
+             F4111 activity anchored at MAX(ildgl), height-scaled
+             globally across the section so cross-company comparison
+             reads at a glance. -->
+        <section class="grid-card" aria-label="Not Licensed Companies">
+          <div class="grid-card-head">
+            <span class="grid-card-title">Not Licensed</span>
+            <span class="grid-card-count" id="js-unlicensed-count" hidden></span>
+          </div>
+          <!-- Deferred scan: the not-licensed grid needs a JDE activity scan
+               (F4111) that's slow, so it runs on demand rather than on every
+               page load. Mirrors the VALC #81 Licensing tab. -->
+          <div class="unlicensed-cta" id="js-unlicensed-cta">
+            <p>JD Edwards companies with activity on this database that aren&rsquo;t licensed in RapidReconciler. This checks JDE activity and can take a moment.</p>
+            <button type="button" class="btn-check-jde" id="js-check-jde">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              Check JDE for more companies
+            </button>
+            <div class="cta-err" id="js-unlicensed-err" hidden></div>
+          </div>
+          <table class="grid-table" id="js-unlicensed-table" hidden>
+            <thead>
+              <tr>
+                <th>Number</th>
+                <th>Name</th>
+                <th class="is-num">Items</th>
+                <th>Activity &middot; 12 mo</th>
+              </tr>
+            </thead>
+            <tbody id="js-unlicensed-tbody"></tbody>
+          </table>
+        </section>
+
+      </div>
+
+    </div>
+
+  </main>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- mode + rrFetch (mirrors the convention on every V8 page) ----------
+  const RR_CONFIG = window.RR_CONFIG || {};
+  const URL_MODE  = new URLSearchParams(window.location.search).get('mode');
+  const MODE      = URL_MODE || RR_CONFIG.mode || 'demo';
+  const IS_DEMO   = (MODE === 'demo');
+
+  // ---------- session + client admin gate ----------
+  // The same gate the other admin tool pages carry (admin-purge-data.html et
+  // al). UX only -- the endpoints are admin-gated server-side too -- but until
+  // this page had one it issued its reads before anyone read the claim.
+  function activeDb() { const s = window.RR_SESSION || {}; const d = Array.isArray(s.dbs) ? s.dbs : []; return d[s.activeDbIndex || 0] || d[0] || null; }
+  // The admin claim has THREE states and each gets its own answer. `true` opens
+  // the page; `false` is a real "no" and shows the gate notice; anything else
+  // (no session, no tab claims, an older token shape) means we were never told,
+  // so the page halts visibly instead of guessing. Guessing "false" would lock
+  // out a legitimate admin whose token carries a different shape; guessing
+  // "true" is the fail-open this replaces.
+  function admClaim() { const a = activeDb(); return (a && a.t && typeof a.t.adm === 'boolean') ? a.t.adm : null; }
+  // Close the page loudly. `id` names one of the halt notices in the markup.
+  function haltPage(id) {
+    document.body.classList.add('is-gated');
+    const el = document.getElementById(id);
+    if (el) el.classList.add('is-visible');
+  }
+  /** True when the page may load its data. A non-admin (or a session that never
+   *  said) gets a notice and the page issues no calls at all. */
+  function adminGateOpen() {
+    const adm = admClaim();
+    if (adm === true) return true;
+    if (adm === false) {
+      document.body.classList.add('is-gated');
+      const g = document.getElementById('js-gate');
+      if (g) g.classList.add('is-visible');
+    } else {
+      haltPage('js-halt-claim');
+    }
+    return false;
+  }
+
+  const _testAgentAreas    = new Set(window.RR_TEST_AGENT_AREAS || []);
+  const _testAgentPrefixes = window.RR_TEST_AGENT_PREFIXES || ['download-excel/'];
+  const _valcPrefixes      = window.RR_VALC_PREFIXES || [];
+  function _routesToTestAgent(area) {
+    if (_testAgentAreas.has(area)) return true;
+    for (let i = 0; i < _testAgentPrefixes.length; i++) {
+      if (area.startsWith(_testAgentPrefixes[i])) return true;
+    }
+    return false;
+  }
+  function _routesToValc(area) {
+    for (let i = 0; i < _valcPrefixes.length; i++) {
+      if (area.startsWith(_valcPrefixes[i])) return true;
+    }
+    return false;
+  }
+  function prodHeaders(contentType) {
+    const h = { 'Accept': 'application/json' };
+    try {
+      const token = localStorage.getItem('rrv8.token');
+      if (token) h['Authorization'] = 'Bearer ' + token;
+    } catch (_) {}
+    if (contentType) h['Content-Type'] = contentType;
+    return h;
+  }
+  function rrFetch(area, opts) {
+    opts = opts || {};
+    if (IS_DEMO) {
+      // Per the production-only tenet: no new admin snapshots get
+      // added. Demo mode for an admin page just surfaces the
+      // 404 from the missing file — visible failure beats silent
+      // fallback.
+      const file = (opts.demoFile || area) + '.json';
+      return fetch((RR_CONFIG.dataPath || 'data/') + file, { cache: 'no-store' })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status + ' on ' + file); return r.json(); });
+    }
+    let base;
+    if (_routesToValc(area)) {
+      base = RR_CONFIG.valcBase || 'http://localhost:8080';
+    } else if (_routesToTestAgent(area)) {
+      {
+        // Route to the active DB's agent (dbs[activeDbIndex].ip). V7
+        // architecture: one Services jar per database on its own port.
+        // Switching the DB in the user-menu changes activeDbIndex and
+        // therefore the agent we hit. Static testAgentBase remains as
+        // a boot-race fallback when the session hasn't hydrated yet.
+        base = window.RRDB.agentBase();   // canonical active-DB agent resolver (config.js RRDB)
+      }
+    } else {
+      const sess = window.RR_SESSION;
+      const db = sess && sess.dbs && sess.dbs[sess.activeDbIndex || 0];
+      if (!db || !db.ip) {
+        return Promise.reject(new Error(
+          'No active DB. Sign in on the Reconciliation page first.'));
+      }
+      base = (/^(?:localhost|127\.0\.0\.1)\b/i.test(db.ip) ? 'http://' : 'https://') + db.ip;
+    }
+    const url = base + '/' + area +
+      (opts.query ? '?' + new URLSearchParams(opts.query) : '');
+    const init = {
+      method:  opts.method || 'GET',
+      headers: prodHeaders(opts.body ? 'application/json;charset=UTF-8' : null),
+      body:    opts.body ? JSON.stringify(opts.body) : undefined
+    };
+    return fetch(url, init).then(r => {
+      // The status has to survive as a PROPERTY: RRV8.fetchErrorMessage branches
+      // on it and must never scrape a code back out of the message string.
+      if (!r.ok) { const e = new Error('HTTP ' + r.status + ' on ' + url); e.status = r.status; throw e; }
+      return r.json().catch(e => e instanceof SyntaxError ? null : Promise.reject(e));
+    });
+  }
+
+  // ---------- toast / error helpers ----------
+  function toast(msg) {
+    const el = document.getElementById('js-toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('is-visible');
+    setTimeout(() => el.classList.remove('is-visible'), 2400);
+  }
+  // ONE producer for the sentence: RRV8.fetchErrorMessage (sidebar.js) branches
+  // on the HTTP status so the remedy matches the failure — a 403 is an
+  // unauthenticated session, not a missing endpoint. See
+  // docs/plans/shared-state-registry.md. Falls back to the raw message only if
+  // sidebar.js is unavailable.
+  function fetchErrText(area, err) {
+    return (window.RRV8 && window.RRV8.fetchErrorMessage)
+      ? window.RRV8.fetchErrorMessage(area, err)
+      : ((err && err.message) || String(err));
+  }
+  function showFetchError(area, err) {
+    const banner = document.getElementById('js-fetch-error');
+    const msg    = document.getElementById('js-fetch-error-msg');
+    if (banner && msg) {
+      msg.textContent = fetchErrText(area, err);
+      banner.classList.add('is-visible');
+    }
+    // Agent-connectivity dot follows the same network-failure pattern
+    // the poll loops use.
+    if (window.RRV8 && window.RRV8.setAgentConnectivity &&
+        err && (err instanceof TypeError ||
+                /failed to fetch|network/i.test(err.message || ''))) {
+      window.RRV8.setAgentConnectivity('unreachable', { message: err.message });
+    }
+  }
+
+  // ---------- render ----------
+  const SVG_EDIT =
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M11 2l3 3-8 8H3v-3z"/>' +
+      '<path d="M10 3l3 3"/>' +
+    '</svg>';
+
+  function fmt(v) {
+    if (v === null || v === undefined || v === '') return '&mdash;';
+    return String(v).replace(/[&<>"']/g, ch =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  }
+  function fmtNum(v) {
+    if (v === null || v === undefined || v === '') return '&mdash;';
+    const n = Number(v);
+    if (!isFinite(n)) return fmt(v);
+    return n.toLocaleString('en-US');
+  }
+
+  // Local cache of the last fetched rows, keyed by companyNumber so
+  // the edit modal can preload values from memory + patch the row
+  // in place after a successful Save (no full re-GET).
+  const _rowsByNumber = new Map();
+
+  function renderCompanies(rows) {
+    const tbody = document.getElementById('js-companies-tbody');
+    const count = document.getElementById('js-row-count');
+    if (!tbody) return;
+    _rowsByNumber.clear();
+    (rows || []).forEach(r => { if (r && r.companyNumber) _rowsByNumber.set(r.companyNumber, r); });
+    if (!rows || rows.length === 0) {
+      tbody.innerHTML =
+        '<tr><td class="is-empty" colspan="7">No licensed companies in scope.</td></tr>';
+      if (count) {
+        count.textContent = '0 companies';
+        count.classList.remove('is-loading');
+      }
+      return;
+    }
+    const html = rows.map(rowHtml).join('');
+    tbody.innerHTML = html;
+    if (count) {
+      count.textContent = rows.length.toLocaleString('en-US') +
+        (rows.length === 1 ? ' company' : ' companies');
+      count.classList.remove('is-loading');
+    }
+  }
+
+  // One row's <tr> markup. Extracted so we can patch a single row
+  // after a successful PUT without re-rendering the whole table.
+  function rowHtml(r) {
+    return '<tr data-company="' + fmt(r.companyNumber) + '">' +
+      '<td>' + fmt(r.companyNumber) + '</td>' +
+      '<td>' + fmt(r.name) + '</td>' +
+      '<td>' + fmt(r.startDate) + '</td>' +
+      '<td>' + fmt(r.currencyCode) + '</td>' +
+      '<td class="is-num">' + fmtNum(r.aaiDoc) + '</td>' +
+      '<td class="is-num">' + fmtNum(r.threshold) + '</td>' +
+      '<td class="is-action">' +
+        '<button type="button" class="row-icon-btn" data-action="edit" data-company="' + fmt(r.companyNumber) + '" title="Edit company settings" aria-label="Edit">' +
+          SVG_EDIT +
+        '</button>' +
+      '</td>' +
+    '</tr>';
+  }
+
+  function patchRow(row) {
+    if (!row || !row.companyNumber) return;
+    _rowsByNumber.set(row.companyNumber, row);
+    const tr = document.querySelector(
+      '#js-companies-tbody tr[data-company="' + row.companyNumber.replace(/"/g, '\\"') + '"]');
+    if (!tr) return;
+    const tmp = document.createElement('tbody');
+    tmp.innerHTML = rowHtml(row);
+    tr.parentNode.replaceChild(tmp.firstElementChild, tr);
+  }
+
+  // ---------- Not Licensed grid + bar chart ----------
+  const COMPANY_30 = '00030';   // LicensingRules.BLOCKED_COMPANIES on the VALC side.
+
+  function renderUnlicensed(rows) {
+    const tbody = document.getElementById('js-unlicensed-tbody');
+    const count = document.getElementById('js-unlicensed-count');
+    if (!tbody) return;
+    if (!rows || rows.length === 0) {
+      tbody.innerHTML =
+        '<tr><td class="is-empty" colspan="4">No unlicensed JDE companies have F4111 activity on this DB.</td></tr>';
+      if (count) {
+        count.textContent = '0 companies';
+        count.classList.remove('is-loading');
+      }
+      return;
+    }
+    // Global max across every (company, month) cell — height-scaling
+    // by this max means the analyst can compare across rows: a tall
+    // bar in one company's chart represents more activity than a
+    // tall bar in another's.
+    let globalMax = 0;
+    rows.forEach(r => (r.activityByMonth || []).forEach(m => {
+      if (m && m.count > globalMax) globalMax = m.count;
+    }));
+    const html = rows.map(r => {
+      const months = r.activityByMonth || [];
+      const total  = months.reduce((s, m) => s + (m && m.count ? m.count : 0), 0);
+      const bars   = months.map(m => {
+        const v = (m && m.count) || 0;
+        const h = (globalMax > 0)
+          ? Math.max(1, Math.round((v / globalMax) * 24))   // 26px container, leave 2px padding
+          : 1;
+        const cls = v === 0 ? 'activity-bar is-empty' : 'activity-bar';
+        const titleAttr = ' title="' + fmt(m && m.month || '') + ' &middot; ' +
+                          v.toLocaleString('en-US') + ' rec' + (v === 1 ? '' : 's') + '"';
+        return '<span class="' + cls + '" style="height:' + h + 'px"' + titleAttr + '></span>';
+      }).join('');
+      const num = String(r.companyNumber || '').trim();
+      const isBlocked = num === COMPANY_30;
+      // Licensing is a contract term set by GSI — the customer view is
+      // informational only (no License action here).
+      return '<tr' + (isBlocked ? ' class="is-blocked"' : '') + '>' +
+        '<td>' + fmt(r.companyNumber) + '</td>' +
+        '<td>' + fmt(r.name) + '</td>' +
+        '<td class="is-num">' + fmtNum(r.itemCount) + '</td>' +
+        '<td class="is-activity">' +
+          '<span class="activity-bars" aria-label="Trailing 12 months of F4111 activity">' + bars + '</span>' +
+          '<span class="activity-total">' + total.toLocaleString('en-US') + '</span>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+    tbody.innerHTML = html;
+    if (count) {
+      count.textContent = rows.length.toLocaleString('en-US') +
+        (rows.length === 1 ? ' company' : ' companies');
+      count.classList.remove('is-loading');
+    }
+  }
+
+  // ---------- edit modal ----------
+  let _editingNumber = null;
+
+  function openEditModal(companyNumber) {
+    const row = _rowsByNumber.get(companyNumber);
+    if (!row) { toast('Row not loaded — refresh and try again'); return; }
+    _editingNumber = companyNumber;
+    document.getElementById('js-edit-title').textContent = row.name || ('Company ' + companyNumber);
+    document.getElementById('js-edit-number').value    = row.companyNumber || '';
+    document.getElementById('js-edit-name').value      = row.name || '';
+    document.getElementById('js-edit-currency').value  = row.currencyCode || '';
+    document.getElementById('js-edit-start').value     = row.startDate || '';
+    document.getElementById('js-edit-aaidoc').value    = row.aaiDoc || '';
+    document.getElementById('js-edit-threshold').value =
+      (row.threshold === null || row.threshold === undefined) ? '' : row.threshold;
+    document.getElementById('js-edit-error').classList.remove('is-visible');
+    document.getElementById('js-edit-error').textContent = '';
+    document.getElementById('js-edit-modal').classList.add('is-visible');
+    setTimeout(() => document.getElementById('js-edit-name').focus(), 0);
+  }
+
+  function closeEditModal() {
+    _editingNumber = null;
+    document.getElementById('js-edit-modal').classList.remove('is-visible');
+  }
+
+  function showModalError(msg) {
+    const el = document.getElementById('js-edit-error');
+    el.textContent = msg;
+    el.classList.add('is-visible');
+  }
+
+  function saveEditModal() {
+    if (!_editingNumber) return;
+    const name      = document.getElementById('js-edit-name').value.trim();
+    const startDate = document.getElementById('js-edit-start').value;
+    const aaiDoc    = document.getElementById('js-edit-aaidoc').value.trim();
+    const thrRaw    = document.getElementById('js-edit-threshold').value;
+    if (!name)        { showModalError('Name is required'); return; }
+    if (name.length > 30) { showModalError('Name must be 30 characters or fewer'); return; }
+    if (!startDate)   { showModalError('Start Date is required'); return; }
+    if (aaiDoc.length > 2) { showModalError('AAI Doc must be 2 characters or fewer'); return; }
+    if (thrRaw === '' || isNaN(Number(thrRaw))) { showModalError('Threshold must be a whole number'); return; }
+    const threshold = parseInt(thrRaw, 10);
+
+    const saveBtn = document.getElementById('js-edit-save');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+
+    const number = _editingNumber;
+    rrFetch('admin/companies/' + encodeURIComponent(number), {
+      method: 'PUT',
+      body:   { name: name, startDate: startDate, aaiDoc: aaiDoc, threshold: threshold }
+    })
+      .then(resp => {
+        // patchRow ignores a reply that carries no row, which left the grid showing
+        // the OLD threshold / start date under a "Saved" toast — the admin had no way
+        // to tell whether the change took. Re-read from the agent in that case.
+        if (resp && resp.companyNumber) patchRow(resp);
+        else refreshCompanies();
+        closeEditModal();
+        toast('Saved ' + number);
+      })
+      .catch(err => {
+        // The agent returns 400 with a JSON body { message: '...' }.
+        // The HTTP NNN our rrFetch throws doesn't carry the body, so
+        // fall back to the error message we got.
+        const m = (err && err.message) || 'save failed';
+        showModalError(m);
+      })
+      .finally(() => {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+      });
+  }
+
+  // Wire edit-modal dismissals once.
+  (function wireEditModal() {
+    const backdrop = document.getElementById('js-edit-modal');
+    document.getElementById('js-edit-close').addEventListener('click', closeEditModal);
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) closeEditModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && backdrop.classList.contains('is-visible')) closeEditModal();
+    });
+    document.getElementById('js-edit-save').addEventListener('click', saveEditModal);
+  })();
+
+  // ---------- boot ----------
+  // Footer version stamp (matches the standalone admin tool pages).
+  (function () {
+    const ver = document.getElementById('js-app-ver');
+    if (ver) ver.textContent = (RR_CONFIG.release || 'v8') + (RR_CONFIG.buildStamp ? ' · ' + RR_CONFIG.buildStamp : '');
+  })();
+
+  // No topbar/footer chrome — admin pages are reached from Home and return via
+  // the floating Home button (.corner-chrome). The help "?" is injected beside it
+  // by help-sidebar.js via the .topbar-home hook class. mountTopbar() and its
+  // connectivity pill were retired here along with the header (matches the
+  // admin-page standard, admin-claude-assistant.html).
+
+  // Hydrate the session first, then gate, then load. The licensed-companies read
+  // and the seat/term banners all hang off startWithSession, so a non-admin
+  // session issues nothing.
+  function startWithSession() {
+    if (!adminGateOpen()) return;
+    // Fire-and-forget filter-universe seed so other pages have a warm sidebar
+    // cache after the analyst visits this one.
+    if (window.RRV8 && typeof window.RRV8.ensureInventoryStatus === 'function') {
+      try { window.RRV8.ensureInventoryStatus(rrFetch); } catch (_) {}
+    }
+    try {
+      const s = window.RR_SESSION || {};
+      const db = (s.dbs || [])[s.activeDbIndex || 0];
+      const dbEl = document.getElementById('js-topbar-db');
+      if (dbEl && db && db.n) dbEl.textContent = db.n;
+    } catch (_) {}
+    loadCompaniesInitial();
+  }
+  if (window.RRV8 && typeof window.RRV8.hydrateSession === 'function') {
+    window.RRV8.hydrateSession().then(startWithSession).catch(startWithSession);
+  } else {
+    // sidebar.js owns session hydration. If it did not load there is no session
+    // to read, so close the page and say so -- never render admin controls on a
+    // blind guess.
+    haltPage('js-halt-asset');
+  }
+
+  // ---------- Licensing writes (VALC) ----------
+  // V8 reads from the agent (per-DB rcompanies) but WRITES to VALC's
+  // central client_licensed_companies registry. VALC's controller
+  // triggers an immediate sync push to the agent on success.
+  //
+  // Licensing changes (license / unlicense) are a GSI-only action done in
+  // the VALC control plane — this customer-facing page is view-only for
+  // licensing. The seat-usage banner resolves the client by the active
+  // database name (see renderLicenseUsage), so no client-id guess is needed.
+
+  /** Refresh both tables from the agent after a license/unlicense
+   *  round-trip. The sync push happens server-side; by the time the
+   *  POST/DELETE returns, the agent's rcompanies + RCompaniesLic
+   *  views have already been updated for the dev/loopback case. */
+  // F0010 data check: show the "no JDE company data" banner only when the
+  // agent explicitly reports zero company-constant rows. Undefined (older
+  // agent / failed fetch) leaves it hidden — no false alarm. Aligns with the
+  // VALC Manage Client > Companies tab.
+  function applyF0010Check(resp) {
+    const banner = document.getElementById('js-f0010-banner');
+    if (!banner) return;
+    const cnt = resp ? resp.companyConstantsCount : null;
+    banner.hidden = !(cnt === 0);
+  }
+
+  // Not-licensed grid is a deferred JDE scan (see the "Check JDE" button).
+  // _inlineUnlicensed holds whatever today's /admin/companies still bundles,
+  // as a fallback until the agent ships the dedicated scan endpoint.
+  let _inlineUnlicensed = null;
+  let _unlicensedLoaded = false;
+
+  // Re-read the grid from the agent. Called after a save whose reply didn't carry
+  // the updated row, so what's on screen is what the server actually holds.
+  function refreshCompanies() {
+    return rrFetch('admin/companies')
+      .then(resp => {
+        // Same rule as the initial load: no array means no answer. Leave the grid as
+        // it stands rather than blanking it into "No licensed companies in scope."
+        if (!resp || !Array.isArray(resp.companies)) {
+          console.error('[companies] refresh reply carried no company list:', resp);
+          showFetchError('admin/companies', new Error('the company list didn’t come back, so what’s shown may be out of date'));
+          return;
+        }
+        renderCompanies(resp.companies);
+        _inlineUnlicensed = Array.isArray(resp.unlicensed) ? resp.unlicensed : null;
+        if (_unlicensedLoaded && _inlineUnlicensed) renderUnlicensed(_inlineUnlicensed);
+        applyF0010Check(resp);
+      })
+      .catch(err => {
+        console.error('[companies] refresh failed:', err);
+        showFetchError('admin/companies', new Error('couldn’t re-read the company list, so what’s shown may be out of date'));
+      });
+  }
+
+  // Action handlers — Edit opens the edit modal. (Re-roll was retired from this
+  // page; the corrective now lives on the account roll-forward card.)
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const co     = btn.dataset.company;
+    if (action === 'edit') {
+      openEditModal(co);
+    }
+    // Licensing changes (license / unlicense) are a contract term set by
+    // GSI — not available on the customer side. The Licensing page here is
+    // view-only for licensing.
+  });
+
+  // Read-only company-seat usage banner. The customer admin sees their
+  // entitlement; the seat count is a contract term set by GSI, so it's
+  // display-only here. "Used" = the companies actually licensed on this
+  // database (the rows shown above, straight from the agent), so the banner
+  // always matches what's on screen. The cap comes from VALC, resolved by the
+  // active database name (V8 doesn't carry a client id).
+  async function renderLicenseUsage(used) {
+    const el = document.getElementById('js-license-usage');
+    if (!el) return;
+    try {
+      const sess = window.RR_SESSION || {};
+      const db = sess.dbs && sess.dbs[sess.activeDbIndex || 0];
+      const dbName = db && db.n;
+      if (!dbName) return;
+      const base = RR_CONFIG.valcBase || 'http://localhost:8080';
+      const u = await fetch(base + '/api/v1/admin/clients/license-usage?database=' + encodeURIComponent(dbName),
+        { headers: prodHeaders(null), cache: 'no-store' }).then(r => r.ok ? r.json() : null);
+      if (!u) return;
+      const unlimited = u.unlimited;
+      const cap = u.maxCompanies;
+      const atLimit  = !unlimited && cap != null && used >= cap;
+      const overLimit= !unlimited && cap != null && used >  cap;
+      let msg = unlimited
+        ? ('Using ' + used + ' of unlimited company licenses.')
+        : ('Using ' + used + ' of ' + cap + ' company licenses.');
+      if (overLimit)    msg += ' You are over your licensed amount — contact GSI to add licenses.';
+      else if (atLimit) msg += ' You have used all your licenses — contact GSI to add more.';
+      el.textContent = msg;
+      el.style.background = '#eef3f9'; el.style.borderColor = '#cfe0f5'; el.style.color = 'var(--navy)';
+      if (overLimit) { el.style.background = '#fbe6e3'; el.style.borderColor = '#f1c3bc'; el.style.color = 'var(--red, #c0392b)'; }
+      else if (atLimit) { el.style.background = '#fff5e8'; el.style.borderColor = '#ffd9a6'; el.style.color = 'var(--orange-deep, #b45309)'; }
+      el.hidden = false;
+      renderLicenseTerm(u, dbName);
+    } catch (_) { /* leave hidden on error */ }
+  }
+
+  // ---------- License term: days remaining + expire-soon state ----------
+  // Amber inside 60 days (red once expired), with a request-invoice mailto to
+  // accounting@getgsi.com. Purely a function of daysRemaining (server-level, so
+  // it reads the same on every database) — a license expiry is renew-or-lose-
+  // service and is NOT dismissable.
+  function fmtLicDate(iso) {
+    if (!iso) return '';
+    try { return new Date(String(iso) + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); }
+    catch (_) { return String(iso); }
+  }
+  function renderLicenseTerm(u, dbName) {
+    const card = document.getElementById('js-lic-term');
+    if (!card) return;
+    const days = (u && u.daysRemaining != null) ? Number(u.daysRemaining) : null;
+    if (days == null) { card.hidden = true; return; }   // no term on file / perpetual
+    const end = u.licenseEndDate, name = u.clientName || '';
+    const daysEl = document.getElementById('js-lic-days');
+    const subEl  = document.getElementById('js-lic-sub');
+    const actEl  = document.getElementById('js-lic-actions');
+    const invoice = document.getElementById('js-lic-invoice');
+
+    const expired = days <= 0;
+    const soon = days > 0 && days <= 60;
+
+    // Request-invoice mailto (prefilled for accounting).
+    const subject = 'RapidReconciler license renewal — ' + (name || dbName || '');
+    const body = 'Please send a renewal invoice for our RapidReconciler license.\n\n'
+      + 'Customer: ' + (name || '(see database)') + '\nDatabase: ' + (dbName || '')
+      + (end ? '\nLicense end date: ' + fmtLicDate(end) : '')
+      + '\nDays remaining: ' + days + '\n';
+    invoice.href = 'mailto:accounting@getgsi.com?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+
+    card.classList.remove('is-amber', 'is-red', 'is-green');
+    if (expired) {
+      card.classList.add('is-red');
+      daysEl.textContent = 'Expired';
+      subEl.innerHTML = 'Your license expired on <b>' + fmtLicDate(end) + '</b>. Request a renewal invoice to restore it.';
+      actEl.hidden = false;
+    } else if (soon) {
+      card.classList.add('is-amber');
+      daysEl.textContent = days + (days === 1 ? ' day left' : ' days left');
+      subEl.innerHTML = 'Your license expires soon &mdash; on <b>' + fmtLicDate(end) + '</b>. Request a renewal invoice.';
+      actEl.hidden = false;
+    } else {
+      card.classList.add('is-green');
+      daysEl.textContent = days + ' days left';
+      subEl.innerHTML = 'Your license is current &mdash; expires <b>' + fmtLicDate(end) + '</b>.';
+      actEl.hidden = true;
+    }
+    card.hidden = false;
+  }
+
+  // ---------- Not-licensed: deferred JDE scan ----------
+  function showUnlicensedTable(rows) {
+    _unlicensedLoaded = true;
+    const cta   = document.getElementById('js-unlicensed-cta');
+    const table = document.getElementById('js-unlicensed-table');
+    const count = document.getElementById('js-unlicensed-count');
+    if (cta)   cta.hidden = true;
+    if (table) table.hidden = false;
+    if (count) count.hidden = false;
+    renderUnlicensed(rows);
+  }
+
+  function loadUnlicensed() {
+    const btn   = document.getElementById('js-check-jde');
+    const errEl = document.getElementById('js-unlicensed-err');
+    if (errEl) errEl.hidden = true;
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking JDE…'; }
+    // On-demand scan endpoint (JWT-scoped). Falls under the existing
+    // 'admin/companies/' test-agent prefix in config.js. Until the agent
+    // ships it, the .catch falls back to the array the default response
+    // still bundles today, so the button works either way.
+    rrFetch('admin/companies/unlicensed')
+      .then(resp => {
+        const rows = (resp && (resp.unlicensed || resp.companies)) ||
+                     (Array.isArray(resp) ? resp : []);
+        showUnlicensedTable(rows);
+      })
+      .catch(err2 => {
+        // The inline fallback is only a real answer when it actually carries rows.
+        // An empty inline array used to satisfy `!= null` and render "No unlicensed
+        // JDE companies have F4111 activity on this DB" — presenting a scan that
+        // FAILED as a scan that found nothing.
+        if (_inlineUnlicensed && _inlineUnlicensed.length) { showUnlicensedTable(_inlineUnlicensed); return; }
+        console.error('[companies] unlicensed JDE scan failed:', err2);
+        if (btn) { btn.disabled = false; btn.innerHTML = btn.dataset.label; }
+        if (errEl) {
+          errEl.textContent = 'Couldn’t check JDE right now — ' + ((err2 && err2.message) || 'try again');
+          errEl.hidden = false;
+        }
+      });
+  }
+
+  (function wireCheckJde() {
+    const btn = document.getElementById('js-check-jde');
+    if (btn) { btn.dataset.label = btn.innerHTML; btn.addEventListener('click', loadUnlicensed); }
+  })();
+
+  // Default fetch loads the LICENSED grid fast. The not-licensed grid needs
+  // a slow JDE activity scan (F4111), deferred behind the "Check JDE for
+  // more companies" button (loadUnlicensed). Today's agent still bundles
+  // `unlicensed` here; stashed as the button's fallback until the agent
+  // ships the dedicated scan endpoint (see API.md / agent spec).
+  // Invoked from boot only after the admin claim is confirmed, so a non-admin
+  // session issues no reads at all.
+  function loadCompaniesInitial() {
+    rrFetch('admin/companies')
+      .then(resp => {
+        // A reply with no company ARRAY is not "zero licensed companies". `|| []` made
+        // an empty 2xx body or a shape change render "No licensed companies in scope."
+        // and, worse, fed 0 into the seat banner as "Using 0 of N company licenses" —
+        // an entitlement figure the admin would act on. Treat it as a failed read.
+        if (!resp || !Array.isArray(resp.companies)) {
+          console.error('[companies] reply carried no company list:', resp);
+          throw new Error('the company list didn’t come back — this is not a sign there are none');
+        }
+        const companies = resp.companies;
+        renderCompanies(companies);
+        applyF0010Check(resp);
+        renderLicenseUsage(companies.length);
+        _inlineUnlicensed = Array.isArray(resp.unlicensed) ? resp.unlicensed : null;
+      })
+      .catch(err => {
+        showFetchError('admin/companies', err);
+        const licTbody = document.getElementById('js-companies-tbody');
+        if (licTbody) {
+          licTbody.innerHTML =
+            '<tr><td class="is-empty" colspan="7">Couldn&rsquo;t load companies. See the error banner above.</td></tr>';
+        }
+        const licCount = document.getElementById('js-row-count');
+        if (licCount) {
+          licCount.textContent = 'Error';
+          licCount.classList.remove('is-loading');
+        }
+      });
+  }
+
+})();
+</script>
+
+</body>
+</html>
+

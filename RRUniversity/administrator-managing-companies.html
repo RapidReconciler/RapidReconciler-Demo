@@ -1,0 +1,1219 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Managing Companies &mdash; RR Administrators &mdash; RapidReconciler University</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700;800&family=Source+Sans+3:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy:        #1f2d4a;
+    --navy-deep:   #142037;
+    --navy-soft:   #2c3e63;
+    --blue:        #2b5fb0;
+    --blue-bright: #3d8fd6;
+    --blue-pale:   #d6e6f5;
+    --orange:      #f08a24;
+    --orange-deep: #d97316;
+    --bg:          #ffffff;
+    --bg-soft:     #f6f8fb;
+    --bg-panel:    #eef3f9;
+    --text:        #1f2d4a;
+    --text-soft:   #5a6479;
+    --text-muted:  #8a93a6;
+    --rule:        #e1e7ef;
+    --rule-strong: #c9d3e0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Open Sans', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 40px;
+  }
+
+  /* ============== TOP NAV ============== */
+  header.topnav {
+    background: #fff;
+    border-bottom: 1px solid var(--rule);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 1px 0 rgba(31, 45, 74, 0.04);
+  }
+
+  .topnav-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 0;
+    gap: 32px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    text-decoration: none;
+    color: var(--navy);
+  }
+  .brand img { height: 42px; width: auto; display: block; }
+  .brand-divider { width: 1px; height: 28px; background: var(--rule-strong); }
+  .brand-product { display: flex; flex-direction: column; line-height: 1.1; }
+  .brand-product-name {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700; font-size: 17px; color: var(--navy);
+    letter-spacing: -0.005em;
+  }
+  .brand-product-tag {
+    font-size: 11px; color: var(--text-muted); font-weight: 500;
+    letter-spacing: 0.06em; text-transform: uppercase; margin-top: 2px;
+  }
+
+  nav.section-nav {
+    display: flex; gap: 28px; font-size: 14px; font-weight: 600; margin-left: auto;
+  }
+  nav.section-nav a {
+    color: var(--navy); text-decoration: none; position: relative; padding: 6px 0;
+    transition: color 0.2s;
+  }
+  nav.section-nav a:hover { color: var(--blue); }
+  nav.section-nav a::after {
+    content: ''; position: absolute; left: 0; bottom: 0; width: 0;
+    height: 2px; background: var(--orange); transition: width 0.3s ease;
+  }
+  nav.section-nav a:hover::after { width: 100%; }
+  .nav-cta {
+    background: var(--orange); color: #fff !important; padding: 10px 22px !important;
+    border-radius: 4px; font-weight: 700 !important; font-size: 13px !important;
+    transition: background 0.2s !important;
+  }
+  .nav-cta:hover { background: var(--orange-deep); color: #fff !important; }
+  .nav-cta::after { display: none !important; }
+
+  /* ============== PAGE HEADER (thin) ============== */
+  .page-header {
+    background: linear-gradient(180deg, var(--bg-soft) 0%, #fff 100%);
+    border-bottom: 1px solid var(--rule);
+    padding: 28px 0 24px;
+  }
+  .breadcrumb {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text-soft);
+    margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .breadcrumb a { color: var(--blue); text-decoration: none; font-weight: 600; transition: color 0.2s; }
+  .breadcrumb a:hover { text-decoration: underline; }
+  .breadcrumb .sep { color: var(--rule-strong); }
+  .breadcrumb .current { color: var(--text-soft); font-weight: 500; }
+  .page-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800; font-size: clamp(28px, 3.6vw, 36px);
+    line-height: 1.15; letter-spacing: -0.02em;
+    color: var(--navy);
+    margin: 0;
+  }
+  .page-title em {
+    color: var(--blue-bright); font-style: normal;
+  }
+
+  /* ============== SPA LAYOUT (sidebar + content) ============== */
+  .spa-wrap {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 48px;
+    padding: 48px 0 80px;
+    align-items: start;
+  }
+
+  aside.sidebar {
+    position: sticky;
+    top: 96px;
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 24px 0;
+    overflow: hidden;
+  }
+  .sidebar-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--orange);
+    padding: 0 24px 16px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 12px;
+  }
+  ul.sidebar-nav { list-style: none; }
+  ul.sidebar-nav li {}
+  ul.sidebar-nav li button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    padding: 11px 24px;
+    font-family: 'Open Sans', sans-serif;
+    font-size: 14.5px;
+    color: var(--text);
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: all 0.2s;
+  }
+  ul.sidebar-nav li button:hover {
+    background: #fff;
+    color: var(--blue);
+    border-left-color: var(--blue-bright);
+  }
+  ul.sidebar-nav li.active button {
+    background: #fff;
+    color: var(--navy);
+    font-weight: 700;
+    border-left-color: var(--orange);
+  }
+
+  /* Sidebar section label (for grouping nav items) */
+  .sidebar-section-label {
+    padding: 16px 24px 8px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border-top: 1px solid var(--rule);
+    margin-top: 8px;
+  }
+  .sidebar-section-label:first-of-type { border-top: none; margin-top: 0; }
+
+  /* Glossary list */
+  .view dl.glossary {
+    margin: 18px 0;
+    padding: 0;
+  }
+  .view dl.glossary dt {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    color: var(--navy);
+    font-size: 14.5px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+  }
+  .view dl.glossary dt:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+  .view dl.glossary dd {
+    margin: 4px 0 0 0;
+    font-size: 14px;
+    color: var(--text-soft);
+    line-height: 1.6;
+  }
+  .view dl.glossary dd a {
+    font-weight: 600;
+  }
+
+  /* Checklist card */
+  .view ul.checklist {
+    list-style: none;
+    margin: 16px 0 24px;
+    padding: 0;
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .view ul.checklist .checklist-title {
+    background: var(--navy);
+    color: #fff;
+    padding: 10px 18px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .view ul.checklist li {
+    padding: 12px 18px 12px 46px;
+    position: relative;
+    margin-bottom: 0;
+    border-top: 1px solid var(--rule);
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+  .view ul.checklist li.checklist-title {
+    padding: 10px 18px;
+    border-top: none;
+  }
+  .view ul.checklist li:not(.checklist-title)::before {
+    content: '';
+    position: absolute;
+    left: 18px;
+    top: 16px;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--rule-strong);
+    border-radius: 3px;
+    background: #fff;
+  }
+
+  /* Cross-reference link */
+  .view .xref {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-panel);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--blue-bright);
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 13.5px;
+    color: var(--text);
+    text-decoration: none !important;
+    border-bottom: 1px solid var(--rule) !important;
+    margin: 6px 0;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .view .xref:hover {
+    background: var(--blue-pale);
+    color: var(--navy) !important;
+    border-left-color: var(--blue) !important;
+  }
+  .view .xref::before { content: '\u2197'; color: var(--blue); font-weight: 700; }
+  .view .xref strong { color: var(--navy); font-weight: 700; }
+
+  /* Self-check card stack */
+  .view .self-check-stack {
+    margin: 18px 0 24px;
+    display: grid;
+    gap: 14px;
+  }
+  .view .self-check-card {
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--blue-bright);
+    border-radius: 6px;
+    padding: 16px 20px;
+  }
+  .view .self-check-num {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .view .self-check-card .scenario {
+    font-weight: 600;
+    color: var(--navy);
+    font-size: 15px;
+    line-height: 1.55;
+    margin: 0 0 10px;
+  }
+  .view .self-check-card .prompt {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text);
+    margin: 0 0 12px;
+  }
+  .view .self-check-card .where {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    text-decoration: none !important;
+    border-bottom: none !important;
+    background: var(--bg-panel);
+    border: 1px solid var(--rule);
+    padding: 5px 11px;
+    border-radius: 3px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .view .self-check-card .where::before {
+    content: '\u2937';
+    color: var(--blue);
+    font-weight: 700;
+  }
+  .view .self-check-card .where:hover {
+    background: var(--blue-pale);
+    color: var(--navy) !important;
+  }
+  .view .self-check-card .where strong { color: var(--navy); font-weight: 700; }
+
+  main.content-card {
+    background: #fff;
+    min-width: 0; /* prevent grid blowout */
+  }
+
+  /* SPA view switching */
+  .view { display: none; }
+  .view.active { display: block; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ============== ARTICLE / TYPOGRAPHY ============== */
+  .view h1 {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700; font-size: 36px;
+    color: var(--navy);
+    letter-spacing: -0.02em;
+    margin-bottom: 20px;
+    line-height: 1.1;
+  }
+  .view h2 {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700; font-size: 24px;
+    color: var(--navy);
+    margin-top: 40px; margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--rule);
+    letter-spacing: -0.015em;
+  }
+  .view h3 {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700; font-size: 18px;
+    color: var(--navy);
+    margin-top: 28px; margin-bottom: 12px;
+    letter-spacing: -0.01em;
+  }
+  .view h4 {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 600; font-size: 15px;
+    color: var(--navy-soft);
+    margin-top: 20px; margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .view p {
+    font-size: 15px; line-height: 1.7; margin-bottom: 14px;
+    color: var(--text);
+  }
+  .view p strong { color: var(--navy); font-weight: 700; }
+  .view a {
+    color: var(--blue); text-decoration: none;
+    border-bottom: 1px solid var(--blue-pale);
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .view a:hover { color: var(--orange); border-bottom-color: var(--orange); }
+  .view ul, .view ol { margin: 0 0 18px 22px; font-size: 15px; line-height: 1.7; }
+  .view li { margin-bottom: 6px; }
+  .view li strong { color: var(--navy); font-weight: 700; }
+  .view code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    background: var(--bg-panel);
+    color: var(--navy);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  /* Tables */
+  .view table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0 24px;
+    font-size: 14px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .view thead { background: var(--navy); color: #fff; }
+  .view th {
+    text-align: left; padding: 12px 16px;
+    font-weight: 700; font-size: 12px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .view td {
+    padding: 13px 16px; border-bottom: 1px solid var(--rule);
+    vertical-align: top; line-height: 1.55;
+  }
+  .view tr:last-child td { border-bottom: none; }
+  .view tbody tr:nth-child(even) { background: var(--bg-soft); }
+  .view tbody tr:hover { background: var(--blue-pale); }
+
+  /* Callouts */
+  .view .callout {
+    display: flex; gap: 14px;
+    padding: 16px 20px;
+    border-radius: 6px;
+    margin: 22px 0;
+    border-left: 4px solid;
+  }
+  .view .callout-icon {
+    flex-shrink: 0; width: 24px; height: 24px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-weight: 700; font-size: 13px; color: #fff;
+  }
+  .view .callout p { margin-bottom: 0; font-size: 14.5px; }
+  .view .callout.important { background: #fef5e7; border-color: var(--orange); }
+  .view .callout.important .callout-icon { background: var(--orange); }
+  .view .callout.warning { background: #fef5e7; border-color: var(--orange); }
+  .view .callout.warning .callout-icon { background: var(--orange); }
+  .view .callout.try-now {
+    background: #fff7ec;
+    border-color: var(--orange);
+    border-left: 4px solid var(--orange);
+  }
+  .view .callout.try-now .callout-icon {
+    background: var(--orange);
+    color: #fff;
+    position: relative;
+  }
+  .view .callout.try-now .callout-icon::before {
+    content: "\25B8";
+    font-size: 16px;
+    line-height: 1;
+  }
+  .view .callout.try-now .try-now-label {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--orange-deep, #d97316);
+    margin-bottom: 6px;
+    display: block;
+  }
+  .view .callout.try-now .callout-label {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--orange-deep, #d97316);
+    margin-bottom: 6px;
+  }
+  .view .callout.try-now strong {
+    color: var(--navy);
+  }
+
+  .view .callout.note, .view .callout.tip, .view .callout.info {
+    background: var(--blue-pale); border-color: var(--blue);
+  }
+  .view .callout.note .callout-icon, .view .callout.tip .callout-icon, .view .callout.info .callout-icon {
+    background: var(--blue);
+  }
+  /* Original used callout-label as a heading inside the box */
+  .view .callout-label {
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 4px;
+    font-size: 14.5px;
+  }
+
+  /* Images */
+  .view img, .view .screenshot {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    margin: 14px 0;
+    background: var(--bg-soft);
+  }
+
+  /* Topic footer nav (back to index, prev/next) */
+  .topic-footer-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 48px;
+    padding-top: 28px;
+    border-top: 1px solid var(--rule);
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .back-btn, .next-btn {
+    background: transparent;
+    border: 1px solid var(--rule-strong);
+    color: var(--navy);
+    padding: 10px 18px;
+    border-radius: 4px;
+    font-family: 'Open Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .back-btn:hover, .next-btn:hover {
+    background: var(--navy);
+    color: #fff;
+    border-color: var(--navy);
+  }
+  .next-btn {
+    background: var(--orange);
+    border-color: var(--orange);
+    color: #fff;
+  }
+  .next-btn:hover {
+    background: var(--orange-deep);
+    border-color: var(--orange-deep);
+  }
+
+  /* Email card / video link styling from original */
+  .view .email-card {
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 20px;
+    margin: 18px 0;
+  }
+  .view .email-card .label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .view .email-card .addr {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--navy);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .view .email-compose-btn {
+    display: inline-block;
+    background: var(--orange);
+    color: #fff !important;
+    text-decoration: none !important;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 700;
+    border: none !important;
+  }
+  .view .email-compose-btn:hover { background: var(--orange-deep); }
+
+  .view .video-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--blue-pale);
+    color: var(--blue) !important;
+    padding: 8px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none !important;
+    border: none !important;
+    margin: 6px 0;
+  }
+  .view .video-link:hover { background: var(--blue); color: #fff !important; }
+
+  /* Hide original branding header/yellow bar/sidebar (we replace with GSI nav) */
+  .blue-header, .yellow-bar, aside.sidebar.original { display: none; }
+
+  /* Diamond divider — give it GSI styling */
+  .view .diamond-divider {
+    text-align: center;
+    margin: 28px 0;
+  }
+  .view .diamond {
+    display: inline-block;
+    width: 8px; height: 8px;
+    background: var(--orange);
+    transform: rotate(45deg);
+  }
+
+  /* Figure / figcaption */
+  .view figure {
+    margin: 22px 0;
+  }
+  .view figure.screenshot {
+    border: none;
+    background: transparent;
+    padding: 0;
+  }
+  .view figure.screenshot img,
+  .view figure.screenshot svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    margin: 0 auto;
+    background: var(--bg-soft);
+  }
+  .view figcaption {
+    font-size: 13px;
+    color: var(--text-soft);
+    text-align: center;
+    margin-top: 10px;
+    line-height: 1.55;
+    padding: 0 8px;
+  }
+  .view figcaption strong {
+    display: block;
+    color: var(--navy);
+    font-weight: 700;
+    font-size: 13.5px;
+    margin-bottom: 3px;
+  }
+
+  /* Hero block on Index */
+  .hero-block {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 32px;
+    align-items: center;
+    background: linear-gradient(135deg, var(--bg-soft) 0%, var(--blue-pale) 100%);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 28px 32px;
+    margin-bottom: 28px;
+  }
+  .hero-block .hero-text p { margin-bottom: 10px; }
+  .hero-block .hero-text p:last-child { margin-bottom: 0; }
+  .hero-block svg { display: block; max-width: 100%; height: auto; }
+  @media (max-width: 720px) {
+    .hero-block { grid-template-columns: 1fr; }
+    .hero-block .hero-art { display: none; }
+  }
+
+  /* Quick-reference task table */
+  .view .quick-ref {
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--orange);
+    border-radius: 6px;
+    padding: 18px 22px;
+    margin: 22px 0;
+  }
+  .view .quick-ref h3 {
+    margin-top: 0;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--orange);
+  }
+  .view .quick-ref dl {
+    display: grid;
+    grid-template-columns: 1fr 180px;
+    gap: 8px 18px;
+    font-size: 14px;
+    margin: 0;
+  }
+  .view .quick-ref dt {
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .view .quick-ref dt::before { content: '› '; color: var(--orange); font-weight: 700; }
+  .view .quick-ref dd {
+    color: var(--blue);
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.5;
+  }
+  .view .quick-ref dd a { border-bottom: none; }
+  .view .quick-ref dd a:hover { text-decoration: underline; }
+  @media (max-width: 720px) {
+    .view .quick-ref dl { grid-template-columns: 1fr; gap: 4px; }
+    .view .quick-ref dd { margin-bottom: 10px; padding-left: 14px; }
+  }
+
+  /* Page meta (last updated, search hint) */
+  .page-meta {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 10px;
+  }
+  .page-meta .meta-item { display: inline-flex; align-items: center; gap: 6px; }
+  .page-meta .meta-item strong { color: var(--text-soft); font-weight: 600; }
+  .page-meta kbd {
+    background: #fff;
+    border: 1px solid var(--rule-strong);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--navy);
+  }
+
+  /* Email preview block */
+  .email-preview {
+    margin-top: 14px;
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .email-preview .ep-header {
+    background: var(--bg-panel);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 12px;
+    color: var(--text-soft);
+  }
+  .email-preview .ep-header strong { color: var(--navy); font-weight: 600; }
+  .email-preview .ep-row {
+    padding: 4px 14px;
+    display: flex;
+    gap: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .email-preview .ep-row:first-child { padding-top: 10px; }
+  .email-preview .ep-row .lbl {
+    color: var(--text-muted);
+    font-weight: 600;
+    min-width: 56px;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    padding-top: 2px;
+  }
+  .email-preview .ep-row .val { color: var(--navy); }
+  .email-preview .ep-body {
+    padding: 14px;
+    border-top: 1px solid var(--rule);
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text);
+    white-space: pre-line;
+    background: var(--bg-soft);
+  }
+
+  /* External link icon for video links */
+  .view .video-link::after {
+    content: '↗';
+    margin-left: 4px;
+    font-size: 13px;
+  }
+
+  /* "Done" / completion button */
+  .next-btn.done-btn {
+    background: #2e7d4f;
+    border-color: #2e7d4f;
+  }
+  .next-btn.done-btn:hover {
+    background: #226338;
+    border-color: #226338;
+  }
+
+  /* ============== FOOTER ============== */
+  /* ============== FOOTER (thin, single line) ============== */
+  footer {
+    background: var(--navy-deep);
+    color: rgba(255,255,255,0.7);
+    padding: 18px 0;
+    font-size: 13px;
+    border-top: 3px solid var(--blue);
+  }
+  .footer-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .footer-line strong { color: #fff; font-weight: 700; }
+  .footer-line a {
+    color: var(--blue-bright);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .footer-line a:hover { color: #fff; }
+  .footer-sep { color: rgba(255,255,255,0.25); margin: 0 6px; }
+
+  /* ============== RESPONSIVE ============== */
+  @media (max-width: 960px) {
+    .spa-wrap { grid-template-columns: 1fr; gap: 28px; }
+    aside.sidebar { position: static; }
+  }
+  @media (max-width: 800px) {
+    .container { padding: 0 22px; }
+    nav.section-nav { display: none; }
+    .footer-line { gap: 12px; font-size: 12px; }
+  }
+</style>
+<link rel="stylesheet" href="../Tools/doc-header.css">
+<script defer src="../Tools/doc-chrome.js"></script>
+</head>
+<body data-doc-type="howto">
+
+<!-- ============ TOP NAV ============ -->
+<header class="doc-header" data-doc-chrome>
+  <span class="doc-last-updated">Last updated <time datetime="2026-07-18">July 18, 2026</time></span>
+</header>
+
+<!-- ============ PAGE HEADER ============ -->
+<section class="page-header">
+  <div class="container">
+<h1 class="page-title">Managing <em>Companies</em></h1>
+  </div>
+</section>
+
+<!-- ============ SPA LAYOUT ============ -->
+<div class="container">
+  <div class="spa-wrap">
+    <aside class="sidebar">
+      <div class="sidebar-title">Managing Companies</div>
+
+      <div class="sidebar-section-label">Admin Tasks</div>
+      <ul class="sidebar-nav">
+        <li><button onclick="window.location.href='administrator-managing-users.html'">Manage the Team</button></li>
+        <li class="active"><button onclick="window.scrollTo({top:0,behavior:'smooth'})">Managing Companies</button></li>
+      </ul>
+
+      <div class="sidebar-section-label">On This Page</div>
+      <ul class="sidebar-nav">
+        <li data-target="company"><button onclick="showView('topic-company')">Company Management</button></li>
+        <li data-target="adding"><button onclick="showView('topic-adding')">Adding a Company License</button></li>
+      </ul>
+
+      <div class="sidebar-section-label">Orientation</div>
+      <ul class="sidebar-nav">
+        <li><button onclick="window.location.href='administrator-start-here.html'">Admin Start Here</button></li>
+      </ul>
+    </aside>
+
+    <main class="content-card">
+
+
+
+      <section id="topic-company" class="view active">
+<h1>Company Management</h1>
+      <p>Configure licensed companies, fiscal start dates, currency settings, AAI documents, and reconciliation thresholds for each company in the application.</p>
+
+      <div class="diamond-divider"><span class="diamond"></span></div>
+
+      <h2>Navigation</h2>
+      <p>From the RapidReconciler <strong>Home</strong> page, open the <strong>Administration</strong> area, expand <strong>People &amp; Licensing</strong>, and click <strong>Licensing</strong>. The Licensing page is visible only to users with the RR Administrator role.</p>
+      <p>The Licensing page lists all of your licensed companies. To modify a company's settings, click the <strong>Options</strong> icon in the far-right column of the applicable row. The page also shows your <strong>seat usage</strong> (how many of your licensed company seats are in use) and a <strong>Check JDE for more companies</strong> scan that surfaces companies with activity that aren&rsquo;t licensed yet &mdash; see <a href="rapidreconciler-licensing.html">Licensing</a>.</p>
+
+      <h2>Licensed Companies</h2>
+      <p>The Companies page displays all companies currently licensed for use in RapidReconciler. The following fields are shown for each company:</p>
+
+      <figure class="screenshot">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 250" font-family="'Open Sans','Segoe UI',Arial,sans-serif" role="img" aria-label="The Licensing page: a 'Using 2 of 3 company licenses' banner above a grid of licensed companies with Number, Name, Start Date, Base Currency, AAI Doc, Threshold, Options and Re-roll columns.">
+          <rect x="0.5" y="0.5" width="759" height="249" rx="8" fill="#ffffff" stroke="#d9dee7"/>
+          <text x="24" y="36" font-size="20" font-weight="700" fill="#1f2d4a">Licensing</text>
+          <rect x="556" y="18" width="186" height="26" rx="13" fill="#eef3f9" stroke="#d6e0ee"/>
+          <text x="649" y="35" font-size="12" font-weight="700" fill="#2b5fb0" text-anchor="middle">Using 2 of 3 company licenses</text>
+          <line x1="24" y1="56" x2="736" y2="56" stroke="#e5e5e5"/>
+          <text x="24"  y="82" font-size="11" font-weight="700" fill="#8a93a6">NUMBER</text>
+          <text x="92"  y="82" font-size="11" font-weight="700" fill="#8a93a6">NAME</text>
+          <text x="250" y="82" font-size="11" font-weight="700" fill="#8a93a6">START DATE</text>
+          <text x="352" y="82" font-size="11" font-weight="700" fill="#8a93a6">BASE CUR.</text>
+          <text x="442" y="82" font-size="11" font-weight="700" fill="#8a93a6">AAI DOC</text>
+          <text x="512" y="82" font-size="11" font-weight="700" fill="#8a93a6">THRESHOLD</text>
+          <text x="620" y="82" font-size="11" font-weight="700" fill="#8a93a6">OPTIONS</text>
+          <text x="690" y="82" font-size="11" font-weight="700" fill="#8a93a6">RE-ROLL</text>
+          <line x1="24" y1="94" x2="736" y2="94" stroke="#eeeeee"/>
+          <text x="24"  y="124" font-size="13" fill="#1f2d4a">100</text>
+          <text x="92"  y="124" font-size="13" fill="#1f2d4a">Northwind Mfg</text>
+          <text x="250" y="124" font-size="13" fill="#5a6479">01/01/2026</text>
+          <text x="352" y="124" font-size="13" fill="#5a6479">USD</text>
+          <text x="442" y="124" font-size="13" fill="#5a6479">PI</text>
+          <text x="512" y="124" font-size="13" fill="#5a6479">100</text>
+          <text x="626" y="125" font-size="14" fill="#8a93a6" text-anchor="middle">&#9998;</text>
+          <text x="700" y="125" font-size="15" fill="#8a93a6" text-anchor="middle">&#8635;</text>
+          <line x1="24" y1="140" x2="736" y2="140" stroke="#f3f3f3"/>
+          <text x="24"  y="170" font-size="13" fill="#1f2d4a">200</text>
+          <text x="92"  y="170" font-size="13" fill="#1f2d4a">Contoso Distribution</text>
+          <text x="250" y="170" font-size="13" fill="#5a6479">01/01/2026</text>
+          <text x="352" y="170" font-size="13" fill="#5a6479">CAD</text>
+          <text x="442" y="170" font-size="13" fill="#5a6479">PI</text>
+          <text x="512" y="170" font-size="13" fill="#5a6479">100</text>
+          <text x="626" y="171" font-size="14" fill="#8a93a6" text-anchor="middle">&#9998;</text>
+          <text x="700" y="171" font-size="15" fill="#8a93a6" text-anchor="middle">&#8635;</text>
+          <line x1="0" y1="200" x2="760" y2="200" stroke="#eeeeee"/>
+          <text x="24" y="224" font-size="12" fill="#8a93a6">Options opens the Edit company popup; Re-roll recalculates the perpetual balance.</text>
+        </svg>
+        <figcaption><strong>The Licensing page &mdash; Licensed Companies</strong>Each row is one licensed company; the icons on the right open the Options popup or trigger a Re-roll.</figcaption>
+      </figure>
+
+      <table>
+        <thead>
+          <tr><th>Field</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Number</td><td>The company number as defined in JD Edwards.</td></tr>
+          <tr><td>Name</td><td>The company name.</td></tr>
+          <tr><td>Start Date</td><td>The earliest fiscal period available for reconciliation.</td></tr>
+          <tr><td>Base Currency</td><td>The base currency of the company, pulled from JD Edwards.</td></tr>
+          <tr><td>AAI Doc</td><td>The AAI document type used for the model DMAAI table.</td></tr>
+          <tr><td>Threshold</td><td>The reconciliation threshold value, expressed in the company's base currency. Variances at or below this absolute value are treated as within tolerance and flagged accordingly on the Reconciliation page.</td></tr>
+          <tr><td>Options</td><td>Click to open the Company Options pop-up for editing.</td></tr>
+          <tr><td>Reroll</td><td>Click to reroll the company, which recalculates the perpetual balance from the baseline date forward. Typically used if transactions have been backdated more than 1 period.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warning">
+        <div class="callout-label">Important</div>
+        <p>Only GSI can add or remove companies, as they are managed per license agreement. If additional company licenses are required, please contact GSI at <a href="mailto:gsisales@getgsi.com">gsisales@getgsi.com</a>.</p>
+      </div>
+
+      <h3>Reroll by Company</h3>
+      <p>The <strong>Reroll</strong> icon on each company row recalculates the perpetual inventory balance from the baseline forward. Run it when an end user reports an inventory carry-forward issue &mdash; for example, the Inventory Validation light is red and the report shows <strong>VarOK = No while GLOK = Yes</strong>.</p>
+      <p>What happens when you click it:</p>
+      <ol>
+        <li>A confirmation pop-up asks <em>&ldquo;Are you sure?&rdquo;</em></li>
+        <li>Click <strong>OK</strong> and let the process run to completion.</li>
+        <li>For each inventory account on the company, RapidReconciler starts at the <strong>beginning perpetual balance</strong> and rolls forward by adding the cardex transaction amounts period by period.</li>
+      </ol>
+      <p>It is a clean recalculation, so it resolves carry-forward problems caused by backdated transactions or transient system glitches that left a stale value in place. See the <a href="../Scenarios/scenario-inventory-validation-red-variance.html">Inventory validation light is red</a> scenario for the end-user perspective on when to request a reroll.</p>
+
+      <h2>Company Options</h2>
+      <p>Clicking the Options icon opens the Edit company pop-up window:</p>
+
+      <figure class="screenshot" style="max-width:620px;margin-left:auto;margin-right:auto;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 340" font-family="'Open Sans','Segoe UI',Arial,sans-serif" role="img" aria-label="The Edit company popup: Company Number and Base Currency shown read-only on a grey background, with editable Start Date, AAI Doc and Threshold fields and a Save Changes button.">
+          <rect x="0.5" y="0.5" width="559" height="339" rx="10" fill="#ffffff" stroke="#d9dee7"/>
+          <text x="28" y="44" font-size="18" font-weight="700" fill="#1f2d4a">Edit company</text>
+          <line x1="0" y1="62" x2="560" y2="62" stroke="#eef1f6"/>
+          <text x="28" y="92" font-size="12" font-weight="700" fill="#5a6479">Company Number</text>
+          <rect x="28" y="100" width="504" height="34" rx="6" fill="#f1f3f6" stroke="#e1e7ef"/>
+          <text x="40" y="122" font-size="13.5" fill="#8a93a6">100</text>
+          <text x="28" y="158" font-size="12" font-weight="700" fill="#5a6479">Base Currency</text>
+          <rect x="28" y="166" width="504" height="34" rx="6" fill="#f1f3f6" stroke="#e1e7ef"/>
+          <text x="40" y="188" font-size="13.5" fill="#8a93a6">USD</text>
+          <text x="28" y="224" font-size="12" font-weight="700" fill="#5a6479">Start Date</text>
+          <rect x="28" y="232" width="240" height="34" rx="6" fill="#ffffff" stroke="#c9d3e0"/>
+          <text x="40" y="254" font-size="13.5" fill="#1f2d4a">01/01/2026</text>
+          <text x="292" y="224" font-size="12" font-weight="700" fill="#5a6479">AAI Doc</text>
+          <rect x="292" y="232" width="110" height="34" rx="6" fill="#ffffff" stroke="#c9d3e0"/>
+          <text x="304" y="254" font-size="13.5" fill="#1f2d4a">PI</text>
+          <text x="418" y="224" font-size="12" font-weight="700" fill="#5a6479">Threshold</text>
+          <rect x="418" y="232" width="114" height="34" rx="6" fill="#ffffff" stroke="#c9d3e0"/>
+          <text x="430" y="254" font-size="13.5" fill="#1f2d4a">100</text>
+          <rect x="300" y="290" width="80" height="34" rx="6" fill="#ffffff" stroke="#c9d3e0"/>
+          <text x="340" y="312" font-size="13.5" fill="#5a6479" text-anchor="middle">Cancel</text>
+          <rect x="392" y="290" width="140" height="34" rx="6" fill="#226338"/>
+          <text x="462" y="312" font-size="13.5" font-weight="700" fill="#ffffff" text-anchor="middle">Save Changes</text>
+        </svg>
+        <figcaption><strong>Edit company popup</strong>The Company Number and Base Currency fields appear with a grey background to indicate they are read-only; they are pulled directly from JD Edwards.</figcaption>
+      </figure>
+
+      <p>The <strong>Company Number</strong> and <strong>Base Currency</strong> fields are read-only, as they are pulled directly from JD Edwards and cannot be changed within RapidReconciler. The following fields may be modified:</p>
+
+      <h3>Start Date</h3>
+      <p>The Start Date represents the earliest fiscal period that can be reconciled. It is always set to the first day of a fiscal period — typically the first day of the current fiscal year. Once the current fiscal year is closed, the administrator should update this date to reflect the new fiscal year.</p>
+
+      <div class="callout warning">
+        <div>
+          <div class="callout-label">Irreversible action</div>
+          <p>The Start Date <strong>cannot be moved backwards</strong>. Once advanced, RapidReconciler will initiate a purge procedure to permanently remove historical data prior to the new date. Verify your fiscal year is fully closed and reconciled before advancing this date.</p>
+        </div>
+      </div>
+
+      <h4>Key considerations</h4>
+      <ul>
+        <li>It is highly recommended that at least 2 months of history be retained in the RapidReconciler database at all times.</li>
+        <li>Advancing the Start Date is a method of recovering server resources and improving application performance. Reducing the volume of data in the database results in faster response times.</li>
+      </ul>
+
+      <h3>AAI Doc</h3>
+      <p>The AAI document type used to identify the model DMAAI table for the company. The default value is <code>PI</code>. Change it only if your JD Edwards configuration uses a different document type for the model DMAAI &mdash; it drives account derivation, so confirm the correct value against JD Edwards before you change it.</p>
+
+      <h3>Threshold</h3>
+      <p>The reconciliation threshold amount, expressed in the company's base currency. Variances whose absolute value falls at or below this amount are treated as within tolerance.</p>
+      <div class="callout tip">
+        <div class="callout-label">Example</div>
+        <p>If the Threshold is set to <code>100.00</code> and a variance of $87.50 is calculated for a period, that variance is flagged as within tolerance on the Reconciliation page and does not require a journal entry. A variance of $250.00, by contrast, is flagged as exceeding tolerance and requires investigation.</p>
+      </div>
+
+      <p>Click <strong>Save Changes</strong> when all modifications are complete.</p>
+
+      <div class="topic-footer-nav">
+        <button class="back-btn" onclick="goHome()">← Back to Index</button>
+        <button class="next-btn" onclick="showView('topic-adding')">Next: Adding a Company License →</button>
+      </div>
+      </section>
+
+      <section id="topic-adding" class="view">
+<h1>Adding a Company License</h1>
+      <p>Company numbers in RapidReconciler are license-controlled and can only be added by GSI staff. Each company in the application corresponds to a licensed JD Edwards company number as specified in your purchase agreement.</p>
+
+      <div class="diamond-divider"><span class="diamond"></span></div>
+
+      <h2>Finding Companies You Haven&rsquo;t Licensed Yet</h2>
+      <p>The Licensing page can show you which JD&nbsp;Edwards companies have activity in this database but aren&rsquo;t licensed in RapidReconciler &mdash; useful when you&rsquo;re deciding whether a company is worth adding. Below the licensed list, click <strong>Check JDE for more companies</strong>. Because it scans JD&nbsp;Edwards activity, it can take a moment; when it finishes, a <strong>Not Licensed</strong> list appears showing each company&rsquo;s number, name, item count, and a small last-12-months activity bar, so you can gauge at a glance whether it&rsquo;s active enough to be worth a seat.</p>
+      <p>You can&rsquo;t add a company from this page &mdash; licensing is a contract term &mdash; but it tells you exactly which company numbers and names to include when you request more below.</p>
+      <div class="callout tip">
+        <div class="callout-label">Tip</div>
+        <p>A Not Licensed company with steady activity across the last twelve months is usually a good candidate; one with little or no activity may not be worth a seat.</p>
+      </div>
+
+      <div class="diamond-divider"><span class="diamond"></span></div>
+
+      <h2>Requesting Additional Companies</h2>
+      <p>If you have additional companies you would like to reconcile that are not currently available in the application, please contact GSI Sales to begin the licensing process.</p>
+
+      <div class="email-card">
+        <div>
+          <div class="label">Email GSI Sales</div>
+          <a href="mailto:gsisales@getgsi.com" class="addr">gsisales@getgsi.com</a>
+        </div>
+        <a class="email-compose-btn" href="mailto:gsisales@getgsi.com?subject=RapidReconciler%20%E2%80%94%20Additional%20Company%20License%20Request&body=Hello%20GSI%20Sales%20Team%2C%0A%0AWe%20would%20like%20to%20add%20one%20or%20more%20additional%20companies%20to%20our%20RapidReconciler%20license.%20Please%20find%20the%20details%20below.%0A%0A%3D%3D%20Customer%20Information%20%3D%3D%0ACompany%20Name%3A%0ARapidReconciler%20Account%20/%20Customer%20ID%3A%0APrimary%20Contact%20Name%3A%0APrimary%20Contact%20Email%3A%0APhone%3A%0A%0A%3D%3D%20Companies%20to%20Add%20%3D%3D%0APlease%20add%20the%20following%20JD%20Edwards%20companies%20to%20our%20license%3A%0A%0A%20%201.%20JDE%20Company%20Number%3A%0A%20%20%20%20%20Company%20Name%3A%0A%0A%20%202.%20JDE%20Company%20Number%3A%0A%20%20%20%20%20Company%20Name%3A%0A%0A%20%20%28add%20additional%20rows%20as%20needed%29%0A%0A%3D%3D%20Additional%20Notes%20%3D%3D%0A%0A%0AThank%20you%2C%0A">Compose Pre-Filled Email</a>
+      </div>
+
+      <p>Clicking the button above opens your default email client with a draft addressed to GSI Sales, including a subject line and a request template ready to fill in. The pre-filled email looks like this:</p>
+
+      <div class="email-preview">
+        <div class="ep-header">Preview &mdash; opens in your default mail client</div>
+        <div class="ep-row"><span class="lbl">To</span><span class="val">gsisales@getgsi.com</span></div>
+        <div class="ep-row"><span class="lbl">Subject</span><span class="val">RapidReconciler — Additional Company License Request</span></div>
+        <div class="ep-body">Hello GSI Sales Team,
+
+We would like to add one or more additional companies to our RapidReconciler license. Please find the details below.
+
+== Customer Information ==
+Company Name:
+RapidReconciler Account / Customer ID:
+Primary Contact Name:
+Primary Contact Email:
+Phone:
+
+== Companies to Add ==
+Please add the following JD Edwards companies to our license:
+
+  1. JDE Company Number:
+     Company Name:
+
+  2. JDE Company Number:
+     Company Name:
+
+  (add additional rows as needed)
+
+== Additional Notes ==
+
+
+Thank you,</div>
+      </div>
+
+      <p>If you prefer to write the email manually, please include the following:</p>
+      <ul>
+        <li>Your company name and RapidReconciler account details</li>
+        <li>The JD Edwards company numbers you would like to add</li>
+        <li>The corresponding company names</li>
+      </ul>
+      <p>A GSI representative will follow up to confirm licensing and coordinate the update.</p>
+
+      <h2>Managing Company Settings</h2>
+      <p>Company settings, including enabling or disabling companies for individual users, are managed by your RapidReconciler administrator. If you need changes to your company configuration, please contact your internal RapidReconciler administrator.</p>
+
+      <div class="callout">
+        <div class="callout-label">Note</div>
+        <p>Changes to company licensing may require a restart of the RapidReconciler Agent before they take effect in the application.</p>
+      </div>
+
+      <div class="topic-footer-nav">
+        <button class="back-btn" onclick="goHome()">← Back to Index</button>
+        <button class="next-btn" onclick="window.location.href='administrator-managing-users.html'">Next: Manage the Team →</button>
+      </div>
+      </section>
+
+
+
+
+
+
+    </main>
+  </div>
+</div>
+
+<!-- ============ FOOTER ============ -->
+<section class="doc-feedback" aria-label="Documentation feedback">
+  <div class="doc-feedback-inner">
+    <div class="doc-feedback-icon" aria-hidden="true">i</div>
+    <div class="doc-feedback-text">
+      <strong>Help us improve.</strong>
+      Found an error, a gap, or something unclear in this document?
+      Email <a href="mailto:rrsupport@getgsi.com?subject=GSI+RR+-+Doc+Feedback+(administrator-managing-companies.html)">rrsupport@getgsi.com</a> &mdash;
+      corrections and suggestions are all welcome.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-line">
+      <span><strong>RapidReconciler University</strong> <span class="footer-sep">&middot;</span> a GSI knowledge base for JD Edwards reconciliation</span>
+      <span>&copy; 2026 GSI <span class="footer-sep">&middot;</span> <a href="mailto:rrsupport@getgsi.com">rrsupport@getgsi.com</a> <span class="footer-sep">&middot;</span> <a href="https://www.getgsi.com" target="_blank" rel="noopener">getgsi.com</a></span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  function showView(id) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    const target = document.getElementById(id);
+    if (target) {
+      target.classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'instant' });
+
+      const slug = id === 'home' ? 'home' : id.replace('topic-', '');
+      document.querySelectorAll('#sidebar-nav li').forEach(li => {
+        li.classList.toggle('active', li.dataset.target === slug);
+      });
+
+      // Sync document title with active topic
+      const baseTitle = 'Administrator Walkthrough — RapidReconciler University';
+      const heading = target.querySelector('h1');
+      if (heading) {
+        document.title = (slug === 'home')
+          ? baseTitle
+          : heading.textContent.trim() + ' — ' + baseTitle;
+      }
+
+      try {
+        if (window.location.protocol !== 'about:') {
+          history.replaceState(null, '', slug === 'home' ? ' ' : '#' + slug);
+        }
+      } catch (e) { /* sandboxed context */ }
+    }
+  }
+
+  function goHome() { showView('home'); }
+
+  document.querySelectorAll('#sidebar-nav li[data-target="home"]').forEach(li => li.classList.add('active'));
+
+  window.addEventListener('DOMContentLoaded', () => {
+    try {
+      const hash = window.location.hash.replace('#', '');
+      if (hash && hash !== 'home') showView('topic-' + hash);
+    } catch (e) { /* ignore */ }
+  });
+
+  window.addEventListener('popstate', () => {
+    try {
+      const hash = window.location.hash.replace('#', '');
+      showView(hash && hash !== 'home' ? 'topic-' + hash : 'home');
+    } catch (e) { /* ignore */ }
+  });
+</script>
+
+</body>
+</html>

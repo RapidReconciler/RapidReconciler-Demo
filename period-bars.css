@@ -1,0 +1,200 @@
+/*
+ * RRV8 — shared period bar-chart selector
+ *
+ * Single source of truth for the V8 period picker. A horizontal row
+ * of bars (one per period) that doubles as both navigation and a
+ * trend chart of out-of-balance. Mounted by period-bars.js; the
+ * page provides the data + click callback.
+ *
+ * Relies on the brand CSS variables each page defines on :root
+ * (--blue, --orange, --red, --navy, etc.).
+ *
+ * Markup the script renders inside the host element:
+ *
+ *   <div class="period-bars">
+ *     <div class="period-bars-label">Out of Bal by Period</div>
+ *     <div class="period-bars-svg-wrap">
+ *       <svg class="period-bars-svg" preserveAspectRatio="none">
+ *         <line class="period-bars-zero" .../>
+ *         <rect class="period-bar [is-negative] [is-current]" .../>
+ *         ...
+ *       </svg>
+ *     </div>
+ *     <div class="period-bars-tip"><div class="period-bars-tip-date"/><div class="period-bars-tip-value"/></div>
+ *   </div>
+ */
+
+.period-bars {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 280px;
+  max-width: 720px;
+  height: 110px;
+  margin-left: auto;
+  padding: 8px 16px 10px;
+  background: var(--bg-card);
+  border: 2px solid var(--blue);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  user-select: none;
+}
+/* Header row: chart label on the left, selected-period date on the
+   right. Gives the analyst an unambiguous "you are here" cue even
+   when the spotlit bar isn't immediately readable. */
+.period-bars-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.period-bars-label {
+  font-family: 'Source Sans 3', sans-serif;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+.period-bars-current {
+  font-family: 'Source Sans 3', sans-serif;
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--navy);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+}
+/* Wrap is the positioning context for the overlaid HTML dots; the SVG
+   fills it absolutely so dot percentages and SVG coordinates map to
+   the same pixel box at any width. */
+.period-bars-svg-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.period-bars-svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.period-bars-zero {
+  stroke: var(--rule-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Connecting line through every period point. non-scaling-stroke keeps
+   it a crisp 2px no matter how the SVG is stretched horizontally. */
+.period-line {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Transparent full-height hit target per column. Tiled by the JS to
+   span the gap between points so crowded / 0-dollar periods stay
+   clickable. Owns hover + click; the dots are pointer-events:none. */
+.period-bar-hit {
+  fill: transparent;
+  cursor: pointer;
+  outline: none;
+}
+.period-bar-hit:focus-visible {
+  stroke: var(--blue);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
+}
+
+/* Data-point markers — HTML dots overlaid on the line. Positioned by
+   the JS via left/top percentages of the wrap; centred on the vertex.
+   Round at any container width because they're fixed-px HTML, not
+   SVG circles subject to the preserveAspectRatio="none" stretch. */
+.period-pt {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--blue);
+  border: 1.5px solid var(--bg-card);
+  box-shadow: 0 0 0 1px rgba(43, 95, 176, 0.30);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.period-pt.is-negative {
+  background: var(--red);
+  box-shadow: 0 0 0 1px rgba(192, 57, 43, 0.30);
+}
+/* Spotlit current period — larger, accent orange, glow ring. */
+.period-pt.is-current {
+  width: 12px;
+  height: 12px;
+  background: var(--orange);
+  border-color: var(--bg-card);
+  box-shadow: 0 0 0 2px rgba(240, 138, 36, 0.45), 0 0 7px rgba(240, 138, 36, 0.55);
+  z-index: 2;
+}
+.period-pt.is-current.is-negative {
+  background: var(--red);
+  box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.40), 0 0 7px rgba(192, 57, 43, 0.55);
+}
+/* Hovered/focused point (class toggled by the JS from the matching
+   hit target) — pops slightly so the tooltip reads as anchored. */
+.period-pt.is-hover {
+  transform: translate(-50%, -50%) scale(1.55);
+}
+
+/* Floating tooltip — date + amount, positioned below the hovered
+   bar by JS so the host's scroll container can't clip it (the
+   bar-chart lives near the top of an overflow:auto main). Clamped
+   inside the container width so edge bars don't clip horizontally. */
+.period-bars-tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  background: var(--navy);
+  color: #fff;
+  padding: 6px 10px 7px;
+  border-radius: 6px;
+  font-family: 'Source Sans 3', sans-serif;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.30);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.period-bars-tip.is-visible { opacity: 1; }
+.period-bars-tip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--navy);
+  border-bottom: 0;
+}
+.period-bars-tip-date {
+  font-weight: 800;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.78);
+  letter-spacing: 0.02em;
+}
+.period-bars-tip-value {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 700;
+  font-size: 13px;
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.period-bars-tip-value.is-neg { color: #ffb3a8; }
+.period-bars-tip-value.is-pos { color: #a7e6bf; }

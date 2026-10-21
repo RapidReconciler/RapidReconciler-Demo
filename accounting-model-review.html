@@ -1,0 +1,1221 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  RRV8: Accounting > Model DMAAI Review  (AI-led, no sign-off)
+  =============================================================================
+  An AI-led review surface for the model DMAAI strategy. The model DMAAI table
+  (4152) maps every inventory GL class to a GL account. The only question this
+  page answers is: does every GL class an item uses map into the model?
+
+    - report3GlClassCount === 0  -> CLEAN. Every GL class used in inventory is
+      in the model; nothing falls out of reconciliation, nothing to review.
+    - report3GlClassCount  >  0  -> ISSUE. N GL classes are excluded, so their
+      items' value is NOT counted in reconciliation. Review whether each
+      exclusion is intentional (non-stock / expense) or a real inventory class
+      wrongly left out. Corrections are made at the SOURCE (in JD Edwards).
+
+  There is NO sign-off / attestation on this page: no approve button, no POST.
+  The model-approval endpoint is read for its three counts only (report1Count,
+  report3Count, report3GlClassCount); the retired sign-off fields are ignored.
+
+  OPEN CONTRADICTION, NOT A BUG IN THIS FILE (logged as UI-109). accounting-
+  dmaais.html renders "Not yet approved - sign off" and "Model changed since
+  approval - re-approve" as links to THIS page, and the agent still serves
+  POST /inventory/integrity/model-approval - but no page in RRV8 posts it. So the
+  product asks the analyst to sign the model off here and offers no control to do
+  it. Restoring sign-off is the owner's call, not a drip fix; do not add a button
+  without that ruling.
+
+  Layout: the AI verdict leads, the excluded GL classes surface only when there
+  are any (quiet when clean), and the model baseline mapping table sits last as
+  collapsible reference.
+
+  EVERY card on this page is narrowed by the Company in the scope band. It used to
+  carry one that was not - the Sales routing pairs card, the 4240/4220 net-zero
+  test - removed 2026-08-20 on the owner's ruling that DMAAI findings belong to the
+  transaction variance view. A page with a scope band cannot host a card that opts
+  out of it with a footnote. Do not reintroduce a cross-company card here.
+
+  Everything below the scope band is scoped to the one company passed from the
+  prior page (?company= / the per-DB analyst hand-off key), or all companies
+  when none is passed.
+
+  Chrome: admin-chrome.css palette + the floating corner-chrome Home button +
+  the shared help "?" (help-sidebar.js reads body data-help-src). No sidebar.
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Model DMAAI Review &mdash; RapidReconciler V8</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<!-- SheetJS (xlsx-js-style): the community build ignores cell styling, so the
+     audit-quality template needs this fork. Feeds ../Tools/audit-workbook.js. -->
+<script src="vendor/xlsx-js-style.min.js" defer></script>
+<script src="export-guard.js"></script>
+<script defer src="../Tools/audit-workbook.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<style>
+  /* Shared chrome (canonical palette, command-center wash, corner-chrome Home
+     button, page shell, card primitives) lives in admin-chrome.css, linked
+     above. Only page-specific rules below. --green-deep is the one palette token
+     this page uses that admin-chrome.css does not define. */
+  :root { --green-deep: #1a6b3f; }
+
+  h1 { font-family: 'Source Sans 3', sans-serif; }
+  /* Wider than the admin-chrome default so the reference tables have room. */
+  .page { max-width: 1040px; }
+  .lede { color: var(--text-soft); font-size: 14.5px; line-height: 1.55; margin: 8px 0 0; max-width: 760px; }
+
+  .card { padding: 22px; border-radius: 14px; }
+  .card h2 { font-family: 'Source Sans 3', sans-serif; font-size: 17px; margin: 0 0 3px; color: var(--navy); }
+  .card .sub { color: var(--text-muted); font-size: 13px; margin: 0 0 14px; line-height: 1.5; }
+  .card[hidden] { display: none; }
+
+  /* Scope band — read-only reminder of the database + company in view. */
+  .scope-band { display: flex; gap: 34px; flex-wrap: wrap; align-items: center; margin-top: 14px; padding: 18px 24px; background: var(--bg-soft); border: 1px solid var(--rule); border-left: 4px solid var(--navy); border-radius: 12px; box-shadow: var(--shadow-sm); }
+  .scope-item { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .scope-k { font-size: 12.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+  .scope-v { font-family: 'Source Sans 3', sans-serif; font-size: 19px; font-weight: 800; color: var(--navy); }
+
+  /* Collapsible card sections — click the heading to fold the grid away. */
+  .card-toggle { cursor: pointer; display: inline-flex; align-items: center; gap: 9px; user-select: none; }
+  .card-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 6px; }
+  .card-caret { width: 14px; height: 14px; color: var(--text-muted); transition: transform .15s ease; flex-shrink: 0; }
+  .card.is-collapsed .card-caret { transform: rotate(-90deg); }
+  .card.is-collapsed .card-collapsible { display: none; }
+
+  /* AI-led verdict card — leads the page. */
+  .ai-card { border-color: #d9e2f2; background: linear-gradient(180deg, #fbfcff 0%, var(--bg-card) 60%); margin-top: 18px; }
+  .ai-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .ai-spark { width: 18px; height: 18px; color: var(--blue); flex-shrink: 0; }
+  .ai-title { font-family: 'Source Sans 3', sans-serif; font-weight: 800; font-size: 14px; color: var(--navy); }
+  .ai-tier { margin-left: auto; font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); background: var(--bg-soft); border: 1px solid var(--rule); border-radius: 999px; padding: 2px 9px; }
+  .ai-lead { margin-top: 14px; font-size: 14px; line-height: 1.55; color: var(--text); }
+  .ai-lead[hidden] { display: none; }
+  .ai-actions { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ai-actions[hidden] { display: none; }
+  .ai-pill { border: 1px solid var(--blue); background: var(--blue-pale); color: var(--blue); border-radius: 999px; padding: 7px 15px; font-family: inherit; font-weight: 800; font-size: 12.5px; cursor: pointer; }
+  .ai-pill:hover:not(:disabled) { background: #dbe8ff; }
+  .ai-pill:disabled { opacity: .5; cursor: default; }
+  .ai-answer { margin-top: 12px; font-size: 13.5px; line-height: 1.6; color: var(--text-soft); background: var(--bg-soft); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; white-space: pre-wrap; }
+  .ai-answer[hidden] { display: none; }
+
+  /* Verdict banner (inside the AI card). */
+  .verdict { display: flex; align-items: center; gap: 14px; border-radius: 12px; padding: 16px 18px; border: 1px solid var(--rule); background: var(--bg-soft); }
+  /* Without this the banner NEVER hides. `display: flex` above is an author rule and
+     beats the UA's `[hidden] { display: none }`, so renderVerdict()'s ISSUE branch —
+     which sets banner.hidden = true and returns — left a 60px band on screen still
+     reading "Reviewing the model…", the loading string from the branch above it.
+     MEASURED 2026-08-26 on the Demo1 bundle via analyst-summit's model beat: hidden
+     attribute present, computed display flex, height 60.25px, one client rect.
+     Deterministic on any company with unreviewed exclusions; invisible on a clean
+     model, which is why the 2026-08-24 check against Demo3 came back false. Every
+     other hideable element here already carries this guard (.card, .ai-lead,
+     .ai-actions, .ai-answer, .xd-scrim) — the banner was the one that was missed. */
+  .verdict[hidden] { display: none; }
+  .verdict.is-clean { background: var(--green-pale); border-color: #cfe6d8; }
+  /* ACCEPTED — every exclusion reviewed, value still outside reconciliation.
+     Deliberately NOT green: clean and accepted are different states and the
+     analyst must be able to tell them apart at a glance. Navy rule + neutral
+     wash reads as "settled", never as "nothing here". */
+  .verdict.is-accepted { background: var(--bg-soft); border-color: #c7d2e4; border-left: 4px solid var(--navy); }
+  .verdict.is-accepted .verdict-dot { background: var(--navy); }
+  /* .verdict.is-issue retired 2026-08-07 (owner: "the amber band and other text is
+     just noise"). In the ISSUE state the banner is hidden entirely and the
+     excluded table speaks for itself; CLEAN and UNKNOWN keep the banner because
+     there is no table under them to carry the message. */
+  .verdict-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; background: var(--text-muted); }
+  .verdict.is-clean .verdict-dot { background: var(--green); }
+  .verdict-main { flex: 1; min-width: 0; }
+  .verdict-title { font-weight: 800; font-size: 15px; color: var(--navy); }
+  .verdict-sub { font-size: 13.5px; color: var(--text-soft); margin-top: 3px; line-height: 1.5; }
+
+  /* ---- Excluded-slice review controls (DAC-55) ------------------------------
+     One row per (GL class, stocking type), because a class routinely spans
+     several and they do not deserve the same verdict. The zero-value rows are
+     meant to disappear visually: they are the ones that need no thought. */
+  .xd-zero td { color: var(--text-muted); }
+  .xd-amt-live { font-weight: 800; color: var(--navy); }
+  .xd-stale { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 800; letter-spacing: .03em;
+              text-transform: uppercase; color: #8a5a00; background: var(--orange-pale);
+              border: 1px solid #f0d2a8; border-radius: 6px; padding: 1px 6px; }
+  /* Latent exclusion: zero today, costed underneath. Slate outline on purpose --
+     it is a caveat on a zero, not an error, and it must not read louder than the
+     amber "amount changed" badge, which marks a decision that has actually gone
+     out of date. */
+  .xd-latent { display: inline-block; margin-left: 7px; font-size: 11px; font-weight: 800; letter-spacing: .02em;
+               text-transform: uppercase; color: var(--text-soft); background: var(--bg-soft);
+               border: 1px solid #c7d2e4; border-radius: 6px; padding: 1px 6px; vertical-align: middle; }
+  .xd-status { font-size: 13px; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 7px;
+               background: var(--bg-card); color: var(--navy); max-width: 150px; }
+  .xd-status.is-intended { background: var(--green-pale); border-color: #cfe6d8; }
+  .xd-status.is-fixed    { background: var(--bg-soft); }
+  .xd-view { font-size: 12.5px; font-weight: 700; padding: 4px 10px; border: 1px solid var(--rule);
+             border-radius: 7px; background: var(--bg-card); color: var(--navy); cursor: pointer; }
+  .xd-view:hover { background: var(--bg-soft); }
+  .xd-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+
+  /* ---- Item-detail modal ---------------------------------------------------- */
+  .xd-scrim { position: fixed; inset: 0; background: rgba(16, 24, 40, .45); display: flex;
+              align-items: center; justify-content: center; padding: 24px; z-index: 60; }
+  .xd-scrim[hidden] { display: none; }
+  .xd-modal { background: var(--bg-card); border-radius: 14px; width: min(1080px, 100%);
+              max-height: 86vh; display: flex; flex-direction: column; overflow: hidden;
+              box-shadow: 0 18px 48px rgba(16, 24, 40, .28); }
+  .xd-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+             padding: 16px 18px; border-bottom: 1px solid var(--rule); }
+  .xd-title { font-weight: 800; font-size: 16px; color: var(--navy); }
+  .xd-sub { font-size: 13.5px; color: var(--text-soft); margin-top: 3px; line-height: 1.5; }
+  .xd-close { border: 0; background: transparent; font-size: 26px; line-height: 1; color: var(--text-muted);
+              cursor: pointer; padding: 0 4px; }
+  .xd-close:hover { color: var(--navy); }
+  .xd-body { overflow: auto; padding: 0 18px; }
+  .xd-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+             padding: 14px 18px; border-top: 1px solid var(--rule); background: var(--bg-soft); }
+  .xd-foot-note { font-size: 13px; color: var(--text-soft); }
+
+  /* Tables */
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 10px; margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 11px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th { background: var(--bg-soft); color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; font-size: 10.5px; font-weight: 800; position: sticky; top: 0; }
+  tbody tr:last-child td { border-bottom: 0; }
+  .tbl-foot { font-size: 12.5px; color: var(--text-muted); padding: 8px 2px 0; }
+  .tbl-cap { font-size: 12.5px; color: var(--text-muted); padding: 0 2px 8px; }
+  .empty { padding: 26px; text-align: center; color: var(--text-muted); font-size: 13.5px; }
+  .loading { padding: 26px; text-align: center; color: var(--text-muted); font-size: 13.5px; }
+</style>
+</head>
+<body
+  data-help-glossary="model"
+  data-help-src="../RRUniversity/inventory-gl-class-codes.html#section-6"
+  data-help-title="When a GL class code is missing from your model">
+
+<div class="app">
+
+  <!-- ==================== CHROME ==================== -->
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <!-- ==================== MAIN ==================== -->
+  <main class="main">
+    <div class="page" id="js-page">
+
+      <header class="page-header">
+        <h1 class="page-title">Model DMAAI Review</h1>
+        <p class="lede" id="modelKeyLine">Your model table is <strong>4152</strong>.</p>
+      </header>
+
+      <!-- Scope band — reminds the user which database + company they're viewing
+           (passed in from the page they came from). -->
+      <div class="scope-band" id="scopeBand">
+        <span class="scope-item"><span class="scope-k">Database</span><span class="scope-v" id="scopeDb">&mdash;</span></span>
+        <span class="scope-item"><span class="scope-k">Company</span><span class="scope-v" id="scopeCo">&mdash;</span></span>
+      </div>
+
+      <!-- ===== AI-led verdict (leads the page) ===== -->
+      <section class="card ai-card" id="verdictCard">
+        <div class="ai-head">
+          <svg class="ai-spark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6l1.9 5.1a5 5 0 0 0 2.9 2.9l5.1 1.9-5.1 1.9a5 5 0 0 0-2.9 2.9L12 21.4l-1.9-5.1a5 5 0 0 0-2.9-2.9L2.1 11.5l5.1-1.9a5 5 0 0 0 2.9-2.9z"/></svg>
+          <span class="ai-title">RapidReconciler AI</span>
+          <span class="ai-tier" id="aiTier">Full</span>
+        </div>
+        <div class="verdict" id="verdictBanner">
+          <span class="verdict-dot" aria-hidden="true"></span>
+          <div class="verdict-main">
+            <div class="verdict-title" id="verdictTitle">Reviewing the model&hellip;</div>
+            <div class="verdict-sub" id="verdictSub"></div>
+          </div>
+        </div>
+        <div class="ai-lead" id="aiLead" hidden></div>
+        <div class="ai-answer" id="aiAnswer" hidden></div>
+      </section>
+
+      <!-- ===== Excluded GL classes (surfaced only when there are any) ===== -->
+      <section class="card" id="excludedCard" hidden>
+        <h2>Excluded GL class codes</h2>
+        <p class="sub">GL classes used by items in the inventory tables but not carried in the model DMAAI table (4152) &mdash; so those items&rsquo; on-hand value is <strong>not counted</strong> in reconciliation. <strong>The amount is what decides each row</strong>, not the class code: a slice holding nothing costs you nothing and can be marked intended, while a slice holding value is real inventory sitting outside the reconciliation whatever it is called. Add a real inventory class at the source in JD Edwards, DMAAI 4152.</p>
+        <div id="r3Body"><div class="loading">Loading&hellip;</div></div>
+      </section>
+
+      <!-- ===== Item detail for one excluded slice (opened from a row's View) ===== -->
+      <div class="xd-scrim" id="xdScrim" hidden>
+        <div class="xd-modal" role="dialog" aria-modal="true" aria-labelledby="xdTitle">
+          <div class="xd-head">
+            <div>
+              <div class="xd-title" id="xdTitle">Excluded items</div>
+              <div class="xd-sub" id="xdSub"></div>
+            </div>
+            <button type="button" class="xd-close" id="xdClose" aria-label="Close">&times;</button>
+          </div>
+          <div class="xd-body" id="xdBody"></div>
+          <div class="xd-foot">
+            <span class="xd-foot-note" id="xdFootNote"></span>
+            <button type="button" class="ai-pill" id="xdExport">Export to Excel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Model baseline mapping table (collapsible reference, last) ===== -->
+      <section class="card is-collapsed" id="baselineCard">
+        <h2 class="card-toggle" role="button" tabindex="0" aria-expanded="false" data-collapse>
+          <svg class="card-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 6 8 10 12 6"/></svg>
+          Model DMAAI table
+        </h2>
+        <div class="card-collapsible">
+          <p class="sub">The GL-class &rarr; account mappings the model defines, per company &mdash; with each account&rsquo;s description. Reference for the review above; corrections are made in JD Edwards.</p>
+          <div id="r1Body"><div class="loading">Loading&hellip;</div></div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  function $(id) { return document.getElementById(id); }
+
+  var RR_CONFIG = window.RR_CONFIG || { mode: 'demo', dataPath: 'data/' };
+  var MODE = (function () {
+    try { var m = new URL(location.href).searchParams.get('mode'); if (m === 'demo' || m === 'staging' || m === 'prod') return m; } catch (_) {}
+    return RR_CONFIG.mode || 'demo';
+  })();
+  var IS_DEMO = MODE === 'demo';
+
+  // Scope passed from the prior page (both optional): the company the user was
+  // looking at + the active database. The page has no cross-page scope of its
+  // own, so these lock what it shows and drive the scope band.
+  var QP = (function () { try { return new URL(location.href).searchParams; } catch (_) { return new URLSearchParams(''); } })();
+  var QP_COMPANY = (QP.get('company') || '').trim();
+  var QP_DB = (QP.get('db') || '').trim();
+
+  function activeDb() {
+    // Canonical resolver (config.js RRDB) — sticky rrv8.activeDb by name. Works
+    // even if RR_SESSION isn't hydrated (RRDB decodes the token itself).
+    if (window.RRDB) { var d = window.RRDB.active(); return (d && d.n) ? d : null; }
+    var s = window.RR_SESSION;
+    if (!s || !Array.isArray(s.dbs)) return null;
+    return s.dbs[s.activeDbIndex || 0] || null;
+  }
+  function prodHeaders(ct) {
+    var h = { 'Accept': 'application/json' };
+    if (ct) h['Content-Type'] = ct;
+    try { var t = localStorage.getItem('rrv8.token'); if (t) h['Authorization'] = 'Bearer ' + t; } catch (_) {}
+    return h;
+  }
+  var _valcPrefixes = window.RR_VALC_PREFIXES || [];
+  var _testAreas = new Set(window.RR_TEST_AGENT_AREAS || []);
+  var _testPrefixes = window.RR_TEST_AGENT_PREFIXES || ['download-excel/'];
+  function _routesToValc(area) { for (var i = 0; i < _valcPrefixes.length; i++) if (area.indexOf(_valcPrefixes[i]) === 0) return true; return false; }
+  function _routesToTestAgent(area) { if (_testAreas.has(area)) return true; for (var i = 0; i < _testPrefixes.length; i++) if (area.indexOf(_testPrefixes[i]) === 0) return true; return false; }
+  function rrFetch(area, opts) {
+    opts = opts || {};
+    if (IS_DEMO) {
+      var f = (RR_CONFIG.dataPath || 'data/') + (opts.demoFile || area) + '.json';
+      return fetch(f, { cache: 'no-cache' }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    }
+    var base;
+    if (_routesToValc(area)) { base = RR_CONFIG.valcBase || 'http://localhost:8080'; }
+    else {
+      var d = activeDb();
+      if (!d || !d.ip) {
+        var tb = (_routesToTestAgent(area) && RR_CONFIG.testAgentBase) ? RR_CONFIG.testAgentBase : null;
+        if (!tb) return Promise.reject(new Error('no active DB'));
+        base = tb;
+      } else {
+        base = (/^(?:localhost|127\.0\.0\.1)\b/i.test(d.ip) ? 'http://' : 'https://') + d.ip;
+      }
+    }
+    return fetch(base + '/' + area, {
+      method: opts.method || 'GET',
+      headers: prodHeaders(opts.body ? 'application/json' : null),
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    }).then(function (r) { if (!r.ok) throw new Error(area + ': HTTP ' + r.status); return r.json(); });
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]; }); }
+
+  var TABLE_CAP = 250;
+
+  // Case-insensitive field read (SQL column casing varies).
+  function field(r, name) {
+    if (r[name] != null) return String(r[name]).trim();
+    var lo = name.toLowerCase();
+    for (var k in r) if (k.toLowerCase() === lo) return r[k] == null ? '' : String(r[k]).trim();
+    return '';
+  }
+
+  // On-hand value, 2dp with thousands separators. No currency symbol — a company
+  // can be USD or GBP etc. and this page doesn't carry the currency.
+  function fmtMoney(v) { return (Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  // Same formatter, variable precision. Money stays at 2dp; unit cost needs 4.
+  function fmtNum(v, dp) {
+    var d = (dp == null) ? 2 : dp;
+    return (Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+
+  // Excluded GL classes, ONE ROW PER (company, GL class, STOCKING TYPE).
+  //
+  // Not per GL class. A class routinely spans several stocking types that do not
+  // deserve the same verdict: on a demo company NS40 spans four, and 138 items on
+  // one of them hold 94% of that class's excluded value while the other three hold
+  // nothing at all. Judged as a single class you either wave real money through or
+  // block a class that is mostly fine. Split, six of ten rows on that company are
+  // $0.00 and dismissible on sight and only two are material.
+  //
+  // Safe to split: F4102 is unique on (item, branch) — verified, zero duplicate
+  // keys — so the stocking type cannot fan a row out, and the split totals still
+  // tie to the unsplit card exactly (440 items / 140,346.16 on the demo).
+  //
+  // The GL-CLASS count stays the headline in the footer even though the table now
+  // has more rows than classes: the class is what maps to a DMAAI 4152 fix, and
+  // the agent-side model-approval count is per class too. Showing rows there
+  // instead would quietly disagree with the rest of the product.
+  //
+  // Sorted by absolute amount, biggest first. That is the whole triage order —
+  // the amount, not the class code, is what decides a row.
+  // The slicing rule itself lives in RRV8.excluded (config.js) -- the SAME
+  // function Home's Model DMAAI Table band calls, so the two surfaces cannot
+  // report different counts for one population (UI-71). The reasoning behind the
+  // (company, GL class, stocking type) grain, and the item-vs-row distinction
+  // that keeps 440 items from being printed as 801, is written there.
+  var _r3Groups = [];   // last rendered slices, for the modal + exports
+  function _sliceKey(co, gl, stkt) { return RRV8.excluded.sliceKey(co, gl, stkt); }
+  function excludedSlices(rows) { return RRV8.excluded.slices(rows); }
+
+  // No F0005 in the RR database, so there is no stocking-type description to show
+  // and the raw JDE code is all we have. 'P' and 'M' a JDE analyst reads; '0' and
+  // 'X' they may not, and inventing a meaning for them would be worse than leaving
+  // the code bare. The empty code gets named, because a missing branch record is a
+  // different thing from an unfamiliar code.
+  function stktLabel(s) { return s === '' ? '(no branch record)' : s; }
+
+  // Footer. Leads on what is STILL OUTSTANDING, because a count that never moves
+  // no matter how much the analyst reviews is noise, and because rows-reviewed on
+  // its own overstates progress when the reviewed rows carry no value.
+  // Every figure comes from the one progress model. It used to take three of
+  // them as arguments, each reduced separately at the call site -- the item
+  // count by summing the per-slice counts, which is only right while F4102
+  // stays unique on (item, branch) (UI-71).
+  function _exclFooter() {
+    var p = _exclProgress();
+    var head = p.openClasses === 0
+      ? '<strong>All ' + p.classes + ' GL class' + (p.classes === 1 ? '' : 'es') + ' reviewed</strong>'
+      : '<strong>' + p.openClasses + ' of ' + p.classes + ' GL class'
+        + (p.classes === 1 ? '' : 'es') + ' still to review</strong>';
+    var money = p.openAmt === 0
+      ? fmtMoney(p.totalAmt) + ' reviewed and accepted'
+      : '<strong>' + fmtMoney(p.openAmt) + '</strong> of ' + fmtMoney(p.totalAmt) + ' outstanding';
+    return '<div class="tbl-foot">' + head + ' &middot; '
+      + p.reviewed + ' of ' + p.slices + ' stocking type' + (p.slices === 1 ? '' : 's') + ' reviewed &middot; '
+      + money + ' &middot; '
+      + p.items.toLocaleString('en-US') + ' item' + (p.items === 1 ? '' : 's')
+      + ' across ' + p.rows.toLocaleString('en-US') + ' row' + (p.rows === 1 ? '' : 's') + '</div>';
+  }
+  // LATENT EXCLUSION MARKER (DAC-57). A slice at 0.00 is not automatically safe
+  // to accept: it may be empty rather than free. Where the items behind it carry
+  // a unit cost, the slice starts excluding real value the moment stock arrives,
+  // and the analyst who accepted it did so believing nothing was at stake. The
+  // "amount changed" badge would catch that eventually, but only AFTER the money
+  // is already out of reconciliation.
+  //
+  // Shown ONLY on zero-amount rows. On a row that already holds value the amount
+  // says everything the marker would, so it would be noise. Three of six
+  // zero-value slices on the demo company are genuinely costless and stay clean;
+  // three carry costs on 97 rows and are flagged.
+  //
+  // The MIRROR CASE gets its own marker (UI-68). A slice can read 0.00 while holding
+  // real quantity, because not one of its items has a unit cost — one demo slice
+  // holds 582 units at nothing. Unmarked it looks identical to a genuinely empty
+  // slice, and it is a different finding with a different owner: the exclusion costs
+  // nothing today only because the item cost was never set, and it starts excluding
+  // real value the moment costing is fixed. Same test the AI read applies, so the
+  // table and the read cannot tell the analyst two different stories.
+  function _latentChip(g) {
+    if (Math.abs(g.amount) >= 0.005) return '';
+    if (g.costed) {
+      return '<span class="xd-latent" title="' + esc(g.costed + ' of ' + g.rowsTotal
+        + ' rows carry a unit cost. This slice reads 0.00 because nothing is on hand, not because '
+        + 'the items are free — it will exclude value once stock arrives.')
+        + '">carries cost</span>';
+    }
+    if (Math.abs(g.qty) >= 0.0005) {
+      return '<span class="xd-latent" title="' + esc(fmtNum(g.qty, 0) + ' on hand across ' + g.rowsTotal
+        + ' row' + (g.rowsTotal === 1 ? '' : 's') + ', and no row carries a unit cost. This slice reads '
+        + '0.00 because the item cost is not set, not because the shelf is empty — set the cost and the '
+        + 'exclusion starts holding real value.')
+        + '">uncosted stock</span>';
+    }
+    return '';
+  }
+  function renderExcluded(container, rows, emptyMsg) {
+    if (!rows || !rows.length) { container.innerHTML = '<div class="empty">' + esc(emptyMsg) + '</div>'; _r3Groups = []; return; }
+    var groups = excludedSlices(rows);
+    _r3Groups = groups;
+
+    var html = '<div class="tbl-wrap"><table><thead><tr>'
+      + '<th>Company</th><th>GL class</th>'
+      + '<th title="Item-level stocking type from the item branch record (F4102)">Stocking type</th>'
+      + '<th style="text-align:right">Items</th>'
+      + '<th style="text-align:right">Amount excluded</th>'
+      + '<th>Reviewed as</th><th></th></tr></thead><tbody>'
+      + groups.map(function (g) {
+          var rev = _r3Reviews[g.key];
+          // A verdict recorded when the slice held nothing is not the same verdict
+          // now it holds money. Compare against the snapshot and say so rather
+          // than honouring it silently.
+          // Reopen a verdict when EITHER the money or the item set moved. The
+          // amount alone misses a reclassification that swaps the items under a
+          // slice while leaving the total at zero — the decision was made about
+          // those items, not about the number.
+          var staleAmt = rev && rev.amountSnapshot != null
+                      && Math.abs((Number(rev.amountSnapshot) || 0) - g.amount) >= 0.01;
+          var staleItems = rev && rev.itemsSnapshot != null
+                        && Number(rev.itemsSnapshot) !== g.items;
+          var stale = staleAmt || staleItems;
+          var staleWhy = staleAmt && staleItems ? 'amount and items changed'
+                       : staleAmt ? 'amount changed' : 'items changed';
+          var staleTip = rev ? ('Reviewed when this slice held ' + fmtMoney(rev.amountSnapshot)
+                        + ' across ' + (rev.itemsSnapshot == null ? '?' : rev.itemsSnapshot) + ' item'
+                        + (rev.itemsSnapshot === 1 ? '' : 's')) : '';
+          var status = rev ? String(rev.status || '') : '';
+          var cls = status === 'Intended' ? ' is-intended' : (status === 'Fixed' ? ' is-fixed' : '');
+          return '<tr' + (Math.abs(g.amount) < 0.005 ? ' class="xd-zero"' : '') + '>'
+            + '<td>' + esc(g.co) + '</td>'
+            + '<td>' + esc(g.gl || '(blank)') + '</td>'
+            + '<td>' + esc(stktLabel(g.stkt)) + '</td>'
+            + '<td style="text-align:right">' + g.items.toLocaleString('en-US') + '</td>'
+            + '<td style="text-align:right"' + (Math.abs(g.amount) >= 0.005 ? ' class="xd-amt-live"' : '') + '>'
+            +   fmtMoney(g.amount) + _latentChip(g) + '</td>'
+            + '<td><select class="xd-status' + cls + '" data-xd-status="' + esc(g.key) + '">'
+            +   '<option value=""' + (status === '' ? ' selected' : '') + '>&mdash;</option>'
+            +   '<option value="Intended"' + (status === 'Intended' ? ' selected' : '') + '>Intended</option>'
+            +   '<option value="Needs review"' + (status === 'Needs review' ? ' selected' : '') + '>Needs review</option>'
+            +   '<option value="Fixed"' + (status === 'Fixed' ? ' selected' : '') + '>Fixed</option>'
+            + '</select>'
+            + (stale ? '<span class="xd-stale" title="' + esc(staleTip) + '">' + esc(staleWhy) + '</span>' : '')
+            + '</td>'
+            + '<td style="text-align:right"><button type="button" class="xd-view" data-xd-view="' + esc(g.key) + '">View</button></td>'
+            + '</tr>';
+        }).join('')
+      + '</tbody></table></div>'
+      + _exclFooter()
+      + '<div class="xd-actions"><button type="button" class="ai-pill" id="xdExportAll">Export all excluded items</button></div>';
+    container.innerHTML = html;
+  }
+
+  // Model baseline (Report 1, lean projection): Company / GL class / Account /
+  // Account name. TableNumber + DocType are the DMAAI key — constant down the
+  // table (4152 is fixed; the document type is set per company in JDE) — so
+  // they're folded into a caption instead of repeated in a column.
+  function renderBaseline(container, rows, emptyMsg) {
+    if (!rows || !rows.length) { container.innerHTML = '<div class="empty">' + esc(emptyMsg) + '</div>'; return; }
+    function distinct(name) {
+      var seen = Object.create(null), out = [];
+      rows.forEach(function (r) { var v = field(r, name); if (v && !seen[v]) { seen[v] = 1; out.push(v); } });
+      return out;
+    }
+    var tables = distinct('TableNumber'), docTypes = distinct('DocType'), bits = [];
+    if (tables.length)   bits.push('table ' + esc(tables.join(', ')));
+    if (docTypes.length) bits.push('document type ' + esc(docTypes.join(', ')));
+    var caption = bits.length ? '<div class="tbl-cap">Model DMAAI ' + bits.join(' &middot; ') + '</div>' : '';
+
+    // Company-first ordering (company, then GL class) before the display cap.
+    var sorted = rows.slice().sort(function (a, b) {
+      var c = String(field(a, 'CompanyNumber')).localeCompare(String(field(b, 'CompanyNumber')), undefined, { numeric: true }); if (c) return c;
+      return String(field(a, 'GLClass')).localeCompare(String(field(b, 'GLClass')), undefined, { numeric: true, sensitivity: 'base' });
+    });
+    var shown = sorted.slice(0, TABLE_CAP);
+    var html = caption + '<div class="tbl-wrap"><table><thead><tr>' +
+      '<th>Company</th><th>GL class</th><th>Account</th><th>Account name</th>' +
+      '</tr></thead><tbody>' +
+      shown.map(function (r) {
+        return '<tr>' +
+          '<td>' + esc(field(r, 'CompanyNumber')) + '</td>' +
+          '<td>' + esc(field(r, 'GLClass')) + '</td>' +
+          '<td>' + esc(field(r, 'LongAccount')) + '</td>' +
+          '<td>' + esc(field(r, 'AccountDescription')) + '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table></div>';
+    if (rows.length > TABLE_CAP) html += '<div class="tbl-foot">Showing ' + TABLE_CAP + ' of ' + rows.length.toLocaleString('en-US') + ' rows.</div>';
+    container.innerHTML = html;
+  }
+
+  function integrityRows(report) {
+    // NOTE: no .catch here on purpose. A failed read used to resolve to [], which
+    // set _r3Loaded and made glClassCount() return 0 — the verdict then announced
+    // "every GL class is in the model" on the strength of a read that never
+    // happened. The caller now handles the rejection and says so instead.
+    if (IS_DEMO) return rrFetch('inventory/integrity', { demoFile: report.replace(/_/g, '-') }).then(pluck);
+    return rrFetch('inventory/status').catch(function () { return {}; }).then(function (status) {
+      // A missing status only costs us the period hint (the report is model-level,
+      // not period-scoped), so an empty object is a genuine "no hint" default here.
+      // defaultPeriod lives in sidebar.js, which this page doesn't load — call it
+      // only when it's actually there, or this line throws instead of defaulting.
+      var rf = (status && status.reconciliationFilter) || {};
+      var period = rf.period
+        || ((window.RRV8 && typeof window.RRV8.defaultPeriod === 'function') ? window.RRV8.defaultPeriod() : '')
+        || '';
+      return rrFetch('inventory/integrity', {
+        method: 'POST',
+        body: {
+          take: 20000, skip: 0, page: 1, pageSize: 20000,
+          report: report,
+          // Model-level: no company narrowing (the agent still JWT-scopes).
+          reconciliationFilter: {
+            currencies: [], companies: [], businessUnits: [], objects: [], subsidiaries: [],
+            period: period
+          }
+        }
+      }).then(pluck);
+    });
+  }
+  function pluck(p) { return (p && Array.isArray(p.data)) ? p.data : (Array.isArray(p) ? p : []); }
+
+  // --- Company scope. The page shows one company (passed from the prior page)
+  // or, absent that, the shared working-company scope. Both datasets are kept
+  // whole; rendering applies the scope. ---
+  var _r3Rows = [], _r1Rows = [], _company = QP_COMPANY;
+  // Set when ?company= names a company outside the working scope — the tables then
+  // say so instead of rendering the scope-check-bypassed result.
+  var _scopeError = null;
+  var _drillReported = false;   // drill tie-out fires once per landing (console only)
+  var _r3Loaded = false;
+  var _r3Failed = false;         // the excluded-GL-class read errored — the verdict is UNKNOWN, not clean
+  var _endpointGlClass = null;   // report3GlClassCount from /model-approval (pre-load fallback)
+
+  // Read the shared working-company scope. sidebar.js owns RRV8.readSessionScope,
+  // and THIS page deliberately doesn't load sidebar.js (no sidebar chrome) — so
+  // that helper is absent here and the scope read used to come back null on every
+  // call. Null means "no narrowing", which silently turned the whole scope check
+  // below into a no-op: inScopeCo() answered true for any company, so the
+  // ?company= scope guard could never fire and the page rendered whatever company
+  // the URL named. Resolve it locally instead, from the same two sources
+  // sidebar.js uses (the active-db claim's allowed list + the per-db sessionStorage
+  // scope payload Home writes), so a page without the sidebar gets the SAME answer.
+  function _readScope() {
+    if (window.RRV8 && window.RRV8.readSessionScope) return window.RRV8.readSessionScope();
+    var db = activeDb() || {};
+    var allowed = Array.isArray(db.i) ? db.i.slice() : [];
+    // Key shape must match sidebar.js _sessionScopeKey(): rrv8.scope.v1.<mode>.<db>.scope,
+    // built from RR_CONFIG.mode (not the ?mode= override) and the active database name.
+    var key = 'rrv8.scope.v1.' + ((window.RR_CONFIG && RR_CONFIG.mode) || 'demo') + '.' + (db.n || '_') + '.scope';
+    var stored = null;
+    try { var raw = sessionStorage.getItem(key); stored = raw ? (JSON.parse(raw).payload || null) : null; } catch (_) { stored = null; }
+    var active = (stored && Array.isArray(stored.activeCompanies) && stored.activeCompanies.length)
+      ? stored.activeCompanies.slice() : allowed.slice();
+    if (!allowed.length && !_scopeWarned) {
+      _scopeWarned = true;   // scopedCompanySet() runs per render — warn once, not per row
+      console.warn('[scope] no allowed-company claim on the active database — the company scope check cannot narrow.');
+    }
+    return { allowedCompanies: allowed, activeCompanies: active };
+  }
+  var _scopeWarned = false;
+
+  // Active working-company scope as a lookup, or null when all allowed
+  // companies are selected (no narrowing). Mirrors home.html scopedCompanySet
+  // so this page narrows to the exact set chosen on Home.
+  function scopedCompanySet() {
+    var sc = _readScope();
+    if (!sc) return null;
+    var act = (sc.activeCompanies || []).map(String);
+    var allow = (sc.allowedCompanies || []).map(String);
+    if (!act.length) return null;
+    if (allow.length && act.length >= allow.length) return null;   // all selected = no narrowing
+    return act.reduce(function (s, c) { s[String(c)] = true; return s; }, {});
+  }
+  function inScope(rows) {
+    var sc = scopedCompanySet();
+    if (!sc) return rows;
+    return rows.filter(function (r) { return sc[String(field(r, 'CompanyNumber'))]; });
+  }
+  function inScopeCo(co) {
+    var sc = scopedCompanySet();
+    return !sc || !!sc[String(co == null ? '' : co).trim()];
+  }
+  function byCompany(rows) {
+    // An explicitly-passed company (from the prior page) narrows to exactly that
+    // company — but it is ANDed with the Home working-company scope, never a
+    // replacement for it. Letting ?company= win outright meant a URL param could
+    // turn the scope check off, which is the one thing a scope check must not do.
+    // A company outside the working scope is a scope error, not a filter.
+    if (_company && !inScopeCo(_company)) {
+      if (!_scopeError) {
+        _scopeError = { param: 'company', value: _company, label: 'company' };
+        console.error('[drill] ?company=' + _company + ' is outside this session’s working company scope'
+          + ' — refusing to bypass the scope check and show it anyway.');
+      }
+      return [];
+    }
+    if (_company) {
+      return rows.filter(function (r) {
+        return inScopeCo(field(r, 'CompanyNumber'))
+          && String(field(r, 'CompanyNumber')).trim() === String(_company).trim();
+      });
+    }
+    return inScope(rows);
+  }
+
+  // The actionable number: distinct excluded (company, GL class) in the scoped
+  // set. Once Report 3 rows are loaded this is authoritative (it honors the
+  // ?company + Home scope exactly); before then we fall back to the endpoint's
+  // report3GlClassCount. Returns -1 while still unknown.
+  //
+  // Counted from the SLICES, not by a fourth walk of the raw rows (UI-71).
+  // `_r3Groups` is rebuilt from the scoped rows on every render of the table, so
+  // it is scoped identically and there is nothing left to drift.
+  function glClassCount() {
+    if (_r3Loaded) return _exclProgress().classes;
+    return (_endpointGlClass == null) ? -1 : _endpointGlClass;
+  }
+
+  // ---- AI: exclusion assessment (the AI's read on whether each exclusion is
+  // intentional). The excluded GL classes for the scoped company, rolled up
+  // from the SLICES this page already built -- never re-aggregated from the raw
+  // rows (UI-71).
+  //
+  // Re-aggregating the rows is what made the lead below say "the largest is
+  // SUPP at 111,904.04 (509 items)" on a demo company whose own table showed
+  // that class's stocking-type rows adding to 185 items. Both figures were
+  // arithmetic on the same data; 509 was the ROW count at item/branch/location/
+  // lot grain wearing the word "items". One producer removes the choice.
+  function _exclSummary() {
+    var groups = RRV8.excluded.byClass(_r3Groups);
+    var p = _exclProgress();
+    return { groups: groups, total: p.totalAmt, items: p.items, rows: p.rows };
+  }
+  // Review-aware progress over the SCOPED slices. One model, three consumers
+  // (footer, verdict banner, AI lead) so they can never quote different numbers
+  // at each other -- and the same model Home's band calls, so the tab and the
+  // page cannot either (RRV8.excluded.progress, config.js).
+  //
+  // OUTSTANDING is the honest measure, not the gross total. Marking the six
+  // zero-value slices intended on a demo company cleared six of ten rows and
+  // ZERO dollars -- the money was all in the four that were left. A summary that
+  // only reports the gross would have read as progress; one that only reports
+  // rows reviewed would read as more progress still. Report both, and lead on
+  // the dollars.
+  function _exclProgress() {
+    return RRV8.excluded.progress(_r3Groups, _r3Reviews);
+  }
+  function _aiTier() { return (window.RRAI && RRAI.get) ? RRAI.get() : 'full'; }
+
+  // The fact block the AI reasons from. SLICE grain, not GL-class grain (UI-68).
+  //
+  // What it used to send was (class code, item count, amount) per GL CLASS, under an
+  // instruction to "judge from the code" — and the class code is precisely the field
+  // that does not discriminate here. On a demo company SUPP (supplies) is the LARGEST
+  // exclusion, and no stocking type N exists across 161,612 item-branch records on
+  // three databases, so neither the name nor the type rescues the judgement. That is
+  // the UI-38 wrong-grounding failure mode living inside a prompt: an instruction
+  // asking for a call the facts could not support, which the model answers anyway.
+  //
+  // Everything that DOES discriminate sits at the slice — stocking type, quantity,
+  // whether the rows behind a 0.00 carry a unit cost, whether the branch class
+  // disagrees with the location class, and the verdict the analyst already recorded.
+  // Grounding beats instruction, so all of it goes in.
+  //
+  // Item descriptions ride along on the slices that hold value. On a real customer
+  // they are the one field that separates a consumable that should never hold a
+  // balance from a component wearing the wrong class. Suppressed at the Enhanced
+  // (scrubbed) tier: item text is customer content and that tier's contract is that
+  // identities do not leave the page.
+  function _exclFactLines(withDesc) {
+    return _r3Groups.map(function (g) {
+      var rev = _r3Reviews[g.key];
+      var bits = ['- GL class ' + (g.gl || '(blank)') + ', stocking type ' + stktLabel(g.stkt) + ': '
+        + g.items.toLocaleString('en-US') + ' item' + (g.items === 1 ? '' : 's') + ', '
+        + fmtMoney(g.amount) + ' on hand, quantity ' + fmtNum(g.qty, 0)];
+      if (g.costed) bits.push(g.rowsTotal === 1 ? 'its one row carries a unit cost'
+        : g.costed + ' of ' + g.rowsTotal + ' rows carry a unit cost');
+      else if (Math.abs(g.qty) >= 0.0005) bits.push('there is stock on hand and NO row carries a unit cost');
+      if (g.split) bits.push(g.split + ' row' + (g.split === 1 ? '' : 's')
+        + ' sit on a branch GL class that differs from this location class ('
+        + g.brClasses.join(', ') + ')');
+      bits.push(rev && rev.status ? 'verdict already recorded by the analyst: ' + rev.status : 'no verdict yet');
+      var line = bits.join('; ') + '.';
+      if (withDesc && Math.abs(g.amount) >= 0.005) {
+        var seen = Object.create(null), d = [];
+        g.rows.forEach(function (r) {
+          var t = String(field(r, 'Description') || '').trim();
+          if (t && !seen[t] && d.length < 4) { seen[t] = 1; d.push(t); }
+        });
+        if (d.length) line += '\n  its largest items by value are described as: ' + d.join('; ') + '.';
+      }
+      return line;
+    }).join('\n');
+  }
+  // `ctx` is a server-IGNORED replay disambiguator (config.js RRV8.aiCtx). This page
+  // carries no "Question:" line anywhere, so without it every call here keys as
+  // 'tier=na|q=(briefing)' — the same signature home.html's per-company reads land
+  // on, which means one recording position answers for all of them.
+  function _aiExplain(prompt, ctx) {
+    var url = 'api/v1/ai/explain' + (ctx ? ('?ctx=' + ctx) : '');
+    return rrFetch(url, { method: 'POST', body: { prompt: prompt } })
+      .then(function (r) { return (r && r.text) ? String(r.text).trim() : ''; });
+  }
+
+  // The verdict banner + AI band. CLEAN (no excluded classes) is quiet/green with
+  // no work to do; ISSUE (>0) surfaces the excluded classes and the AI read.
+  function renderVerdict() {
+    var tierEl = $('aiTier'); if (tierEl) tierEl.textContent = (window.RRAI && RRAI.label) ? RRAI.label(_aiTier()) : 'Full';
+    var n = glClassCount();
+    var banner = $('verdictBanner'), title = $('verdictTitle'), sub = $('verdictSub');
+    var exCard = $('excludedCard'), lead = $('aiLead'), acts = $('aiActions'), ans = $('aiAnswer');
+
+    // Read failed and no count came back from the endpoint either: the verdict is
+    // UNKNOWN. Saying so beats the two wrong alternatives — a green "nothing to
+    // review" (what an empty row list produced) or a "Reviewing the model…" that
+    // never resolves.
+    if (_r3Failed && _endpointGlClass == null) {
+      if (banner) { banner.hidden = false; banner.className = 'verdict'; }
+      if (title) title.textContent = 'Couldn’t review the model right now';
+      if (sub) sub.textContent = 'The excluded GL classes didn’t load, so this page can’t tell you whether the model is complete. Reopen it in a moment; if it keeps failing, ask your IT department to check that RapidReconciler’s data service is running.';
+      if (exCard) exCard.hidden = true;
+      if (lead) { lead.hidden = true; lead.textContent = ''; }
+      if (acts) acts.hidden = true;
+      if (ans) ans.hidden = true;
+      return;
+    }
+    if (n < 0) {   // still loading
+      if (banner) { banner.hidden = false; banner.className = 'verdict'; }
+      if (title) title.textContent = 'Reviewing the model…';
+      if (sub) sub.textContent = '';
+      return;
+    }
+    if (n === 0) {
+      if (banner) { banner.hidden = false; banner.className = 'verdict is-clean'; }
+      if (title) title.textContent = 'All GL classes used in inventory are in the model';
+      if (sub) sub.textContent = 'Nothing to review — every GL class an item uses maps to an account in the model, so no inventory value falls out of reconciliation.';
+      if (exCard) exCard.hidden = true;
+      if (lead) { lead.hidden = true; lead.textContent = ''; }
+      if (acts) acts.hidden = true;
+      if (ans) ans.hidden = true;
+      return;
+    }
+    // ISSUE — banner HIDDEN while any exclusion is still unreviewed. Owner
+    // 2026-08-07: "the amber band and other text is just noise." It restated, in
+    // prose, the count and the instruction the table already carries per row, on
+    // every visit, which is the definition of something an analyst learns to skim
+    // past. The AI lead gives the materiality read; the table gives the detail
+    // and the decision.
+    //
+    // ACCEPTED — every exclusion carries a verdict. The banner comes BACK here,
+    // and deliberately NOT green (owner 2026-08-08). This is a different state
+    // from CLEAN and conflating them would be the dangerous direction of the
+    // error: CLEAN means nothing falls out of reconciliation, ACCEPTED means
+    // everything that falls out has been looked at and accepted, and the value
+    // is still outside the reconciliation. A fully-reviewed $140K exclusion
+    // reading green would tell the analyst the opposite of the truth.
+    //
+    // It surfaces exactly when the table stops prompting: with every row
+    // answered there is nothing left in the grid to carry the message, so the
+    // banner fills back in and names the standing exposure. Verdicts do not
+    // expire (owner 2026-08-08) — the "amount changed" badge is what reopens a
+    // row, not the passage of time.
+    if (exCard) exCard.hidden = false;
+    var p = _exclProgress();
+    if (banner && p.allReviewed) {
+      banner.hidden = false;
+      banner.className = 'verdict is-accepted';
+      if (title) title.textContent = 'All ' + n.toLocaleString('en-US') + ' excluded GL class'
+        + (n === 1 ? '' : 'es') + ' reviewed and accepted';
+      if (sub) sub.textContent = p.totalAmt === 0
+        ? 'Every excluded slice has been reviewed, and none of them holds on-hand value — nothing is missing from reconciliation.'
+        : fmtMoney(p.totalAmt) + ' of on-hand value remains outside reconciliation by decision. This is accepted, not clean — '
+          + 'to bring it back in, add the class at the source in JD Edwards, DMAAI 4152.';
+    } else if (banner) {
+      banner.hidden = true;
+    }
+    renderAiBand();
+  }
+
+  // Deterministic AI lead (instant, no AI call) + en/disable the assess pill by
+  // tier/data. Only meaningful in the ISSUE state (called from renderVerdict).
+  function renderAiBand() {
+    var off = _aiTier() === 'off';
+    var s = _exclSummary(), lead = $('aiLead'), acts = $('aiActions');
+    if (lead) {
+      if (!s.groups.length) { lead.hidden = true; }
+      else {
+        var top = s.groups[0];
+        var p = _exclProgress();
+        lead.hidden = false;
+        // Lead on what is STILL OUTSTANDING. Quoting the gross once rows have
+        // been accepted tells the analyst nothing about the work left, and on a
+        // company whose reviewed rows were all zero-value it actively misleads:
+        // the row count moves, the exposure does not.
+        // No "ask AI" call to action — the read below runs on its own now, so
+        // inviting a press on a button that no longer exists was the first thing
+        // to go stale when the assess pill was retired.
+        lead.textContent = p.openAmt === 0
+          ? (p.totalAmt === 0
+              ? 'Every excluded slice has been reviewed and none holds on-hand value — nothing is missing from reconciliation.'
+              : fmtMoney(p.totalAmt) + ' of on-hand value has been reviewed and accepted outside the model. '
+                + 'It is still not counted in reconciliation; adding the class at the source in JD Edwards brings it back in.')
+          : fmtMoney(p.openAmt) + ' of on-hand value is still to review across '
+            + p.openClasses + ' GL class code' + (p.openClasses === 1 ? '' : 's')
+            + ' \u2014 the largest is ' + (top.code || '(blank)') + ' at ' + fmtMoney(top.amount)
+            + ' (' + top.items.toLocaleString('en-US') + ' item' + (top.items === 1 ? '' : 's') + ').'
+            + ' Each row is judged on its amount: a slice holding nothing costs nothing;'
+            + ' a slice holding value is real inventory outside the reconciliation.';
+      }
+    }
+    if (acts) acts.hidden = true;   // the assess button is gone; the read runs itself
+    if (off) { var a = $('aiAnswer'); if (a) a.hidden = true; return; }
+    // Owner 2026-08-07: the AI should assess the exclusions on its own rather than
+    // waiting behind a button nobody has a reason not to press. Fires once per
+    // (tier, scoped exclusion set) — the signature guard keeps a re-render, a
+    // company switch and a tier flip from re-billing the same question.
+    if (_r3Loaded && _r3Groups.length) autoAssess();
+  }
+
+  // DMAAI grounding note (UI-38 consolidation): the model-DMAAI (4152) policy is
+  // NOT hand-rolled here. The server (AiService.complete) prepends its canonical
+  // DMAAI_GROUNDING catalog to EVERY /api/v1/ai/explain call, so the read below
+  // already reasons from the authoritative model-table rules. The prompt text here
+  // is task framing (which exclusions are benign vs. worth investigating), not a
+  // duplicate policy definition — deliberately no client mirror, which would be a
+  // second copy to drift. Keep the framing; the policy lives server-side.
+  //
+  // "Assess these exclusions" — which slices are a real hole in reconciliation and
+  // what to do about each. Basic = one-line materiality read; Enhanced/Full = up to
+  // four lines, worst by value first.
+  //
+  // Re-asks when the SIGNATURE changes: tier, scoped company, the slice set, or a
+  // recorded verdict. Verdicts belong in it — a read that still names an accepted
+  // slice as the top concern is stale the moment the analyst answers it — but that
+  // makes every dropdown a candidate re-ask, so the fire is debounced and a run of
+  // verdicts settles into one call. A plain repaint changes nothing and must not
+  // re-bill.
+  var _autoSig = null, _autoTimer = null;
+  function autoAssess() {
+    if (!_r3Groups.length) return;
+    var sig = _aiTier() + '|' + (_company || 'all') + '|'
+            + _r3Groups.map(function (g) {
+                var rev = _r3Reviews[g.key];
+                return g.key + ':' + g.items + ':' + g.amount.toFixed(2) + ':' + ((rev && rev.status) || '');
+              }).join(',');
+    if (sig === _autoSig) return;
+    _autoSig = sig;
+    clearTimeout(_autoTimer);
+    _autoTimer = setTimeout(assessExclusions, 1200);
+  }
+  function assessExclusions() {
+    if (_aiTier() === 'off') return;
+    if (!_r3Groups.length) return;
+    var ans = $('aiAnswer');
+    if (ans) { ans.hidden = false; ans.textContent = 'Thinking…'; }
+    var basic = _aiTier() === 'grounded';
+    var scrub = _aiTier() === 'scrubbed';
+    var who = _company ? (scrub ? 'the entity under review' : ('Company ' + _company)) : 'all companies';
+    var p = _exclProgress();
+    var reg = (window.RRV8 && RRV8.AI_REGISTER) ? ('\n' + RRV8.AI_REGISTER) : '';
+    var prompt =
+      'An analyst is reviewing the model DMAAI (table 4152) for ' + who + '. A GL class that an inventory item uses but that has no 4152 entry has no account to reconcile against, so the whole on-hand value of those items sits outside reconciliation.\n' +
+      'One line per slice — (GL class, stocking type) — biggest value first:\n' +
+      _exclFactLines(!basic && !scrub) + '\n' +
+      fmtMoney(p.totalAmt) + ' is excluded in total; ' + fmtMoney(p.openAmt) + ' across '
+        + p.openClasses + ' GL class code' + (p.openClasses === 1 ? '' : 's') + ' carries no verdict yet.\n' +
+      'HOW TO READ THIS — every line below is measured, not assumed:\n' +
+      '- The AMOUNT decides, never the class code. A name like SUPP, TOOL or NS40 is not evidence that the value is unreconcilable — on real data supplies is routinely the largest exclusion in the set. Never argue from what a code sounds like.\n' +
+      '- Stocking type does not settle it either. Excluded items sit on purchased and manufactured types like any other stock.\n' +
+      '- A slice holding value is the contradiction worth naming, and it has TWO readings with OPPOSITE fixes. Either it is real stock wearing the wrong class, and the fix is to add the class to 4152 or correct the GL class on the item; or it is genuinely non-stock that should never have carried a balance, and the fix is upstream at the order line type or the receipt — adding that one to 4152 would make the error permanent and audited. Say which reading the evidence favours and name the one thing to check to settle it.\n' +
+      '- A slice at 0.00 whose rows carry a unit cost is empty, not free. It excludes value on the next receipt, and an item holding a cost it should not have will value every future receipt, so the exposure grows with nobody watching it.\n' +
+      '- A slice at 0.00 that holds quantity with no unit cost anywhere is the mirror image: the exclusion is costing nothing today only because the item cost is not set. That is a costing gap to close first, and it starts excluding real value the moment a cost lands.\n' +
+      '- Where a branch GL class differs from the location class, work-order moves on those items route to an account that IS in the model while every other move does not. The class reads as partly reconciled and is not.\n' +
+      '- A recorded verdict is the analyst’s own decision. Do not re-argue Intended or Fixed. The one case that reopens: a slice accepted while it held nothing, whose rows carry a unit cost or whose shelf holds uncosted quantity. That verdict was given when nothing was at stake and the figures have since moved under it.\n' +
+      (basic
+        ? 'TASK: in ONE sentence under 45 words, say whether the amount still without a verdict is worth working now and what the first move is. Quote the figures above exactly as given; never add two of them together into a new total.'
+        : 'TASK: at most four lines, each beginning "- " and under about 30 words, worst by value first. Per line: the slice, which reading fits it, the action. Drop any line that does not change what the analyst does next. Where a slice already carries a verdict that its own figures now contradict, that line earns one of the four whatever its value — a decision made when nothing was at stake is the one thing the table cannot show.') + reg;
+    // No period on this surface — the model review is not period-scoped — so the key
+    // is (surface, tier, company). The tier matters: `basic` and `scrub` each select a
+    // different TASK block above, so one company yields three different answers.
+    _aiExplain(prompt, (window.RRV8 && RRV8.aiCtx)
+      ? RRV8.aiCtx('modelexcl-' + _aiTier(), _company, '') : '').then(function (txt) {
+      if (ans) ans.textContent = txt || 'No assessment came back — try again.';
+    }).catch(function () {
+      if (ans) ans.textContent = 'Could not reach AI just now. Try again in a moment.';
+    });
+  }
+
+  // Header key line: "Your model table is 4152 <doc type>". The doc type is the
+  // company's AAIDocType (RCompanies), carried per row on the baseline — one
+  // value when scoped to a company; listed if somehow more than one.
+  function updateModelKeyLine() {
+    var el = $('modelKeyLine'); if (!el) return;
+    var seen = Object.create(null), types = [];
+    byCompany(_r1Rows).forEach(function (r) { var t = field(r, 'DocType'); if (t && !seen[t]) { seen[t] = 1; types.push(t); } });
+    var key = '4152' + (types.length ? ' ' + types.join(', ') : '');
+    el.innerHTML = 'Your model table is <strong>' + esc(key) + '</strong>.';
+  }
+  // The empty-state line when a scope param could not be honored. Says WHY nothing is
+  // shown and names the value, rather than reading as a clean "nothing to review".
+  function _scopeErrText() {
+    return 'This link asked for a ' + _scopeError.label + ' outside your current working scope: “'
+      + _scopeError.value + '”. Nothing is shown, because showing it would ignore the scope you are working in. '
+      + 'Change your working companies, or ask your IT department to check your company access.';
+  }
+  // ---- Per-slice verdicts (DAC-55) -----------------------------------------
+  // Server-persisted in RExcludedGlClassReview via /inventory/integrity/
+  // excluded-class-review{s}. Keyed (company, GL class, stocking type).
+  //
+  // NOT the JDE doc-type-98 path. A DMAAI 4152 entry with document type 98
+  // already suppresses an excluded class at source — see the anti-join in
+  // v_integrity3_exc_glc — and where it fits that is the better fix, because it
+  // travels with the customer's own configuration. But it keys on (company, GL
+  // class) and cannot say "the purchased items are fine, the others are not,"
+  // which is exactly the call this table exists to support.
+  //
+  // Degrades quietly: an older Services build has no endpoint, so the GET 404s,
+  // the store stays empty and the selects render blank. The page still shows
+  // every exclusion — it just cannot remember a verdict. Losing the memo is
+  // acceptable; hiding an exclusion never is.
+  var _r3Reviews = Object.create(null);
+  function loadExcludedReviews() {
+    return rrFetch('inventory/integrity/excluded-class-reviews')
+      .then(function (m) {
+        var list = (m && (m.data || m.rows)) || [];
+        _r3Reviews = Object.create(null);
+        list.forEach(function (r) {
+          _r3Reviews[_sliceKey(r.companyNumber, r.glClass, r.stockingType || '')] = r;
+        });
+      })
+      .catch(function (e) {
+        console.warn('[model review] excluded-class verdicts unavailable (older Services build?) —', (e && e.message) || e);
+      });
+  }
+  function saveExcludedReview(g, status) {
+    return rrFetch('inventory/integrity/excluded-class-review', {
+      method: 'POST',
+      body: { company: g.co, glClass: g.gl, stockingType: g.stkt, status: status }
+    }).then(function (saved) {
+      if (saved && saved.companyNumber) _r3Reviews[g.key] = saved;
+      else delete _r3Reviews[g.key];
+      renderR3();
+    });
+  }
+
+  // ---- Item detail modal + exports ------------------------------------------
+  // Columns are declared ONCE and drive both the on-screen table and the
+  // workbook, so the two can never disagree. Short labels on screen with the
+  // full field name in the <th title> (UI-47); the export keeps the full label
+  // (audit quality, UI-32).
+  // BOTH GL classes ride here on purpose. The card groups by the LOCATION class;
+  // the BRANCH class (F4102) is set independently, and work-order moves take the
+  // class from the branch while every other F4111 move takes it from the location.
+  // Where the two differ, part of an item's activity routes to an account that IS
+  // in the model and part does not — six excluded item-branches on a demo company
+  // carry exactly that split. It is invisible unless the pair is side by side.
+  var XD_COLS = [
+    { key: 'Item',         label: 'Item',              abbr: 'Item' },
+    { key: 'ThirdItem',    label: 'Third Item',        abbr: '3rd Item' },
+    { key: 'Description',  label: 'Description',       abbr: 'Description' },
+    { key: 'Branch',       label: 'Branch',            abbr: 'Branch' },
+    { key: 'Location',     label: 'Location',          abbr: 'Loc' },
+    { key: 'Lot',          label: 'Lot',               abbr: 'Lot' },
+    { key: 'GLClass',      label: 'Location GL Class', abbr: 'Loc Class' },
+    { key: 'BranchClass',  label: 'Branch GL Class',   abbr: 'Br Class' },
+    { key: 'StockingType', label: 'Stocking Type',     abbr: 'Stk' },
+    // 4dp, NOT 2. Six excluded rows carry unit costs of 0.0029 / 0.0034, which
+    // round to 0.00 and show a costed item as costless -- the exact reading this
+    // column exists to prevent. JDE carries unit cost to four decimals.
+    { key: 'UnitCost',     label: 'Unit Cost',         abbr: 'Unit Cost', num: true, dp: 4,
+      fmt: '#,##0.0000;(#,##0.0000)' },
+    { key: 'Quantity',     label: 'Quantity On Hand',  abbr: 'Qty', num: true, sum: true },
+    { key: 'Amount',       label: 'Amount On Hand',    abbr: 'Amount', num: true, sum: true }
+  ];
+  function xdCell(r, c) {
+    var v = field(r, c.key);
+    if (c.key === 'StockingType') return stktLabel(String(v || ''));
+    return c.num ? (Number(v) || 0) : (v == null ? '' : v);
+  }
+  var _xdOpen = null;   // the slice currently in the modal
+  function openSliceModal(g) {
+    _xdOpen = g;
+    $('xdTitle').textContent = 'GL class ' + (g.gl || '(blank)') + ' · stocking type ' + stktLabel(g.stkt);
+    $('xdSub').textContent = 'Company ' + g.co + ' — ' + g.items.toLocaleString('en-US')
+      + ' item' + (g.items === 1 ? '' : 's') + ' holding ' + fmtMoney(g.amount)
+      + ' of on-hand value that is not counted in reconciliation.';
+    $('xdBody').innerHTML = '<div class="tbl-wrap"><table><thead><tr>'
+      + XD_COLS.map(function (c) {
+          return '<th title="' + esc(c.label) + '"' + (c.num ? ' style="text-align:right"' : '') + '>' + esc(c.abbr) + '</th>';
+        }).join('')
+      + '</tr></thead><tbody>'
+      + g.rows.map(function (r) {
+          return '<tr>' + XD_COLS.map(function (c) {
+            var v = xdCell(r, c);
+            return '<td' + (c.num ? ' style="text-align:right"' : '') + '>' + esc(c.num ? fmtNum(v, c.dp) : v) + '</td>';
+          }).join('') + '</tr>';
+        }).join('')
+      + '</tbody></table></div>';
+    $('xdFootNote').textContent = 'Correct a real inventory class at the source in JD Edwards, DMAAI 4152.';
+    $('xdScrim').hidden = false;
+  }
+  function closeSliceModal() { $('xdScrim').hidden = true; _xdOpen = null; }
+
+  function xdExport(slices, titleLine, surface) {
+    if (typeof buildAuditWorkbook !== 'function') { alert('Excel library still loading — try again in a moment.'); return; }
+    var rows = [];
+    slices.forEach(function (g) { g.rows.forEach(function (r) { rows.push(XD_COLS.map(function (c) { return xdCell(r, c); })); }); });
+    if (!rows.length) return;
+    var totals = XD_COLS.map(function (c, i) {
+      if (i === 0) return 'TOTAL — ' + rows.length.toLocaleString('en-US') + ' items';
+      if (!c.sum) return '';
+      var s = 0; slices.forEach(function (g) { g.rows.forEach(function (r) { s += Number(field(r, c.key)) || 0; }); });
+      return s;
+    });
+    buildAuditWorkbook({
+      columns: XD_COLS.map(function (c) { return { label: c.label, num: !!c.num, fmt: c.fmt }; }),
+      titleLines: [titleLine, 'Value shown is on-hand inventory NOT counted in reconciliation  ·  Generated ' + new Date().toLocaleString()],
+      rows: rows, totalRow: totals, sheetName: 'Excluded',
+      fileName: RRV8.exportName({ surface: surface, company: (_company || 'all') })
+    });
+  }
+
+  function renderR3() {
+    var scoped = byCompany(_r3Rows);
+    renderExcluded($('r3Body'), scoped,
+      _scopeError ? _scopeErrText()
+      : _company ? ('No excluded GL classes for company ' + _company + '.')
+               : 'No excluded GL classes — every GL class used in inventory is in the model.');
+    renderVerdict();
+  }
+  function renderR1() {
+    var _r1Scoped = byCompany(_r1Rows);
+    renderBaseline($('r1Body'), _r1Scoped,
+      _scopeError ? _scopeErrText()
+      : _company ? ('No model mappings for company ' + _company + '.') : 'The model baseline is empty.');
+    if (window.RRV8 && RRV8.drillReport && !_drillReported && (_r1Rows.length || _scopeError)) {
+      _drillReported = true;
+      RRV8.drillReport({ surface: 'model review',
+        applied: { company: _scopeError ? '' : _company, workingScope: scopedCompanySet() ? 'narrowed' : 'all' },
+        ignored: QP_DB ? ['db (label only)'] : [],
+        actual: _r1Scoped.length });
+    }
+  }
+
+  // Read the model-approval endpoint for its counts ONLY (report1Count /
+  // report3Count / report3GlClassCount). The retired sign-off fields
+  // (state / approved / approvedBy / approvedDate / changedSinceApproval) are
+  // deliberately NOT read — sign-off has been removed from this surface.
+  function loadVerdict() {
+    var area = 'inventory/integrity/model-approval' + ((!IS_DEMO && _company) ? ('?company=' + encodeURIComponent(_company)) : '');
+    return rrFetch(area).then(function (m) {
+      _endpointGlClass = (m && m.report3GlClassCount != null) ? Number(m.report3GlClassCount) : null;
+      renderVerdict();
+    }).catch(function (e) {
+      // Endpoint unreachable — the loaded Report 3 rows drive the verdict instead.
+      // _endpointGlClass stays null so nothing reads a count we never got; if the
+      // row read ALSO failed, renderVerdict reports the verdict as unknown.
+      console.warn('[model review] model-approval counts unavailable:', e);
+      renderVerdict();
+    });
+  }
+
+  function boot() {
+    // Delegated on the persistent card, so the handlers survive every re-render.
+    var exCard = $('excludedCard');
+    if (exCard) {
+      exCard.addEventListener('change', function (e) {
+        var sel = e.target && e.target.closest ? e.target.closest('[data-xd-status]') : null;
+        if (!sel) return;
+        var g = _r3Groups.filter(function (x) { return x.key === sel.getAttribute('data-xd-status'); })[0];
+        if (!g) return;
+        sel.disabled = true;
+        saveExcludedReview(g, sel.value).catch(function (err) {
+          sel.disabled = false;
+          alert('Could not save that verdict — ' + ((err && err.message) || 'try again.'));
+        });
+      });
+      exCard.addEventListener('click', function (e) {
+        var t = e.target && e.target.closest ? e.target.closest('[data-xd-view], #xdExportAll') : null;
+        if (!t) return;
+        if (t.id === 'xdExportAll') {
+          xdExport(_r3Groups,
+            'Excluded GL classes — ' + (_company ? 'Co ' + _company : 'all companies'),
+            'ExcludedGlClasses');
+          return;
+        }
+        var g = _r3Groups.filter(function (x) { return x.key === t.getAttribute('data-xd-view'); })[0];
+        if (g) openSliceModal(g);
+      });
+    }
+
+    $('xdClose').addEventListener('click', closeSliceModal);
+    $('xdScrim').addEventListener('click', function (e) { if (e.target === $('xdScrim')) closeSliceModal(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('xdScrim').hidden) closeSliceModal(); });
+    $('xdExport').addEventListener('click', function () {
+      if (!_xdOpen) return;
+      xdExport([_xdOpen],
+        'Excluded items — GL class ' + (_xdOpen.gl || '(blank)') + ' · stocking type ' + stktLabel(_xdOpen.stkt) + ' · Co ' + _xdOpen.co,
+        'ExcludedGlClass-' + (_xdOpen.gl || 'blank'));
+    });
+
+    // Re-render the verdict/AI band (tier label + enable/disable) when the demo tier flips.
+    window.addEventListener('rrv8:aitierchange', renderVerdict);
+
+    // Collapsible reference section — click (or Enter/Space) the heading to fold.
+    Array.prototype.forEach.call(document.querySelectorAll('.card-toggle'), function (h) {
+      function toggle() {
+        var card = h.closest('.card'); if (!card) return;
+        card.classList.toggle('is-collapsed');
+        h.setAttribute('aria-expanded', card.classList.contains('is-collapsed') ? 'false' : 'true');
+      }
+      h.addEventListener('click', toggle);
+      h.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+    });
+
+    var db = activeDb();
+
+    // Resolve the scoped company: explicit URL param first, then the per-DB
+    // hand-off key the analyst Briefing wrote (so it works whether you clicked
+    // the Briefing card or navigated here another way). Empty → all companies.
+    if (!_company) {
+      try { _company = (localStorage.getItem('rrv8.analystCompany.' + ((db && db.n) || '_')) || '').trim(); } catch (_) {}
+    }
+
+    // Scope band — the database + company the user is looking at.
+    var scopeDbEl = $('scopeDb'); if (scopeDbEl) scopeDbEl.textContent = (QP_DB || (db && db.n) || '').replace(/^RapidReconciler_/, '') || '—';   // short DB name (drop the platform prefix)
+    var scopeCoEl = $('scopeCo'); if (scopeCoEl) scopeCoEl.textContent = _company ? ('Company ' + _company) : 'All companies';
+
+    renderVerdict();   // loading state (tier label + "Reviewing…")
+    loadVerdict();
+    loadExcludedReviews()
+      .then(function () { return integrityRows('v_integrity3_exc_glc'); })
+      .then(function (rows) { _r3Rows = rows || []; _r3Loaded = true; _r3Failed = false; renderR3(); })
+      .catch(function (e) {
+        // Leave _r3Loaded false so glClassCount() never reports 0 off a failed read,
+        // and mark the failure so the verdict says UNKNOWN instead of CLEAN.
+        _r3Failed = true;
+        console.error('[model review] excluded GL classes failed to load:', e);
+        $('r3Body').innerHTML = '<div class="empty">Couldn’t load the excluded GL classes, so this list is not a complete picture. Reopen the page in a moment.</div>';
+        renderVerdict();
+      });
+    // Lean baseline: agent returns Company / GL class / Account / Account name (+ Table/DocType for the caption).
+    rrFetch('inventory/integrity/model-baseline').then(pluck).then(function (rows) { _r1Rows = rows || []; updateModelKeyLine(); renderR1(); })
+      .catch(function () { $('r1Body').innerHTML = '<div class="empty">Couldn’t load the model baseline.</div>'; });
+  }
+
+  var hydrate = (window.RRV8 && window.RRV8.hydrateSession) ? window.RRV8.hydrateSession() : Promise.resolve();
+  hydrate.then(function () {
+    if (!IS_DEMO) { try { if (!localStorage.getItem('rrv8.token')) { window.location.href = '../login.html'; return; } } catch (_) {} }
+    boot();
+  });
+})();
+</script>
+</body>
+</html>
+

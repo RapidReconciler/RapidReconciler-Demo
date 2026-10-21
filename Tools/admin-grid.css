@@ -1,0 +1,87 @@
+/* =============================================================================
+   admin-grid.css — responsive behavior for the V8 Administrator data grids.
+
+   The grid reacts to ITS OWN width (a CSS container query), not the viewport —
+   so it responds correctly whether the squeeze comes from a small browser
+   window OR from the help companion panel reflowing the page. Viewport media
+   queries can't see the panel; container queries can.
+
+   Tiers, by the grid card's inline size:
+     • Roomy  (default)        — every column shown.
+     • Tight  (< 800px)        — .col-opt columns hidden (low-priority reference
+                                 data, e.g. dates) so identity + action stay roomy.
+     • Cards  (< 520px)        — rows stack into one card per record; every field
+                                 (incl. .col-opt) shows with its label. Best on
+                                 phones; avoids a clipped action column.
+
+   Page opt-in:
+     1. <link> this file in the page head.
+     2. Add class "admin-grid" to the .grid-card (it becomes the query container).
+     3. Tag low-priority <th> AND their <td> with class "col-opt".
+     4. For the card tier, give each <td> a data-label="Column name" (the stacked
+        rows use it as the field label; the <thead> is hidden).
+
+   Container queries: Chrome/Edge 105+, Safari 16+, Firefox 110+. Where
+   unsupported the grid simply keeps all columns (today's behavior) — no break.
+   ============================================================================= */
+
+.grid-card.admin-grid {
+  container-type: inline-size;
+  container-name: agrid;
+}
+
+/* ---- Tight: hide low-priority reference columns ---- */
+@container agrid (max-width: 800px) {
+  .admin-grid .grid-table th.col-opt,
+  .admin-grid .grid-table td.col-opt { display: none; }
+}
+
+/* ---- Cards: stack each record; show every field with its label ---- */
+@container agrid (max-width: 520px) {
+  .admin-grid .grid-table thead { display: none; }
+  .admin-grid .grid-table,
+  .admin-grid .grid-table tbody,
+  .admin-grid .grid-table tr { display: block; width: 100%; }
+
+  .admin-grid .grid-table tr {
+    padding: 8px 4px;
+    border-bottom: 1px solid var(--rule-strong, #cfd6e0);
+  }
+  .admin-grid .grid-table tr:last-child { border-bottom: 0; }
+
+  /* Re-show the columns hidden by the tight tier — a card has room for them. */
+  .admin-grid .grid-table td,
+  .admin-grid .grid-table td.col-opt {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: auto;
+    border: 0;
+    padding: 5px 14px;
+    text-align: right;
+  }
+  .admin-grid .grid-table td.is-action { width: auto; justify-content: flex-end; }
+
+  /* Field label from data-label, sitting left of the value. */
+  .admin-grid .grid-table td::before {
+    content: attr(data-label);
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+    color: var(--text-soft, #5a6479);
+    text-align: left;
+    flex-shrink: 0;
+  }
+  /* The action cell needs no "Options" label — the icons speak for themselves. */
+  .admin-grid .grid-table td.is-action::before { content: none; }
+
+  /* Loading / empty / error rows stay a single centered line. */
+  .admin-grid .grid-table td.is-empty { display: block; text-align: center; }
+  .admin-grid .grid-table td.is-empty::before { content: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grid-card.admin-grid { transition: none; }
+}

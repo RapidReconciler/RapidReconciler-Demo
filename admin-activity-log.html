@@ -1,0 +1,383 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Administrator > System Health — Activity Log
+  =============================================================================
+  An audit trail of recent system events: service restarts, data reloads (GL /
+  cardex), and scheduled refreshes — with timestamp + what triggered them.
+
+  STATUS: UI scaffold. There is no server-side event source yet; when one lands
+  (a VALC/agent endpoint returning recent events), wire loadEvents() to it. Until
+  then the page shows an honest "not capturing yet" state and the column shape it
+  will fill. Admin-gated, standard chrome.
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Application Activity Log &mdash; RapidReconciler Admin</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="sidebar.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<style>
+  /* Shared admin-page chrome (palette, wash, Home button, page shell, cards)
+     lives in admin-chrome.css, linked above. Only page-specific rules below. */
+  table.log { width:100%; border-collapse:collapse; }
+  table.log th { text-align:left; font-family:'Source Sans 3',sans-serif; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--text-soft); padding:11px 18px; border-bottom:1px solid var(--rule); background:var(--bg-soft); }
+  table.log td { padding:12px 18px; border-bottom:1px solid var(--rule); font-size:13.5px; color:var(--text); }
+  table.log tr:last-child td { border-bottom:none; }
+  .log-empty { padding:34px 18px; text-align:center; color:var(--text-muted); }
+  .log-empty b { color:var(--navy); display:block; margin-bottom:4px; font-family:'Source Sans 3',sans-serif; }
+  /* Search + type filter in the events card head — keeps the log scannable as it grows. */
+  .log-head { flex-wrap:wrap; gap:10px; }
+  .log-controls { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .log-controls input[type="search"], .log-controls select { font:inherit; font-size:13px; padding:6px 10px; border:1px solid var(--rule); border-radius:8px; background:var(--bg-card); color:var(--text); }
+  .log-controls input[type="search"] { min-width:170px; }
+  .log-count { font-size:12px; color:var(--text-muted); white-space:nowrap; }
+
+  /* Review reminder band (7/14/30-day) — greens the Home "Activity Log" dot via
+     rrv8.activityReview.<db> + RRV8.activityReviewState. Mirrors Review Job Schedule. */
+  .review-band { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; border:1px solid var(--rule); border-left:4px solid var(--rule-strong); border-radius:10px; background:var(--bg-card); box-shadow:var(--shadow-sm); padding:12px 16px; margin-bottom:18px; }
+  .review-band[data-state="ok"] { border-left-color:var(--green); background:var(--green-pale); }
+  .review-band[data-state="todo"] { border-left-color:var(--orange); background:var(--orange-pale); }
+  .review-main { display:flex; align-items:center; gap:9px; min-width:240px; }
+  .review-dot { width:9px; height:9px; border-radius:50%; background:var(--text-muted); flex-shrink:0; }
+  .review-band[data-state="ok"] .review-dot { background:var(--green); }
+  .review-band[data-state="todo"] .review-dot { background:var(--orange); }
+  .review-text { font-size:13px; color:var(--text-soft); }
+  .review-text b { color:var(--navy); }
+  .review-action { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .review-label { font-size:12.5px; font-weight:600; color:var(--text-soft); }
+  .review-btn { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:12.5px; border:1px solid var(--rule-strong); background:var(--bg-card); color:var(--navy); border-radius:100px; padding:5px 11px; cursor:pointer; }
+  .review-btn:hover { border-color:var(--green); color:var(--green); }
+
+  .note { display:flex; gap:12px; padding:13px 16px; border-radius:9px; background:var(--orange-pale); border:1px solid #f0d2a8; color:var(--text); margin-bottom:18px; }
+  .note svg { width:18px; height:18px; flex-shrink:0; color:var(--orange-deep); margin-top:2px; }
+  .note b { color:var(--navy); }
+
+  .gate-notice { display:none; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); }
+  .gate-notice svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .gate-notice.is-visible { display:flex; }
+  .gate-notice.halt-notice { background:var(--red-pale); border-color:var(--red); }
+  .gate-notice.halt-notice svg { color:var(--red); }
+  body.is-gated #js-tool { display:none; }
+
+</style>
+</head>
+<body data-help-src="../RRUniversity/administrator-start-here.html#system-health" data-help-title="Activity Log">
+
+<div class="app">
+
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <main class="main">
+    <div class="page">
+
+      <header class="page-header">
+        <h1 class="page-title">Application Activity Log</h1>
+        <p class="page-lede">Recent system events &mdash; report-engine restarts, data reloads (GL and cardex), and refreshes &mdash; with when they happened and what triggered them.</p>
+      </header>
+
+      <!-- Non-admin gate -->
+      <div class="note gate-notice" id="js-gate" role="alert" style="margin-bottom:18px; background:var(--blue-pale); border-color:#c2d8ef;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div>This is an administrator function. <b>Contact your administrator</b> to view the activity log.</div>
+      </div>
+
+      <!-- Halt states. Neither one is a permission answer: the first means a
+           required part of the page never loaded, the second means the sign-in
+           carried no answer about this user's access either way. Both close the
+           page instead of rendering the admin surface on a guess. -->
+      <div class="note gate-notice halt-notice" id="js-halt-asset" role="alert" style="margin-bottom:18px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Part of this page didn&rsquo;t load, so RapidReconciler can&rsquo;t tell what you&rsquo;re allowed to see here &mdash; nothing was loaded. Reload the page. If it happens again, <b>contact your IT department</b>.</div>
+      </div>
+
+      <div class="note gate-notice halt-notice" id="js-halt-claim" role="alert" style="margin-bottom:18px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Your sign-in didn&rsquo;t say what you&rsquo;re allowed to do here, so nothing was loaded. Reload the page. If it happens again, ask your <b>IT department</b> to check your RapidReconciler account.</div>
+      </div>
+
+      <div id="js-tool">
+        <div class="note" id="js-pending" role="status" style="display:none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 7v5l3 2"/></svg>
+          <span><b>Event capture isn&rsquo;t turned on yet.</b> Once the service starts recording events, they&rsquo;ll appear here automatically &mdash; newest first.</span>
+        </div>
+
+        <!-- Review reminder (7 / 14 / 30 days) — greens the Home "Activity Log"
+             dot; amber until set. Client-side, rrv8.activityReview.<db>. -->
+        <div class="review-band" id="js-act-review" role="status">
+          <div class="review-main">
+            <span class="review-dot" id="js-act-review-dot" aria-hidden="true"></span>
+            <span class="review-text" id="js-act-review-text"></span>
+          </div>
+          <div class="review-action">
+            <span class="review-label">Remind me in</span>
+            <button type="button" class="review-btn" data-days="7">7 days</button>
+            <button type="button" class="review-btn" data-days="14">14 days</button>
+            <button type="button" class="review-btn" data-days="30">30 days</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head log-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <span class="card-title">Recent events</span>
+            <div class="log-controls">
+              <input type="search" id="js-log-search" placeholder="Search events, detail, or who&hellip;" aria-label="Search activity">
+              <select id="js-log-type" aria-label="Filter by event type"><option value="">All events</option></select>
+              <span class="log-count" id="js-log-count"></span>
+              <button type="button" id="js-log-refresh" class="review-btn">Refresh</button>
+            </div>
+          </div>
+          <table class="log">
+            <thead>
+              <tr><th style="width:170px;">When</th><th style="width:150px;">Event</th><th>Detail</th><th style="width:140px;">Triggered by</th></tr>
+            </thead>
+            <tbody id="js-log-body">
+              <tr><td colspan="4" class="log-empty"><b>No events recorded yet</b>Restarts, reloads, and refreshes will be listed here as they happen.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+  function $(id) { return document.getElementById(id); }
+  const RR_CONFIG = window.RR_CONFIG || {};
+  function activeDb() { const s = window.RR_SESSION || {}; const d = Array.isArray(s.dbs) ? s.dbs : []; return d[s.activeDbIndex || 0] || d[0] || null; }
+  function isAdmin() { const a = activeDb(); return !!(a && a.t && a.t.adm === true); }
+  // The access claim has THREE states and each gets its own answer. `true` opens
+  // the page; `false` is a real "no" and shows the gate notice above; anything
+  // else (no session, no tab claims, an older token shape) means we were never
+  // told, so the page halts visibly instead of guessing. Guessing "false" would
+  // lock out a legitimate admin whose token carries a different shape; guessing
+  // "true" is the fail-open this replaces.
+  function admClaim() { const a = activeDb(); return (a && a.t && typeof a.t.adm === 'boolean') ? a.t.adm : null; }
+  // Close the page loudly. `id` names one of the halt notices in the markup.
+  function haltPage(id) { document.body.classList.add('is-gated'); const el = $(id); if (el) el.classList.add('is-visible'); }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+  // Friendly relative/short time for the "When" column.
+  function fmtWhen(iso) {
+    try {
+      var d = new Date(iso), now = new Date();
+      var mins = Math.round((now - d) / 60000);
+      if (mins < 1) return 'Just now';
+      if (mins < 60) return mins + ' min ago';
+      var time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      if (d.toDateString() === now.toDateString()) return 'Today ' + time;
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + time;
+    } catch (_) { return iso; }
+  }
+  // admin/activity lives on the data-services agent (same place as
+  // admin/service-health): resolve the active DB's agent, else the dev default.
+  function agentBase() { return window.RRDB.agentBase(); }   // canonical resolver (config.js RRDB)
+  // Minimal JSON helper against the active DB's agent (same base as agentBase()).
+  // Mirrors the rrFetch contract used by admin-claude-assistant.html for the
+  // ack endpoints: GET/POST JSON, Bearer auth, null body on empty 2xx.
+  function rrFetch(area, opts) {
+    opts = opts || {};
+    var headers = { 'Accept': 'application/json' };
+    try { var t = localStorage.getItem('rrv8.token'); if (t) headers['Authorization'] = 'Bearer ' + t; } catch (_) {}
+    if (opts.body) headers['Content-Type'] = 'application/json;charset=UTF-8';
+    var url = agentBase() + '/' + area + (opts.query ? '?' + new URLSearchParams(opts.query) : '');
+    return fetch(url, {
+      method: opts.method || 'GET',
+      headers: headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    }).then(function (r) {
+      if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+      return r.json().catch(function (err) { return err instanceof SyntaxError ? null : Promise.reject(err); });
+    });
+  }
+  var _allEvents = [];   // full fetched window; the search/type filter narrows this view
+  function distinctTypes() {
+    var seen = {}; _allEvents.forEach(function (e) { if (e && e.event) seen[e.event] = 1; });
+    return Object.keys(seen).sort();
+  }
+  function populateTypeFilter() {
+    var sel = $('js-log-type'); if (!sel) return;
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">All events</option>' +
+      distinctTypes().map(function (t) { return '<option value="' + esc(t) + '">' + esc(t) + '</option>'; }).join('');
+    if (cur) sel.value = cur;   // keep the selection across refreshes
+  }
+  function applyLogFilter() {
+    var q = (($('js-log-search') || {}).value || '').trim().toLowerCase();
+    var type = ($('js-log-type') || {}).value || '';
+    var filtered = _allEvents.filter(function (e) {
+      if (type && e.event !== type) return false;
+      if (!q) return true;
+      return [e.event, e.detail, e.by].some(function (f) {
+        return String(f == null ? '' : f).toLowerCase().indexOf(q) >= 0;
+      });
+    });
+    // Collapse consecutive identical events (a burst of restarts → one "×N" row)
+    // so meaningful events stay visible; the count still reports raw events.
+    var view = (window.RRV8 && RRV8.collapseActivity) ? RRV8.collapseActivity(filtered) : filtered;
+    renderEvents(view);
+    var c = $('js-log-count'); if (c) c.textContent = _allEvents.length ? (filtered.length + ' of ' + _allEvents.length) : '';
+  }
+  function renderEvents(list) {
+    var body = $('js-log-body'); if (!body) return;
+    var p = $('js-pending'); if (p) p.style.display = 'none';   // capture is on; only errors reshow it
+    if (!Array.isArray(list) || !list.length) {
+      var msg = _allEvents.length
+        ? '<b>No events match</b>Try a different search, or clear the filter.'
+        : '<b>No events recorded yet</b>Restarts, reloads, and refreshes will be listed here as they happen.';
+      body.innerHTML = '<tr><td colspan="4" class="log-empty">' + msg + '</td></tr>';
+      return;
+    }
+    body.innerHTML = list.map(function (e) {
+      var ev = esc(e.event) + (e._count > 1 ? ' ×' + e._count : '');
+      var det = esc(e.detail);
+      if (e._count > 1 && e._oldestAt) det += ' &middot; ' + e._count + ' occurrences, oldest ' + esc(fmtWhen(e._oldestAt));
+      return '<tr><td>' + esc(fmtWhen(e.at)) + '</td><td><b>' + ev + '</b></td><td>' + det + '</td><td>' + esc(e.by) + '</td></tr>';
+    }).join('');
+  }
+  // Fetch recent events (newest first) from the agent and render them.
+  // Staged fallback (non-prod only) — the SAME RRDEMO feed the Home card falls back
+  // to, so the full log and the card agree when the live feed is empty/unreachable.
+  // DEMO ONLY. This is a staged, fabricated feed — it must never stand in for the
+  // real log anywhere it could be mistaken for one. The gate was `mode !== 'prod'`,
+  // which includes staging, so a staging box with a live-but-empty (or unreachable)
+  // feed would have shown invented rows in an audit log. `mode === 'demo'` is the
+  // only place a made-up event belongs.
+  function _demoEvents() {
+    return (RR_CONFIG.mode === 'demo' && window.RRDEMO && window.RRDEMO.activityLog) ? window.RRDEMO.activityLog() : [];
+  }
+  // Newest-first (ISO timestamps sort lexicographically = chronologically) — the
+  // SAME ordering the Home card applies, so the card's top-3 are this log's top rows.
+  function _byNewest(list) {
+    return (list || []).slice().sort(function (a, b) { return String(b.at || '').localeCompare(String(a.at || '')); });
+  }
+  function loadEvents() {
+    // LIVE-first: read the agent's GET /admin/activity (the same source the Home
+    // card reads) so the two never diverge — real events (refreshes, reloads,
+    // reconciliation attestations / sign-offs) show here AND on the card. The
+    // staged RRDEMO feed is only a fallback for an empty / unreachable feed in a
+    // non-prod demo; prod with no events shows the honest "couldn't load" note.
+    var headers = { 'Accept': 'application/json' };
+    try { var t = localStorage.getItem('rrv8.token'); if (t) headers['Authorization'] = 'Bearer ' + t; } catch (_) {}
+    fetch(agentBase() + '/admin/activity?limit=50', { headers: headers })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function (list) {
+        _allEvents = _byNewest((Array.isArray(list) && list.length) ? list : _demoEvents());
+        populateTypeFilter(); applyLogFilter();
+      })
+      .catch(function () {
+        var demo = _demoEvents();
+        if (demo.length) { _allEvents = _byNewest(demo); populateTypeFilter(); applyLogFilter(); return; }
+        // Unreachable in prod (e.g. the engine is mid-restart) — say so honestly; a
+        // manual Refresh or reopening retries.
+        var p = $('js-pending'); if (!p) return;
+        p.style.display = 'flex';
+        p.querySelector('span').innerHTML = '<b>Couldn&rsquo;t load activity.</b> The report engine may be restarting &mdash; try Refresh in a moment.';
+      });
+  }
+
+  // ---- Review reminder (7/14/30-day) — greens the Home "Activity Log" dot ----
+  // Client-side, no attestation, same pattern as Review Job Schedule. Amber until
+  // set; green once a reminder is set. Shared key rrv8.activityReview.<db> +
+  // RRV8.activityReviewState with the Home row dot.
+  function fmtDate(iso) { try { return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); } catch (_) { return iso; } }
+  function actReviewKey() { const a = activeDb() || {}; return 'rrv8.activityReview.' + (a.n || 'default'); }
+  // Server ack (kind 'activity-review') is the source of truth — recorded per
+  // database by the agent and shared with the Home dot via GET /admin/acks.
+  // localStorage is a write-through fallback for databases whose ack table
+  // predates this build.
+  var _actAck = null;
+  function loadActAck() {
+    if (!isAdmin()) return Promise.resolve();
+    return rrFetch('admin/acks').then(function (rows) {
+      _actAck = null; (rows || []).forEach(function (r) { if (r && r.kind === 'activity-review') _actAck = r; });
+    }).catch(function () { _actAck = null; });
+  }
+  function actReviewVal() {
+    var v = (_actAck && window.RRV8 && window.RRV8.ackToReviewValue) ? window.RRV8.ackToReviewValue(_actAck) : '';
+    if (!v) { try { v = localStorage.getItem(actReviewKey()) || ''; } catch (_) {} }
+    return v;
+  }
+  function renderActReview() {
+    const band = $('js-act-review'); if (!band) return;
+    let val = actReviewVal();
+    const today = new Date().toISOString().slice(0, 10);
+    const state = (window.RRV8 && window.RRV8.activityReviewState) ? window.RRV8.activityReviewState(val, today) : 'todo';
+    band.setAttribute('data-state', state);
+    const txt = $('js-act-review-text');
+    if (state === 'ok') txt.innerHTML = 'Reviewed &mdash; we&rsquo;ll remind you to check activity on <b>' + fmtDate(val) + '</b>.';
+    else                   txt.innerHTML = 'Review recent activity, then set a reminder to check again.';
+  }
+  function wireActReview() {
+    const band = $('js-act-review'); if (!band) return;
+    band.querySelectorAll('.review-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var cadenceDays = parseInt(btn.dataset.days, 10) || 7;
+        var d = new Date(); d.setDate(d.getDate() + cadenceDays); var val = d.toISOString().slice(0, 10);
+        rrFetch('admin/activity/ack', { method: 'POST', body: { kind: 'activity-review', cadenceDays: cadenceDays, never: false } })
+          .then(function (ack) { if (ack) _actAck = ack; })
+          .catch(function () { /* no ack table on this DB — localStorage fallback below */ })
+          .then(function () { try { localStorage.setItem(actReviewKey(), val); } catch (_) {} renderActReview(); });
+      });
+    });
+  }
+
+  // Hydrate the session FIRST so activeDb() resolves the real database name —
+  // otherwise the reminder key falls back to 'default' and Home reads a different
+  // key and never greens. Same pattern as Review Job Schedule.
+  function startWithSession() {
+    const a = activeDb();
+    // Topbar/footer chrome retired (admin-page standard); these elements no longer
+    // exist, so guard before touching them.
+    const dbEl = $('js-topbar-db');
+    if (dbEl && a && a.n) dbEl.textContent = a.n;
+    const ver = $('js-app-ver');
+    if (ver) ver.textContent = (RR_CONFIG.release || 'v8') + (RR_CONFIG.buildStamp ? ' · ' + RR_CONFIG.buildStamp : '');
+
+    const _adm = admClaim();
+    if (_adm === false) {
+      document.body.classList.add('is-gated');
+      $('js-gate').classList.add('is-visible');
+      return;
+    }
+    if (_adm !== true) { haltPage('js-halt-claim'); return; }
+    loadEvents();
+    var rb = $('js-log-refresh'); if (rb) rb.addEventListener('click', loadEvents);
+    var sb = $('js-log-search'); if (sb) sb.addEventListener('input', applyLogFilter);
+    var tf = $('js-log-type'); if (tf) tf.addEventListener('change', applyLogFilter);
+    renderActReview();        // immediate paint from localStorage fallback …
+    loadActAck().then(renderActReview);   // … then refine from the server ack
+    wireActReview();
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.RRV8 && typeof window.RRV8.hydrateSession === 'function') {
+      window.RRV8.hydrateSession().then(startWithSession).catch(startWithSession);
+    } else {
+      // sidebar.js owns session hydration. If it did not load there is no session
+      // to read, so close the page and say so -- never render admin controls on a
+      // blind guess. (This branch used to boot the page wide open.)
+      haltPage('js-halt-asset');
+    }
+  });
+})();
+</script>
+</body>
+</html>
+

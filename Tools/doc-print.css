@@ -1,0 +1,80 @@
+/* ============================================================
+   doc-print.css — shared print stylesheet for RapidReconciler doc pages.
+
+   Injected as <link media="print"> by doc-chrome.js for every chrome doc,
+   and linked directly by the few non-chrome sidebar docs. Fixes the two
+   reported problems when printing from the browser:
+
+     (1) WRONG PAGE BREAKS — cards/sections/tables split mid-content. Fixed
+         with break-inside: avoid on the block elements docs are built from.
+     (2) MISSING PAGES — a fixed-height or overflow:auto/scroll container
+         only prints the slice that's on screen. Fixed by forcing those
+         wrappers to height:auto / overflow:visible / max-height:none so the
+         whole document flows, and by dropping sticky/fixed positioning that
+         overlaps or clips the printed page.
+
+   Only applies inside @media print, so screen rendering is untouched.
+============================================================ */
+@media print {
+  /* Print in natural flow, full width, white background. */
+  html, body {
+    height: auto !important; min-height: 0 !important;
+    overflow: visible !important; background: #fff !important;
+    margin: 0 !important; color: #000;
+  }
+
+  /* App/doc wrappers that cap height or scroll on screen — let them grow so
+     ALL content reaches the printer (this is the "missing pages" fix). */
+  .app, .main, main, .page, .container, .spa-wrap, .content-card, .doc-body,
+  .article, .topic, .topic-body, .panel, .card, .card-body, .ref-body,
+  .layout, .doc-layout, .toc, .table-wrap {
+    height: auto !important; max-height: none !important; min-height: 0 !important;
+    overflow: visible !important; width: auto !important; max-width: none !important;
+  }
+
+  /* Two-column doc layouts (article + a sticky TOC/sidebar) are CSS grid/flex on
+     screen. Once the TOC is hidden for print, un-grid them so the article uses
+     the full page instead of sitting in a narrow column with an empty gutter. */
+  .layout, .doc-layout { display: block !important; grid-template-columns: none !important; }
+
+  /* Nothing sticky/fixed may float over or clip the printed content. */
+  * { position: static !important; box-shadow: none !important; }
+
+  /* Strip chrome that shouldn't print (or that overlaps the page). */
+  header.doc-header, .doc-header, footer, .app-footer, .doc-feedback, .sidebar,
+  .toc, .section-nav, .topbar, nav, .breadcrumb, .topic-footer-nav, .doc-print-btn,
+  .help-fab, .help-sidebar, .help-launch, [data-no-print] { display: none !important; }
+
+  /* SPA-style docs (the Start-Here walkthroughs + several sidebar reference
+     docs) show only the active topic on screen and hide the rest with
+     `.view { display:none }`. On screen that's one topic at a time; in print it
+     meant only the on-screen topic reached the printer and every other section
+     came out as a MISSING PAGE. Reveal them all for print, and start each topic
+     on its own page so they don't collide mid-sheet. (Screen is untouched —
+     this is inside @media print.) */
+  .view { display: block !important; }
+  .view ~ .view { break-before: page; page-break-before: always; }
+
+  /* Keep the blocks docs are built from intact across page breaks. */
+  section, figure, table, pre, blockquote, .card, .panel, .content-card,
+  .callout, .note, .ref-drawer, li, tr, img {
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  /* Don't strand a heading at the bottom of a page. */
+  h1, h2, h3, h4 { break-after: avoid; page-break-after: avoid; }
+
+  /* Print the status/callout background tints that carry meaning. */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  /* Page geometry + readable print sizes. */
+  @page { margin: 16mm 14mm; }
+  body { font-size: 11pt; line-height: 1.4; }
+  h1 { font-size: 20pt; } h2 { font-size: 15pt; } h3 { font-size: 13pt; }
+
+  /* Expand any collapsed disclosure drawers so their content prints. */
+  details { display: block !important; }
+  details > *:not(summary) { display: revert !important; }
+
+  /* Self-contained printout: show external link targets after the link text. */
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 8.5pt; color: #555; word-break: break-all; }
+}

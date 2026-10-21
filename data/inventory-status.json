@@ -1,0 +1,23 @@
+{
+  "_meta": {
+    "captured": "2026-05-20",
+    "source": "GET /inventory/status against rrtest-rrsqltest.getgsi.com:34536 (RapidReconciler_Dev)",
+    "note": "Demo-mode snapshot of the user's GL filter scope. Same shape the agent returns: reconciliationFilter (the universe of allowed values) + validation."
+  },
+  "reconciliationFilter": {
+    "period": "2016-08-27",
+    "currencies":    ["GBP", "USD"],
+    "companies":     ["00010", "00050"],
+    "objects":       ["141000", "142000", "143000", "143100", "145000"],
+    "businessUnits": ["1000000", "5000000"],
+    "subsidiaries":  ["", "CC", "FM", "MLD", "MM", "PM", "PRS", "RW", "S/A", "S/C", "SEC", "SM"]
+  },
+  "validation": {
+    "color": "success",
+    "tooltip": "This indicator is red if the roll forward from the prior period fails.\r\nThis is most likely due to one or more un-posted GL batches.\r\nIf all batches in the prior period have been posted, please contact us at rrsupport@getgsi.com for assistance.",
+    "label": null,
+    "minutes": 0,
+    "average": 0,
+    "count": 0
+  }
+}

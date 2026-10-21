@@ -1,0 +1,4376 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  RRV8: Accounting > DMAAIs  (Analyzer worklist + response table)
+  =============================================================================
+  Reads `data/dmaai-analysis-latest.json` (the analyzer's JSON sidecar) and
+  renders:
+    - A headline strip (title / subline / source / date / total rows + caveat).
+    - A 5-tab pill nav (Analysis / Sales / Inventory / Manufacturing /
+      Purchasing). Default open: Analysis.
+    - Analysis tab: FIX FIRST + ASK THE CUSTOMER worklists + IGNORE FOR NOW
+      explainer. Each row carries an inline Answer dropdown
+      (Intended / Needs review / Fixed), free-text Decision, and a
+      derived Status pill.
+    - Module tabs: V8 grid of F4095 rows scoped to that module's AAI
+      tables (search / sort / column chooser / drag reorder / Excel export
+      — per RRV8/GRID-STANDARDS.md).
+
+  Response state (`_dmaaiResponses` keyed by findingId) updates optimistically
+  on every Answer / Decision change. Save POSTs to
+  /inventory/integrity/aai-save-responses in prod (PROD-TODO); demo
+  round-trips through `data/dmaai-responses.json`.
+
+  Spec: docs/plans/dmaai-page-overlay-table.md
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DMAAIs &mdash; RapidReconciler V8</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="sidebar.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<script src="vendor/xlsx-js-style.min.js" defer></script>
+<script src="export-guard.js"></script>
+<script defer src="../Tools/audit-workbook.js"></script>
+<style>
+  /* Shared chrome (canonical palette, command-center wash, corner-chrome Home
+     button) lives in admin-chrome.css, linked above. Only page-specific rules
+     below. --green-deep and --shadow-lg are the two palette tokens this page uses
+     that admin-chrome.css does not define. */
+  :root {
+    --green-deep:  #1a6b3f;
+    --shadow-lg:   0 14px 32px -10px rgba(20, 32, 55, 0.18);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  h1, h2, h3, h4 { font-family: 'Source Sans 3', sans-serif; font-weight: 700; }
+  a { color: inherit; text-decoration: none; }
+
+  /* ============================================================
+     APP SHELL
+     ============================================================ */
+  /* Work-screen grid: the old 56px topbar row is retired (product-page standard);
+     main is the sole grid row so its internal scroll + sticky table headers are
+     preserved. The only chrome is the floating corner-chrome Home button. */
+  .app {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+    grid-template-areas:
+      "main";
+    min-height: 100vh;
+  }
+
+  /* ---- SIDEBAR ---- */
+  .sidebar {
+    grid-area: sidebar;
+    background: linear-gradient(180deg, var(--navy) 0%, var(--navy-deep) 100%);
+    color: #fff;
+    width: 60px;
+    overflow: hidden;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 60;
+    transition: width 0.18s ease;
+    box-shadow: var(--shadow-md);
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar:hover { width: 240px; }
+  .sidebar-brand {
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  /* User chip — the persistent identity element in the sidebar.
+     Collapsed: avatar only; expanded: avatar + name + DB + caret. */
+  .sidebar-user {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    background: transparent;
+    border: 0;
+    border-radius: 8px;
+    color: #fff;
+    font-family: 'Source Sans 3', sans-serif;
+    cursor: pointer;
+    transition: background 0.12s;
+    min-width: 0;
+  }
+  .sidebar-user:hover { background: rgba(255,255,255,0.06); }
+  .sidebar-user.is-open { background: rgba(255,255,255,0.10); }
+  .sidebar-user-avatar-wrap { position: relative; flex-shrink: 0; }
+  .sidebar-user-avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--orange) 0%, var(--orange-deep) 100%);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 14px;
+  }
+  .sidebar-user-status {
+    position: absolute;
+    right: -2px; bottom: -2px;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--green);
+    border: 2px solid var(--navy-deep);
+  }
+  .sidebar-user-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+    min-width: 0;
+    text-align: left;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .sidebar:hover .sidebar-user-text,
+  body.has-pinned-sidebar .sidebar-user-text { opacity: 1; }
+  .sidebar-user-name {
+    font-weight: 800;
+    font-size: 13px;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sidebar-user-db {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.55);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sidebar-user-caret {
+    width: 12px; height: 12px;
+    color: rgba(255,255,255,0.55);
+    flex-shrink: 0;
+    margin-left: auto;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .sidebar:hover .sidebar-user-caret,
+  body.has-pinned-sidebar .sidebar-user-caret { opacity: 1; }
+  /* No sidebar brand mark — the GSI logo lives in the topbar
+     (white background, full colour). Keeping it out of the sidebar
+     avoids the white-block flatten of `filter: brightness(0) invert(1)`. */
+  .sidebar-brand-text {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 16px;
+    color: #fff;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .sidebar:hover .sidebar-brand-text { opacity: 1; }
+  .sidebar-pin {
+    margin-left: auto;
+    width: 26px; height: 26px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.55);
+    cursor: pointer;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.18s, background 0.18s, color 0.18s;
+  }
+  .sidebar:hover .sidebar-pin,
+  body.has-pinned-sidebar .sidebar-pin { opacity: 1; }
+  .sidebar-pin:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
+  .sidebar-pin-icon { width: 14px; height: 14px; transition: transform 0.2s ease; }
+  body.has-pinned-sidebar .sidebar-pin {
+    color: var(--orange);
+    background: rgba(240, 138, 36, 0.10);
+  }
+  body.has-pinned-sidebar .sidebar-pin-icon { transform: rotate(-45deg); }
+  body.has-pinned-sidebar .app { grid-template-columns: 1fr; }  /* Phase 3: rail removed */
+  body.has-pinned-sidebar .sidebar { width: 240px; box-shadow: none; }
+  body.has-pinned-sidebar .sidebar-brand-text,
+  body.has-pinned-sidebar .sidebar-section-label,
+  body.has-pinned-sidebar .sidebar-nav-text,
+  body.has-pinned-sidebar .sidebar-filter-text,
+  body.has-pinned-sidebar .sidebar-filter-status,
+  body.has-pinned-sidebar .sidebar-filters-head,
+  body.has-pinned-sidebar .sidebar-status-label { opacity: 1; }
+  /* Pin no longer auto-expands children — collapse is now an
+     explicit per-module toggle (see .sidebar-module.is-expanded). */
+  .sidebar-section { padding: 12px 0; }
+  .sidebar-section-label {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    padding: 0 18px 6px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    white-space: nowrap;
+  }
+  .sidebar:hover .sidebar-section-label { opacity: 1; }
+  .sidebar-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 18px;
+    color: rgba(255,255,255,0.78);
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+    transition: background 0.12s, color 0.12s;
+  }
+  .sidebar-nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+  .sidebar-nav-item.is-active {
+    background: rgba(255,255,255,0.10);
+    color: #fff;
+    box-shadow: inset 3px 0 0 var(--orange);
+  }
+  .sidebar-nav-icon { width: 18px; height: 18px; flex-shrink: 0; }
+  .sidebar-nav-text { opacity: 0; transition: opacity 0.15s ease; }
+  .sidebar:hover .sidebar-nav-text { opacity: 1; }
+  /* Module children — collapsed by default. The module-toggle button
+     adds .is-expanded to its wrapping .sidebar-module; CSS shows the
+     children only when expanded. State persists in localStorage so
+     the analyst's preferred sidebar layout survives reloads. */
+  .sidebar-nav-children { display: none; padding: 2px 0 6px 48px; }
+  .sidebar-module.is-expanded .sidebar-nav-children { display: block; }
+  .sidebar-nav-child {
+    display: block;
+    padding: 6px 16px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.65);
+    border-radius: 6px;
+    transition: background 0.12s, color 0.12s;
+  }
+  .sidebar-nav-child:hover { color: #fff; background: rgba(255,255,255,0.06); }
+  .sidebar-nav-child.is-active { color: #fff; background: rgba(240,138,36,0.18); }
+
+  /* Module toggle — looks like the existing nav-item but is a real
+     <button> so it's keyboard-accessible + doesn't try to navigate. */
+  button.sidebar-nav-item {
+    background: none;
+    border: 0;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+  }
+  .sidebar-nav-caret {
+    width: 12px; height: 12px;
+    margin-left: auto;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s ease, transform 0.18s ease;
+    color: rgba(255,255,255,0.55);
+  }
+  .sidebar:hover .sidebar-nav-caret,
+  body.has-pinned-sidebar .sidebar-nav-caret { opacity: 0.7; }
+  .sidebar-module.is-expanded > .sidebar-nav-item .sidebar-nav-caret {
+    transform: rotate(180deg);
+    color: var(--orange);
+    opacity: 1;
+  }
+
+  /* ---- SIDEBAR FILTERS (chrome, shared across pages) ---- */
+  .sidebar-filters {
+    padding: 8px 0 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .sidebar-filters-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 18px 4px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .sidebar:hover .sidebar-filters-head { opacity: 1; }
+  .sidebar-filters-label {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+  }
+  .sidebar-filters-clear {
+    background: none; border: none;
+    color: rgba(255,255,255,0.55);
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .sidebar-filters-clear:hover { color: #fff; background: rgba(255,255,255,0.08); }
+  .sidebar-filter {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 18px;
+    background: none; border: none;
+    width: 100%;
+    color: rgba(255,255,255,0.72);
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+    transition: background 0.12s, color 0.12s;
+  }
+  .sidebar-filter:hover { background: rgba(255,255,255,0.05); color: #fff; }
+  .sidebar-filter-icon { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.7; }
+  .sidebar-filter-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--orange);
+    flex-shrink: 0;
+    visibility: hidden;
+  }
+  .sidebar-filter.is-active .sidebar-filter-dot { visibility: visible; }
+  .sidebar-filter-text { flex: 1; opacity: 0; transition: opacity 0.15s ease; }
+  .sidebar:hover .sidebar-filter-text { opacity: 1; }
+  .sidebar-filter-status {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.55);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .sidebar:hover .sidebar-filter-status { opacity: 1; }
+
+  /* ---- SIDEBAR STATUS PANEL ---- */
+  .sidebar-status {
+    margin-top: auto;
+    padding: 14px 18px 18px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .sidebar-status-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+  }
+  button.sidebar-status-row {
+    background: transparent;
+    border: 0;
+    width: 100%;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.12s;
+  }
+  button.sidebar-status-row:hover { background: rgba(255,255,255,0.04); }
+  button.sidebar-status-row:hover .sidebar-status-label { color: #fff; }
+  .sidebar-status-dot {
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 3px rgba(46,138,85,0.18);
+  }
+  .sidebar-status-dot.is-green { background: var(--green); }
+  .sidebar-status-dot.is-amber {
+    background: var(--orange);
+    box-shadow: 0 0 0 3px rgba(240,138,36,0.20);
+    animation: status-pulse 1.6s ease-in-out infinite;
+  }
+  .sidebar-status-dot.is-red {
+    background: var(--red);
+    box-shadow: 0 0 0 3px rgba(192,57,43,0.18);
+  }
+  @keyframes status-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
+  }
+  .sidebar-status-label {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.75);
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .sidebar:hover .sidebar-status-label { opacity: 1; }
+
+  /* ---- MAIN ---- */
+  .main { grid-area: main; overflow-y: auto; }
+  .page {
+    max-width: 1280px;
+    margin: 0 auto;
+    /* Top padding bumped to clear the fixed corner-chrome Home button
+       (was 32px under the retired topbar). Width kept at the grid's own 1280px. */
+    padding: 64px 28px 64px;
+  }
+
+  /* ============================================================
+     PAGE HEADER (V8 standard)
+     ============================================================ */
+  .page-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 20px;
+  }
+  .page-header-left { min-width: 0; }
+  .title-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .page-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 30px;
+    color: var(--navy);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  .page-title-link {
+    color: inherit; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .page-title-link:hover { color: var(--blue); }
+
+  /* Page-scope Company filter pill. Mirrors the V8 period-pill
+     pattern from the Reconciliation page so the page-level
+     control reads as the same kind of thing. */
+  .company-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg-card);
+    border: 2px solid var(--blue);
+    border-radius: 100px;
+    padding: 7px 16px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--navy);
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .company-pill:hover { background: var(--blue-pale); }
+  .company-pill svg { width: 14px; height: 14px; flex-shrink: 0; }
+  .company-pill-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .company-pill-value { color: var(--blue); font-weight: 800; }
+  .company-pill.is-narrowed {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+  .company-pill.is-narrowed .company-pill-label { color: rgba(255,255,255,0.78); }
+  .company-pill.is-narrowed .company-pill-value { color: #fff; }
+  .company-pill.is-narrowed svg { color: #fff; }
+
+  /* ============================================================
+     HEADLINE STRIP (under page header)
+     Big-typography landing block: subline + source/date/totals
+     row + caveat callout. Replaces what used to be "Start Here"
+     for the worklist surface.
+     ============================================================ */
+  .headline-strip {
+    background: var(--bg-card);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
+    padding: 18px 22px 16px;
+    margin-bottom: 18px;
+  }
+  .headline-subline {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 17px;
+    color: var(--navy);
+    letter-spacing: -0.005em;
+  }
+  .headline-subline .hs-flagged { color: var(--orange-deep); }
+  .headline-subline .hs-patterns { color: var(--text-soft); font-weight: 600; }
+  .headline-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px 28px;
+    margin-top: 10px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 12.5px;
+    color: var(--text-soft);
+  }
+  .headline-meta dt {
+    display: inline;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    margin-right: 6px;
+  }
+  .headline-meta dd { display: inline; font-weight: 700; color: var(--navy); margin: 0; }
+  /* Collapsible caveat — a small amber pill sits in the headline
+     strip; expands on click into the full block. Default closed so
+     the strip stays compact. Uses native <details> for accessibility
+     (keyboard + screen reader support out of the box). */
+  .caveat-details { margin-top: 12px; }
+  .caveat-details > summary {
+    list-style: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px 5px 10px;
+    background: rgba(241, 164, 67, 0.10);
+    border: 1px solid rgba(241, 164, 67, 0.32);
+    border-radius: 100px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11.5px;
+    color: #8a5a14;
+    letter-spacing: 0.02em;
+    transition: background 0.12s, border-color 0.12s;
+    user-select: none;
+  }
+  .caveat-details > summary::-webkit-details-marker { display: none; }
+  .caveat-details > summary:hover {
+    background: rgba(241, 164, 67, 0.18);
+    border-color: rgba(241, 164, 67, 0.45);
+  }
+  .caveat-summary-icon {
+    width: 14px; height: 14px;
+    flex-shrink: 0;
+    color: var(--orange-deep);
+  }
+  .caveat-summary-caret {
+    width: 10px; height: 10px;
+    flex-shrink: 0;
+    transition: transform 0.18s ease;
+    opacity: 0.7;
+  }
+  .caveat-details[open] .caveat-summary-caret { transform: rotate(180deg); }
+  .caveat-body {
+    margin-top: 10px;
+    padding: 12px 14px;
+    background: rgba(241, 164, 67, 0.08);
+    border: 1px solid rgba(241, 164, 67, 0.28);
+    border-left: 3px solid var(--orange);
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: var(--text);
+    line-height: 1.55;
+  }
+
+  /* ============================================================
+     PILL TAB NAV
+     Five tabs (Analysis / Sales / Inventory / Manufacturing /
+     Purchasing). Active tab paints navy + bold, inactive tabs
+     are pill-grey. Each tab carries a row-count chip in its
+     trailing edge.
+     ============================================================ */
+  .tab-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 0;
+    flex-wrap: wrap;
+  }
+  .tab-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: 0;
+    padding: 10px 16px 12px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 13.5px;
+    color: var(--text-soft);
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .tab-pill:hover { color: var(--blue); }
+  .tab-pill.is-active {
+    color: var(--navy);
+    border-bottom-color: var(--orange);
+  }
+  .tab-pill .tab-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    padding: 1px 7px;
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+  .tab-pill.is-active .tab-count {
+    background: var(--blue-pale);
+    border-color: rgba(43, 95, 176, 0.30);
+    color: var(--blue);
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.is-active { display: block; }
+
+  /* ============================================================
+     WORKLIST TABLES (FIX FIRST + ASK CUSTOMER)
+     ============================================================ */
+  .worklist-card {
+    background: var(--bg-card);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    margin-bottom: 22px;
+  }
+  .worklist-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 22px 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .worklist-eyebrow {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    display: grid; place-items: center;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 12px;
+    color: #fff;
+    background: var(--orange);
+    flex-shrink: 0;
+  }
+  .worklist-card.is-questions .worklist-eyebrow { background: var(--blue); }
+  .worklist-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--navy);
+  }
+  .worklist-helper {
+    font-size: 12.5px;
+    color: var(--text-soft);
+    margin-left: auto;
+  }
+  .worklist-helper strong { color: var(--text); font-weight: 700; }
+  .worklist-progress {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-soft);
+  }
+  .worklist-progress .progress-bar {
+    width: 90px;
+    height: 6px;
+    background: rgba(43, 95, 176, 0.10);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .worklist-progress .progress-fill {
+    display: block; height: 100%;
+    background: var(--green);
+    border-radius: 999px;
+    transition: width 0.18s ease;
+  }
+  .worklist-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-family: 'Open Sans', sans-serif;
+    font-size: 13px;
+  }
+  .worklist-table thead th {
+    position: sticky; top: 0;
+    background: var(--bg-soft);
+    color: var(--text-muted);
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .worklist-table tbody td {
+    padding: 12px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--text);
+  }
+  .worklist-table tbody tr:hover td { background: rgba(43, 95, 176, 0.03); }
+  .worklist-table tbody tr.is-resolved td { background: rgba(46, 138, 85, 0.05); }
+  .worklist-table tbody tr.is-intended td { color: var(--text-soft); }
+  .worklist-table tbody tr.is-intended .wl-task { color: var(--text-soft); }
+  .wl-col-id      { width: 56px;  font-weight: 800; color: var(--navy); white-space: nowrap; }
+  .wl-col-co      { width: 70px;  font-weight: 700; color: var(--text-soft); white-space: nowrap; }
+  .wl-col-task    { min-width: 280px; }
+  .wl-col-doc     { width: 170px; color: var(--text-soft); font-size: 12px; line-height: 1.45; }
+  .wl-col-gl      { width: 170px; color: var(--text-soft); font-size: 12px; line-height: 1.45; }
+  .wl-col-ref     { width: 180px; color: var(--text-soft); font-size: 12px; }
+  .wl-col-rows    { width: 76px;  text-align: right; }
+  .wl-col-answer  { width: 144px; }
+  .wl-col-decision{ min-width: 200px; }
+  .wl-col-status  { width: 130px; white-space: nowrap; }
+  /* Row-count chip on each worklist row. Links the finding to its
+     F4095 row population so the analyst sees "this fix touches N
+     rows" without leaving the worklist. */
+  .wl-rows-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    padding: 2px 9px;
+    border-radius: 100px;
+    background: var(--blue-pale);
+    color: var(--blue);
+    border: 1px solid rgba(43,95,176,0.30);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11.5px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .wl-rows-chip.is-empty {
+    background: var(--bg-soft);
+    color: var(--text-muted);
+    border-color: var(--rule);
+  }
+  .wl-task {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .wl-task .wl-tag {
+    display: inline-block;
+    padding: 1px 7px 2px;
+    border-radius: 3px;
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-soft);
+    margin-right: 4px;
+  }
+  .wl-ref {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11.5px;
+    color: var(--text-soft);
+  }
+  /* Clickable variant — when the finding has a module + matched rows
+     we can navigate to. Renders as a blue link with a small arrow. */
+  .wl-ref-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--blue);
+    cursor: pointer;
+    text-align: left;
+    line-height: 1.45;
+  }
+  .wl-ref-link:hover { color: var(--navy); text-decoration: underline; }
+  .wl-ref-link svg {
+    width: 10px; height: 10px;
+    flex-shrink: 0;
+    opacity: 0.6;
+  }
+  .wl-ref-link:hover svg { opacity: 1; }
+
+  /* Finding-focus banner — appears above the module grid when the
+     analyst clicks a worklist Reference link. Narrows the grid to
+     only the matched F4095 rows so the analyst can inspect them
+     without scrolling through 800+ unrelated config rows. */
+  .finding-focus-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 22px;
+    background: var(--blue-pale);
+    border-bottom: 1px solid rgba(43, 95, 176, 0.20);
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 12.5px;
+    color: var(--blue);
+  }
+  .finding-focus-banner[hidden] { display: none; }
+  .finding-focus-banner strong { font-weight: 800; }
+  .finding-focus-banner code {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    background: rgba(43, 95, 176, 0.12);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11.5px;
+  }
+  .finding-focus-banner .focus-clear {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid rgba(43, 95, 176, 0.30);
+    color: var(--blue);
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11.5px;
+    padding: 4px 12px;
+    border-radius: 100px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .finding-focus-banner .focus-clear:hover {
+    background: rgba(43, 95, 176, 0.10);
+    border-color: rgba(43, 95, 176, 0.50);
+  }
+  .wl-answer-select {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    background: var(--bg-card);
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.12s, box-shadow 0.12s;
+  }
+  .wl-answer-select:hover { border-color: var(--blue); }
+  .wl-answer-select:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px rgba(43, 95, 176, 0.18);
+  }
+  .wl-answer-select.is-intended { color: var(--text-soft); }
+  .wl-answer-select.is-review   { color: var(--orange-deep); }
+  .wl-answer-select.is-fixed    { color: var(--green-deep); }
+  .wl-decision-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--bg-card);
+    font-family: 'Open Sans', sans-serif;
+    font-size: 12.5px;
+    color: var(--text);
+    outline: none;
+    resize: vertical;
+    min-height: 32px;
+    transition: border-color 0.12s, box-shadow 0.12s;
+  }
+  .wl-decision-input:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px rgba(43, 95, 176, 0.18);
+  }
+  .wl-decision-input::placeholder { color: var(--text-muted); font-style: italic; }
+  .wl-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px 4px;
+    border-radius: 100px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+    background: var(--bg-soft);
+    color: var(--text-soft);
+    border: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  .wl-status-pill::before {
+    content: '';
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+  }
+  /* No claim: a status this build can't resolve. Matches .row-status-chip.is-none
+     so the same state reads the same on both surfaces. Deliberately quieter than
+     .is-open, which is a known state ("nobody has triaged this yet"). */
+  .wl-status-pill.is-none                { background: transparent;      color: var(--text-muted); border-color: transparent; }
+  .wl-status-pill.is-none::before        { display: none; }
+  .wl-status-pill.is-open                { background: var(--bg-soft);   color: var(--text-soft); }
+  .wl-status-pill.is-open::before        { background: var(--text-muted); }
+  .wl-status-pill.is-progress            { background: rgba(241,164,67,0.12); color: #8a5a14; border-color: rgba(241,164,67,0.40); }
+  .wl-status-pill.is-progress::before    { background: var(--orange); }
+  .wl-status-pill.is-resolved            { background: var(--green-pale); color: var(--green-deep); border-color: rgba(46,138,85,0.30); }
+  .wl-status-pill.is-resolved::before    { background: var(--green); }
+  .wl-status-pill.is-intended            { background: var(--blue-pale); color: var(--blue); border-color: rgba(43,95,176,0.30); }
+  .wl-status-pill.is-intended::before    { background: var(--blue); }
+  .wl-status-pill.is-still               { background: rgba(192,57,43,0.10); color: var(--red); border-color: rgba(192,57,43,0.30); }
+  .wl-status-pill.is-still::before       { background: var(--red); }
+
+  /* ============================================================
+     IGNORE FOR NOW (explainer block, not a table)
+     ============================================================ */
+  .ignore-card {
+    background: var(--bg-card);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    padding: 18px 22px;
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 22px;
+  }
+  .ignore-eyebrow {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 11.5px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .ignore-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 15px;
+    color: var(--navy);
+    margin: 2px 0 6px;
+  }
+  .ignore-blurb {
+    font-size: 13px;
+    color: var(--text-soft);
+    line-height: 1.55;
+  }
+
+  /* ============================================================
+     SAVE BAR (sticky bottom action when changes pending)
+     ============================================================ */
+  .save-bar {
+    position: sticky;
+    bottom: 12px;
+    z-index: 30;
+    display: none;
+    align-items: center;
+    gap: 12px;
+    margin: 12px 0 0;
+    padding: 10px 16px;
+    background: var(--navy);
+    color: #fff;
+    border-radius: 100px;
+    box-shadow: var(--shadow-lg);
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 13px;
+  }
+  .save-bar.is-visible { display: inline-flex; }
+  .save-bar-text { font-weight: 700; }
+  .save-bar-text strong { color: var(--orange); }
+  .save-bar-actions { margin-left: auto; display: flex; gap: 8px; }
+  .save-bar-btn {
+    padding: 6px 14px;
+    border-radius: 100px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 12.5px;
+    cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.30);
+    background: transparent;
+    color: #fff;
+  }
+  .save-bar-btn:hover { background: rgba(255,255,255,0.10); }
+  .save-bar-btn.is-primary {
+    background: var(--orange);
+    border-color: var(--orange);
+  }
+  .save-bar-btn.is-primary:hover { background: var(--orange-deep); border-color: var(--orange-deep); }
+  .save-bar-status {
+    font-size: 11.5px;
+    color: rgba(255,255,255,0.70);
+  }
+
+  /* ============================================================
+     V8 GRID (module tabs — search / sort / column chooser / drag)
+     Shared GRID-STANDARDS look.
+     ============================================================ */
+  .grid-card {
+    background: var(--bg-card);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    margin-bottom: 22px;
+  }
+  .grid-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 22px 12px;
+    border-bottom: 1px solid var(--rule);
+    gap: 16px;
+  }
+  .grid-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--navy);
+  }
+  /* Read-only model sign-off badge on the Model tab (the approve action itself
+     lives on Model DMAAI Review). */
+  .model-verdict {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: 'Source Sans 3', sans-serif; font-weight: 700; font-size: 11.5px;
+    padding: 3px 11px; border-radius: 100px; margin-left: 12px;
+  }
+  /* Guard, not decoration: renderModelVerdict() returns early when there is no model
+     payload and clears the tab dot with `dot.hidden = true`, and neither did anything
+     against the display rules above — so an empty verdict pill and a stale coloured dot
+     both survived on screen. UI-159. */
+  .model-verdict[hidden] { display: none; }
+  .model-verdict svg { width: 12px; height: 12px; flex: 0 0 auto; }
+  .model-verdict a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+  /* Class names here answer the question, not the palette: is-changed is the
+     baseline moving after sign-off, not "the orange one". Renaming the colour
+     would otherwise mean renaming the state. */
+  .model-verdict.is-approved { background: var(--green-pale); color: var(--green-deep); }
+  .model-verdict.is-changed  { background: var(--orange-pale); color: var(--orange-deep); }
+  .model-verdict.is-none     { background: var(--bg-soft); color: var(--text-soft); border: 1px solid var(--rule); }
+  /* tiny dot on the Model tab pill so approval reads at a glance without opening the tab */
+  .tab-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 5px; vertical-align: middle; }
+  .tab-dot[hidden] { display: none; }
+  .tab-dot.is-approved { background: var(--green); }
+  .tab-dot.is-changed  { background: var(--orange); }
+  .grid-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 12.5px;
+    padding: 5px 10px;
+    border-radius: 100px;
+    border: 1px solid var(--rule-strong);
+    background: var(--bg-card);
+    color: var(--text-soft);
+    cursor: default;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    white-space: nowrap;
+  }
+  button.grid-pill { cursor: pointer; }
+  button.grid-pill:hover { background: var(--bg-soft); color: var(--text); }
+  button.grid-pill.is-narrowed {
+    background: rgba(241,164,67,0.12);
+    color: #8a5a14;
+    border-color: rgba(241,164,67,0.40);
+  }
+  .grid-pill svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .grid-pill .pill-caret { opacity: 0.55; }
+  .grid-pill.is-loading { color: var(--text-muted); font-style: italic; }
+  .grid-state-cluster {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+  .grid-search {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--rule);
+    border-radius: 100px;
+    transition: border-color 0.12s, box-shadow 0.12s;
+    min-width: 0;
+  }
+  .grid-search:focus-within {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px rgba(43, 95, 176, 0.18);
+  }
+  .grid-search svg { width: 13px; height: 13px; color: var(--text-muted); flex-shrink: 0; }
+  .grid-search input {
+    border: 0; outline: none;
+    background: transparent;
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 12.5px;
+    color: var(--text);
+    width: 160px;
+    min-width: 0;
+    padding: 0;
+  }
+  .grid-search input::placeholder { color: var(--text-muted); }
+  .grid-search input::-webkit-search-decoration,
+  .grid-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+  .grid-search-clear {
+    background: transparent; border: 0;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 16px; line-height: 1;
+    padding: 0 2px;
+    flex-shrink: 0;
+  }
+  .grid-search-clear:hover { color: var(--text); }
+  .col-vis-list { max-height: 60vh; overflow-y: auto; padding: 2px 0; }
+  .col-vis-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+  }
+  .col-vis-row:hover { background: var(--bg-soft); }
+  .col-vis-row input[type="checkbox"] { margin: 0; accent-color: var(--blue); cursor: pointer; }
+  .col-vis-row .col-vis-label { flex: 1; }
+  .grid-scroll { max-height: 600px; overflow: auto; }
+  .grid-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-family: 'Open Sans', sans-serif;
+    font-size: 13px;
+  }
+  .grid-table thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--bg-soft);
+    color: var(--text-muted);
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  .grid-table thead th[draggable="true"] { cursor: grab; user-select: none; }
+  .grid-table thead th[draggable="true"]:active { cursor: grabbing; }
+  .grid-table thead th.is-dragging { opacity: 0.35; }
+  .grid-table thead th.is-drag-over {
+    box-shadow: inset 3px 0 0 var(--blue);
+    background: rgba(43, 95, 176, 0.08);
+  }
+  .grid-table thead th[data-col-key]:hover { color: var(--blue); }
+  .grid-table thead th.is-sort-active { color: var(--blue); }
+  .grid-table thead th .sort-caret {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 9px;
+    line-height: 1;
+    color: var(--blue);
+    vertical-align: middle;
+  }
+
+  /* Column value-filter (V8 grid standard §10). Funnel glyph in each
+     filterable header; greyed by default, brand-blue when a filter
+     is active on that column. The glyph is its own click target so
+     it doesn't interfere with click-to-sort on the header. */
+  .col-filter-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px; height: 16px;
+    margin-left: 4px;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    color: var(--text-muted);
+    opacity: 0.45;
+    vertical-align: middle;
+    transition: opacity 0.12s, color 0.12s;
+  }
+  .grid-table thead th:hover .col-filter-trigger { opacity: 0.9; }
+  .col-filter-trigger:hover { color: var(--blue); opacity: 1; }
+  .col-filter-trigger svg { width: 11px; height: 11px; display: block; }
+  .grid-table thead th.is-filter-active { color: var(--blue); }
+  .grid-table thead th.is-filter-active .col-filter-trigger {
+    color: var(--blue);
+    opacity: 1;
+  }
+  /* Filter popover body — wider than the column chooser so labels fit. */
+  .col-filter-search {
+    display: block;
+    width: 100%;
+    margin: 4px 12px 6px;
+    width: calc(100% - 24px);
+    padding: 5px 8px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 12.5px;
+    outline: none;
+  }
+  .col-filter-search:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px rgba(43, 95, 176, 0.18);
+  }
+  .grid-table tbody td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--rule);
+    color: var(--text);
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .grid-table tbody tr:hover td { background: rgba(43, 95, 176, 0.04); }
+  .grid-table td.is-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .grid-table td.is-mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+  }
+  /* ---- Status column (derived from the row's mapped finding's
+     Answer) ---- */
+  .grid-table td.is-status {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 11.5px;
+    font-weight: 700;
+  }
+  .grid-table tbody tr.is-dimmed td {
+    color: var(--text-muted);
+  }
+  .grid-table tbody tr.is-dimmed td.is-status .row-status-chip { opacity: 0.85; }
+  .row-status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px 3px;
+    border-radius: 100px;
+    border: 1px solid var(--rule);
+    background: var(--bg-soft);
+    color: var(--text-muted);
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+  .row-status-chip::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-muted);
+  }
+  .row-status-chip.is-none     { color: var(--text-muted); background: transparent; border-color: transparent; }
+  .row-status-chip.is-none::before { display: none; }
+  .row-status-chip.is-open     { background: var(--bg-soft); color: var(--text-soft); }
+  .row-status-chip.is-progress { background: rgba(241,164,67,0.12); color: #8a5a14; border-color: rgba(241,164,67,0.40); }
+  .row-status-chip.is-progress::before { background: var(--orange); }
+  .row-status-chip.is-resolved { background: var(--green-pale); color: var(--green-deep); border-color: rgba(46,138,85,0.30); }
+  .row-status-chip.is-resolved::before { background: var(--green); }
+  .row-status-chip.is-intended { background: var(--blue-pale); color: var(--blue); border-color: rgba(43,95,176,0.30); }
+  .row-status-chip.is-intended::before { background: var(--blue); }
+  .row-status-chip.is-still    { background: rgba(192,57,43,0.10); color: var(--red); border-color: rgba(192,57,43,0.30); }
+  .row-status-chip.is-still::before { background: var(--red); }
+
+  /* ---- Row-state filter pill (3-state: All / Hide intended / Open only) ---- */
+  .rowfilter-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 12.5px;
+    padding: 5px 10px;
+    border-radius: 100px;
+    border: 1px solid var(--rule-strong);
+    background: var(--bg-card);
+    color: var(--text-soft);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    white-space: nowrap;
+  }
+  .rowfilter-pill:hover { background: var(--bg-soft); color: var(--text); }
+  .rowfilter-pill svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .rowfilter-pill.is-narrowed-amber {
+    background: rgba(241,164,67,0.12);
+    color: #8a5a14;
+    border-color: rgba(241,164,67,0.40);
+  }
+  .rowfilter-pill.is-narrowed-blue {
+    background: var(--blue-pale);
+    color: var(--blue);
+    border-color: rgba(43,95,176,0.30);
+  }
+  .grid-empty {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .grid-skeleton {
+    padding: 28px 20px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+  .grid-skeleton-bar {
+    display: inline-block;
+    width: 60%;
+    height: 10px;
+    background: var(--bg-soft);
+    border-radius: 4px;
+    margin: 4px 0;
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes skeleton-pulse {
+    0%, 100% { opacity: 0.4; }
+    50%      { opacity: 0.8; }
+  }
+
+  /* ============================================================
+     FETCH-ERROR BANNER (chrome)
+     ============================================================ */
+  .fetch-error-banner {
+    display: flex;
+    gap: 14px;
+    margin: 0 0 18px;
+    padding: 14px 18px;
+    background: var(--red-pale);
+    border: 1px solid rgba(192, 57, 43, 0.35);
+    border-radius: 10px;
+    align-items: flex-start;
+  }
+  .feb-icon {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--red);
+    color: #fff;
+    display: grid; place-items: center;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .feb-body { flex: 1; min-width: 0; }
+  .feb-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 14px;
+    color: var(--red);
+    margin-bottom: 4px;
+  }
+  .feb-detail { font-size: 12.5px; color: var(--text-soft); line-height: 1.5; }
+  .feb-detail + .feb-detail { margin-top: 3px; }
+  .feb-detail code { background: var(--bg-soft); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  /* Informational variant of the same band. Red says "something broke and you need to
+     act"; a state that is simply EMPTY (no run recorded yet, so no decisions to load)
+     is not that, and painting it red trains the reader to skim the red band. Same
+     geometry and slot, blue palette, "i" glyph. */
+  .fetch-error-banner.is-info { background: var(--blue-pale); border-color: rgba(47, 111, 176, 0.35); }
+  .fetch-error-banner.is-info .feb-icon { background: var(--blue); }
+  .fetch-error-banner.is-info .feb-title { color: var(--navy); }
+
+  /* ============================================================
+     POPOVER FRAME (shared by user menu + sidebar filter popovers
+     + column chooser)
+     ============================================================ */
+  .popover {
+    position: fixed;
+    background: var(--bg-card);
+    border: 1px solid var(--rule-strong);
+    border-radius: 10px;
+    box-shadow: var(--shadow-lg);
+    z-index: 200;
+    padding: 8px;
+    min-width: 200px;
+    max-height: 70vh;
+    overflow: auto;
+  }
+  .popover[hidden] { display: none; }
+  .popover-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 600;
+    font-size: 13.5px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .popover-row:hover { background: var(--bg-soft); }
+  .popover-row.is-active { background: var(--blue-pale); color: var(--blue); }
+  .popover-section {
+    border-top: 1px solid var(--rule);
+    margin-top: 4px;
+    padding-top: 4px;
+  }
+  .popover-section:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+  .popover-section-label {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 6px 12px 4px;
+  }
+
+  /* ============================================================
+     SYSTEM STATUS DRAWER (.edit-overlay reused as a generic modal)
+     ============================================================ */
+  .edit-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 32, 55, 0.42);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 220;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+  }
+  .edit-overlay[hidden] { display: none; }
+  .edit-card {
+    width: 100%;
+    max-width: 480px;
+    background: var(--bg-card);
+    border-radius: 14px;
+    box-shadow: var(--shadow-lg);
+    padding: 24px 26px 22px;
+  }
+  .edit-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 4px;
+    gap: 16px;
+  }
+  .edit-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800;
+    font-size: 18px;
+    color: var(--navy);
+    letter-spacing: -0.01em;
+  }
+  .edit-sub {
+    font-size: 13px;
+    color: var(--text-soft);
+    margin: 8px 0 16px;
+  }
+  .edit-sub code {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    background: var(--bg-soft);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+  }
+  .edit-btn {
+    padding: 9px 18px;
+    border-radius: 8px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid var(--rule-strong);
+    background: var(--bg-card);
+    color: var(--text-soft);
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .edit-btn:hover { background: var(--bg-soft); color: var(--text); }
+  .edit-btn.is-primary {
+    background: var(--blue); border-color: var(--blue); color: #fff;
+  }
+  .edit-btn.is-primary:hover { background: var(--navy); border-color: var(--navy); }
+  .status-banner {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--rule-strong);
+    background: var(--bg-soft);
+    margin-bottom: 16px;
+  }
+  .status-banner.is-green { background: rgba(46,138,85,0.08); border-color: rgba(46,138,85,0.30); }
+  .status-banner.is-amber { background: rgba(240,138,36,0.10); border-color: rgba(240,138,36,0.30); }
+  .status-banner.is-red   { background: rgba(192,57,43,0.08); border-color: rgba(192,57,43,0.30); }
+  .status-banner-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--green);
+    flex-shrink: 0;
+    margin-top: 4px;
+  }
+  .status-banner.is-amber .status-banner-dot { background: var(--orange); }
+  .status-banner.is-red   .status-banner-dot { background: var(--red); }
+  .status-banner-text { flex: 1; min-width: 0; }
+  .status-banner-eyebrow {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800; font-size: 10.5px;
+    letter-spacing: 0.10em; text-transform: uppercase;
+    color: var(--text-soft);
+  }
+  .status-banner.is-green .status-banner-eyebrow { color: var(--green-deep); }
+  .status-banner.is-amber .status-banner-eyebrow { color: #8a5a14; }
+  .status-banner.is-red   .status-banner-eyebrow { color: var(--red); }
+  .status-banner-headline {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--navy);
+    margin-top: 2px;
+  }
+  .status-banner-sub {
+    font-size: 12.5px;
+    color: var(--text-soft);
+    margin-top: 4px;
+  }
+
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ==================== CHROME ==================== -->
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+  <!-- User menu (anchored to the sidebar-user chip; built by JS).
+       Sits outside .sidebar so it can overflow visually. -->
+  <div class="user-menu" id="js-user-menu" role="menu" hidden></div>
+
+
+  <!-- Popovers -->
+  <div class="popover" id="user-popover"    hidden role="menu" aria-label="User menu"></div>
+  <div class="popover" id="filter-popover"  hidden role="menu" aria-label="Filter options"></div>
+  <div class="popover" id="col-popover"      hidden role="menu" aria-label="Column visibility"></div>
+  <div class="popover" id="company-popover"  hidden role="menu" aria-label="Filter by company"></div>
+  <div class="popover" id="colfilter-popover" hidden role="menu" aria-label="Filter by column value"></div>
+
+  <!-- System Status drawer -->
+  <div class="edit-overlay" id="status-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="status-title">
+    <div class="edit-card">
+      <div class="edit-head">
+        <div class="edit-title" id="status-title">System Status</div>
+      </div>
+      <div class="status-banner" id="status-banner">
+        <span class="status-banner-dot"></span>
+        <div class="status-banner-text">
+          <div class="status-banner-eyebrow" id="status-banner-eyebrow">System Status</div>
+          <div class="status-banner-headline" id="status-banner-headline">Checking&hellip;</div>
+          <div class="status-banner-sub" id="status-banner-sub"></div>
+        </div>
+      </div>
+      <div class="edit-sub">
+        Download report runs the diagnostic Excel through the analyzer&rsquo;s
+        <code>SystemStatusTemplate</code> headlessly and produces an analyzed
+        workbook in your downloads folder. The full multi-cycle runbook lives
+        on the Reconciliation page.
+      </div>
+      <div class="edit-actions">
+        <button type="button" class="edit-btn" id="status-cancel">Close</button>
+        <button type="button" class="edit-btn is-primary" id="status-download">Download report</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MAIN ==================== -->
+  <main class="main">
+
+<div class="page" id="js-page">
+
+  <!-- ============================================================
+       PAGE HEADER
+       ============================================================ -->
+  <header class="page-header">
+    <div class="page-header-left">
+      <div class="title-row">
+        <h1 class="page-title"><span class="page-title-link">DMAAIs</span></h1>
+        <!-- No period pill: DMAAIs are JDE's current-state configuration. -->
+        <!-- Page-scope Company filter — narrows worklist + module grids
+             + tab counts. Findings without a company (e.g. unrec) stay
+             visible across all selections. -->
+        <button type="button" class="company-pill" id="js-company-pill" title="Filter the page by company">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+          <span class="company-pill-label">Company</span>
+          <span class="company-pill-value" id="js-company-pill-value">All</span>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 6 8 10 12 6"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="help-pill" style="--help-accent:#2e8a55;--help-accent-pale:#e7f3ec;"
+          data-help-src="../RRUniversity/administrator-start-here.html#accounting-setup"
+          data-help-title="The deeper DMAAI worklist">
+    <span class="help-pill-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+    How this works
+    <span class="help-pill-sub">The deeper DMAAI worklist</span>
+  </button>
+
+  <!-- ============================================================
+       HEADLINE STRIP (from JSON sidecar _meta)
+       ============================================================ -->
+  <section class="headline-strip" id="js-headline">
+    <div class="headline-subline" id="js-headline-subline">Loading analysis&hellip;</div>
+    <dl class="headline-meta" id="js-headline-meta"></dl>
+    <details class="caveat-details" id="js-headline-caveat" hidden>
+      <summary>
+        <svg class="caveat-summary-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2 L14 13 L2 13 Z"/><line x1="8" y1="7" x2="8" y2="10"/><circle cx="8" cy="11.5" r="0.5"/></svg>
+        <span>Read the analyzer caveat before acting on findings</span>
+        <svg class="caveat-summary-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 6 8 10 12 6"/></svg>
+      </summary>
+      <div class="caveat-body" id="js-headline-caveat-text"></div>
+    </details>
+  </section>
+
+  <!-- ============================================================
+       PILL TAB NAV (Analysis / Sales / Inventory / Mfg / Purchasing)
+       ============================================================ -->
+  <nav class="tab-bar" id="js-tab-bar" role="tablist">
+    <button class="tab-pill" type="button" role="tab" data-tab="model" aria-selected="false" title="Baseline AAI configuration — what the rules SHOULD look like, per (Company, TxComp, Table, OrderType, DocType, GLClass).">
+      Model
+      <span class="tab-count" id="js-tab-count-model">0</span>
+      <span class="tab-dot" id="js-tab-dot-model" hidden></span>
+    </button>
+    <button class="tab-pill" type="button" role="tab" data-tab="exception-gl" aria-selected="false" title="Items with GL classes not in the AAI master — item / lot-level setup issue distinct from the AAI rule findings.">
+      Exception GL
+      <span class="tab-count" id="js-tab-count-exception-gl">0</span>
+    </button>
+    <button class="tab-pill is-active" type="button" role="tab" data-tab="analysis" aria-selected="true">
+      Analysis
+      <span class="tab-count" id="js-tab-count-analysis">0</span>
+    </button>
+    <button class="tab-pill" type="button" role="tab" data-tab="Sales" aria-selected="false">
+      Sales
+      <span class="tab-count" id="js-tab-count-Sales">0</span>
+    </button>
+    <button class="tab-pill" type="button" role="tab" data-tab="Inventory" aria-selected="false">
+      Inventory
+      <span class="tab-count" id="js-tab-count-Inventory">0</span>
+    </button>
+    <button class="tab-pill" type="button" role="tab" data-tab="Manufacturing" aria-selected="false">
+      Manufacturing
+      <span class="tab-count" id="js-tab-count-Manufacturing">0</span>
+    </button>
+    <button class="tab-pill" type="button" role="tab" data-tab="Purchasing" aria-selected="false">
+      Purchasing
+      <span class="tab-count" id="js-tab-count-Purchasing">0</span>
+    </button>
+  </nav>
+
+  <!-- ============================================================
+       MODEL PANEL — baseline AAI configuration (v_integrity1_aai_base)
+       Read-only reference grid. Sits to the left of Analysis so the
+       analyst can compare findings against the canonical baseline.
+       ============================================================ -->
+  <div class="tab-panel" id="js-panel-model" role="tabpanel">
+    <section class="grid-card">
+      <div class="grid-head">
+        <span class="grid-title">Model &middot; F4095 baseline</span>
+        <span class="model-verdict" id="js-model-verdict" hidden></span>
+        <div class="grid-state-cluster">
+          <label class="grid-search" title="Search across visible columns">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4"/><line x1="10" y1="10" x2="14" y2="14"/></svg>
+            <input type="search" id="js-model-search" placeholder="Search rows&hellip;" autocomplete="off" spellcheck="false">
+            <button type="button" class="grid-search-clear" id="js-model-search-clear" hidden title="Clear search">&times;</button>
+          </label>
+          <button type="button" class="grid-pill grid-pill-export" id="js-model-export-btn" title="Export the baseline rows to Excel">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v3h10v-3"/><path d="M8 2v9"/><polyline points="5 8 8 11 11 8"/></svg>
+            <span>Excel</span>
+          </button>
+          <span class="grid-pill grid-pill-count" id="js-model-count">Loading&hellip;</span>
+        </div>
+      </div>
+      <div class="grid-scroll">
+        <table class="grid-table" id="js-model-table">
+          <thead><tr id="js-model-thead-row"></tr></thead>
+          <tbody id="js-model-tbody">
+            <tr><td colspan="14" class="grid-skeleton"><span class="grid-skeleton-bar"></span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============================================================
+       EXCEPTION GL PANEL — items with GL classes not in the AAI
+       master (v_integrity3_exc_glc). Item / lot-level setup issue
+       distinct from the AAI rule findings on the Analysis tab.
+       Same simple-grid pattern as the Model tab.
+       ============================================================ -->
+  <div class="tab-panel" id="js-panel-exception-gl" role="tabpanel">
+    <section class="grid-card">
+      <div class="grid-head">
+        <span class="grid-title">Exception GL &middot; items with GL classes not in the AAI master</span>
+        <div class="grid-state-cluster">
+          <label class="grid-search" title="Search across visible columns">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4"/><line x1="10" y1="10" x2="14" y2="14"/></svg>
+            <input type="search" id="js-exc-glc-search" placeholder="Search rows&hellip;" autocomplete="off" spellcheck="false">
+            <button type="button" class="grid-search-clear" id="js-exc-glc-search-clear" hidden title="Clear search">&times;</button>
+          </label>
+          <button type="button" class="grid-pill grid-pill-export" id="js-exc-glc-export-btn" title="Export the exception rows to Excel">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v3h10v-3"/><path d="M8 2v9"/><polyline points="5 8 8 11 11 8"/></svg>
+            <span>Excel</span>
+          </button>
+          <span class="grid-pill grid-pill-count" id="js-exc-glc-count">Loading&hellip;</span>
+        </div>
+      </div>
+      <div class="grid-scroll">
+        <table class="grid-table" id="js-exc-glc-table">
+          <thead><tr id="js-exc-glc-thead-row"></tr></thead>
+          <tbody id="js-exc-glc-tbody">
+            <tr><td colspan="9" class="grid-skeleton"><span class="grid-skeleton-bar"></span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============================================================
+       ANALYSIS PANEL — FIX FIRST + ASK CUSTOMER + IGNORE
+       ============================================================ -->
+  <div class="tab-panel is-active" id="js-panel-analysis" role="tabpanel">
+
+    <section class="worklist-card" id="js-card-fix-first">
+      <div class="worklist-head">
+        <span class="worklist-eyebrow">FIX</span>
+        <span class="worklist-title">Fix first</span>
+        <span class="worklist-progress">
+          <span class="progress-bar"><span class="progress-fill" id="js-fix-progress" style="width:0%"></span></span>
+          <span id="js-fix-progress-label">0 / 0 resolved</span>
+        </span>
+      </div>
+      <table class="worklist-table">
+        <thead>
+          <tr>
+            <th class="wl-col-id">ID</th>
+            <th class="wl-col-co">Company</th>
+            <th class="wl-col-task">Task</th>
+            <th class="wl-col-doc">Doc types</th>
+            <th class="wl-col-gl">GL classes</th>
+            <th class="wl-col-ref">Reference</th>
+            <th class="wl-col-rows" title="Configurations affected by this finding">Configs</th>
+            <th class="wl-col-answer">Answer</th>
+            <th class="wl-col-decision">Decision</th>
+            <th class="wl-col-status">Status</th>
+          </tr>
+        </thead>
+        <tbody id="js-fix-first-tbody">
+          <tr><td colspan="10" class="grid-skeleton"><span class="grid-skeleton-bar"></span></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="worklist-card is-questions" id="js-card-ask-customer">
+      <div class="worklist-head">
+        <span class="worklist-eyebrow">ASK</span>
+        <span class="worklist-title">Ask the customer</span>
+        <span class="worklist-progress">
+          <span class="progress-bar"><span class="progress-fill" id="js-ask-progress" style="width:0%"></span></span>
+          <span id="js-ask-progress-label">0 / 0 answered</span>
+        </span>
+      </div>
+      <table class="worklist-table">
+        <thead>
+          <tr>
+            <th class="wl-col-id">ID</th>
+            <th class="wl-col-co">Company</th>
+            <th class="wl-col-task">Question</th>
+            <th class="wl-col-doc">Doc types</th>
+            <th class="wl-col-gl">GL classes</th>
+            <th class="wl-col-ref">Reference</th>
+            <th class="wl-col-rows" title="Configurations affected by this finding">Configs</th>
+            <th class="wl-col-answer">Answer</th>
+            <th class="wl-col-decision">Decision</th>
+            <th class="wl-col-status">Status</th>
+          </tr>
+        </thead>
+        <tbody id="js-ask-customer-tbody">
+          <tr><td colspan="10" class="grid-skeleton"><span class="grid-skeleton-bar"></span></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="ignore-card" id="js-card-ignore">
+      <div class="ignore-eyebrow">Ignore for now &middot; self-surfacing</div>
+      <div class="ignore-title">These will surface as JDE posting failures if they ever matter</div>
+      <div class="ignore-blurb" id="js-ignore-blurb">&mdash;</div>
+    </section>
+
+  </div>
+
+  <!-- Module panels are created lazily by the JS so each can carry
+       its own COLUMNS array + state. The container is here to keep
+       the DOM order predictable. -->
+  <div id="js-module-panels"></div>
+
+  <!-- Save bar (sticky bottom when changes are pending) -->
+  <div class="save-bar" id="js-save-bar">
+    <span class="save-bar-text">You have <strong id="js-save-bar-count">0</strong> unsaved changes</span>
+    <span class="save-bar-status" id="js-save-bar-status"></span>
+    <span class="save-bar-actions">
+      <button type="button" class="save-bar-btn" id="js-save-discard">Discard</button>
+      <button type="button" class="save-bar-btn is-primary" id="js-save-apply">Save</button>
+    </span>
+  </div>
+
+</div>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ============================================================
+  //  Sidebar — mount the shared DOM first so subsequent JS that
+  //  binds by ID (filter popovers, status drawer, etc.) finds its
+  //  targets. PIN_LS_KEY + module-collapse handlers now live in
+  //  sidebar.js.
+  // ============================================================
+  // Phase 3: off the left rail. mountWorkbar populates the topbar with the
+  // inventory sub-nav + connectivity + Home + user chip (manageUser — this
+  // page has no user menu of its own). DMAAIs isn't an inventory nav target,
+  // so no nav item is active; it's reached from Home. No Company picker —
+  // the DMAAI universe isn't company-filtered here.
+  if (window.RRV8 && typeof window.RRV8.mountWorkbar === 'function') {
+    window.RRV8.mountWorkbar({ activePage: 'dmaais', manageUser: true, nav: false });
+  }
+
+  // ============================================================
+  //  MODE + SESSION + rrFetch (same conventions as the rest of V8)
+  // ============================================================
+  const RR_CONFIG = window.RR_CONFIG || { mode: 'demo', dataPath: 'data/' };
+  const MODE = (function () {
+    try {
+      const m = new URL(location.href).searchParams.get('mode');
+      if (m === 'demo' || m === 'staging' || m === 'prod') return m;
+    } catch (_) {}
+    return RR_CONFIG.mode || 'demo';
+  })();
+  const IS_DEMO = MODE === 'demo';
+
+  let RR_SESSION = window.RR_SESSION || null;
+
+  function rrParseJwt(token) {
+    try {
+      const body = token.split('.')[1];
+      return JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/')));
+    } catch (_) { return null; }
+  }
+
+  function activeDb() {
+    if (!RR_SESSION || !Array.isArray(RR_SESSION.dbs)) return null;
+    return RR_SESSION.dbs[RR_SESSION.activeDbIndex || 0] || null;
+  }
+
+  // -----------------------------------------------------------------
+  //  Permission guard (Prompt #4)
+  //
+  //  DMAAIs is gated by per-user `dmaais` perm + per-client admin
+  //  module cap. The JWT's active-db `perms.dm` carries the user-
+  //  level flag; `m.adm` carries the client-level cap. Either being
+  //  explicitly false blocks the page.
+  //
+  //  Fail-open semantics:
+  //    - DEMO mode: skip the guard entirely (snapshots aren't perm-
+  //      scoped).
+  //    - No active db or missing perms block: skip (back-compat with
+  //      older tokens / synthetic dev token).
+  //
+  //  When blocked: replace #js-page content with an access-denied
+  //  panel; sidebar + topbar stay rendered so the user can navigate
+  //  away. Return from the IIFE so subsequent fetches don't fire.
+  // -----------------------------------------------------------------
+  function checkDmaaiAccess() {
+    if (IS_DEMO) return true;
+    const db = activeDb();
+    if (!db) return true;  // fail-open; sidebar handles unauth redirect
+    const perms = db.perms || {};
+    const m     = db.m     || {};
+    const userOk   = (perms.dm !== false);
+    const clientOk = (m.adm    !== false);
+    return userOk && clientOk;
+  }
+  if (!checkDmaaiAccess()) {
+    const page = document.getElementById('js-page');
+    if (page) {
+      page.innerHTML =
+        '<header class="page-header"><div class="page-header-left">' +
+          '<div class="title-row"><h1 class="page-title">DMAAIs</h1></div>' +
+        '</div></header>' +
+        '<section class="grid-card" style="margin-top: 24px;">' +
+          '<div style="padding: 48px 32px; text-align: center; color: var(--text-soft);">' +
+            '<div style="font-family: \'Source Sans 3\', sans-serif; font-weight: 700; ' +
+              'font-size: 18px; color: var(--navy); margin-bottom: 10px;">' +
+              'Access denied' +
+            '</div>' +
+            '<div style="max-width: 480px; margin: 0 auto; line-height: 1.55;">' +
+              'You don&rsquo;t have access to DMAAIs on this database. ' +
+              'Contact your administrator if you need it enabled, or pick a ' +
+              'different database from the user menu.' +
+            '</div>' +
+          '</div>' +
+        '</section>';
+    }
+    return;  // exit the IIFE; no page data loads
+  }
+
+  function prodHeaders(contentType) {
+    const h = { 'Accept': 'application/json' };
+    if (contentType) h['Content-Type'] = contentType;
+    try {
+      const t = localStorage.getItem('rrv8.token');
+      if (t) h['Authorization'] = 'Bearer ' + t;
+    } catch (_) {}
+    return h;
+  }
+
+  // Endpoints owned by the green-field data-services test agent
+  // (RapidReconciler-Agent). Source of truth is RR_TEST_AGENT_AREAS
+  // in config.js; this local fallback covers the case where config.js
+  // failed to load. The trailing three aai-* areas are planned and
+  // will 404 visibly until the test agent ships them.
+  const _testAgentAreas = new Set(window.RR_TEST_AGENT_AREAS || [
+    'inventory/reconciliation/rows',
+    'inventory/reconciliation/history',
+    'inventory/audit-detail',
+    'inventory/variance-component',
+    'inventory/integrity/aai-analysis-latest',
+    'inventory/integrity/aai-responses',
+    'inventory/integrity/aai-save-responses'
+  ]);
+  const _testAgentPrefixes = window.RR_TEST_AGENT_PREFIXES || ['download-excel/'];
+  function _routesToTestAgent(area) {
+    if (_testAgentAreas.has(area)) return true;
+    for (let i = 0; i < _testAgentPrefixes.length; i++) {
+      if (area.startsWith(_testAgentPrefixes[i])) return true;
+    }
+    return false;
+  }
+  function rrFetch(area, opts) {
+    opts = opts || {};
+    if (IS_DEMO) {
+      const fname = (RR_CONFIG.dataPath || 'data/') + area + '.json';
+      return fetch(fname, { cache: 'no-cache' }).then(r => {
+        if (!r.ok) throw new Error('demo fetch ' + fname + ': HTTP ' + r.status);
+        return r.json();
+      });
+    }
+    let base;
+    if (_routesToTestAgent(area)) {
+      {
+        // Route to the active DB's agent (dbs[activeDbIndex].ip). V7
+        // architecture: one Services jar per database on its own port.
+        // Switching the DB in the user-menu changes activeDbIndex and
+        // therefore the agent we hit. Static testAgentBase remains as
+        // a boot-race fallback when the session hasn't hydrated yet.
+        base = window.RRDB.agentBase();   // canonical active-DB agent resolver (config.js RRDB)
+      }
+    } else {
+      const db = activeDb();
+      if (!db) return Promise.reject(new Error('no active DB'));
+      base = (/^(?:localhost|127\.0\.0\.1)\b/i.test(db.ip) ? 'http://' : 'https://') + db.ip;
+    }
+    const url = base + '/' + area;
+    return fetch(url, {
+      method:  opts.method  || 'GET',
+      headers: prodHeaders(opts.body ? 'application/json' : null),
+      body:    opts.body ? JSON.stringify(opts.body) : undefined,
+    }).then(r => {
+      // The status has to survive as a PROPERTY: RRV8.fetchErrorMessage branches
+      // on it and must never scrape a code back out of the message string.
+      if (!r.ok) { const e = new Error(area + ': HTTP ' + r.status); e.status = r.status; throw e; }
+      return r.json();
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, m =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])
+    );
+  }
+
+  // ONE producer for the sentence: RRV8.fetchErrorMessage (sidebar.js) branches
+  // on the HTTP status so the remedy matches the failure — a 403 is an
+  // unauthenticated session, not a missing endpoint. See
+  // docs/plans/shared-state-registry.md. Falls back to the raw message only if
+  // sidebar.js is unavailable.
+  function fetchErrText(area, err) {
+    return (window.RRV8 && window.RRV8.fetchErrorMessage)
+      ? window.RRV8.fetchErrorMessage(area, err)
+      : ((err && err.message) || String(err));
+  }
+  function showFetchError(area, err) {
+    const page = document.getElementById('js-page');
+    if (!page) return;
+    let banner = document.getElementById('js-fetch-error-' + area.replace(/\W+/g, '_'));
+    if (banner) banner.remove();
+    banner = document.createElement('div');
+    banner.id = 'js-fetch-error-' + area.replace(/\W+/g, '_');
+    banner.className = 'fetch-error-banner';
+    banner.innerHTML =
+      '<div class="feb-icon">!</div>' +
+      '<div class="feb-body">' +
+        '<div class="feb-title">Couldn’t load <code>' + escapeHtml(area) + '</code></div>' +
+        '<div class="feb-detail">' + escapeHtml(fetchErrText(area, err)) + '</div>' +
+      '</div>';
+    page.insertBefore(banner, page.firstChild);
+  }
+
+  // Plain-English banner for a failure whose CONSEQUENCE the reader needs to
+  // understand, not its endpoint. Same slot + styling as showFetchError; used where
+  // an unexplained empty state would read as a real answer.
+  // `tone` is 'error' (default, red) or 'info' (blue) — an empty state that nobody
+  // needs to fix reads as a false alarm in red, and a reader who learns to skim the
+  // red band also skims the failures.
+  function showNotice(id, title, detail, tone) {
+    const page = document.getElementById('js-page');
+    if (!page) return;
+    let banner = document.getElementById('js-notice-' + id);
+    if (banner) banner.remove();
+    banner = document.createElement('div');
+    banner.id = 'js-notice-' + id;
+    banner.className = 'fetch-error-banner' + (tone === 'info' ? ' is-info' : '');
+    banner.innerHTML =
+      '<div class="feb-icon">' + (tone === 'info' ? 'i' : '!') + '</div>' +
+      '<div class="feb-body">' +
+        '<div class="feb-title">' + escapeHtml(title) + '</div>' +
+        '<div class="feb-detail">' + escapeHtml(detail) + '</div>' +
+      '</div>';
+    page.insertBefore(banner, page.firstChild);
+  }
+
+  // ============================================================
+  //  System status — shared sessionStorage cache with the other
+  //  V8 pages so the sidebar light + drawer banner reflect the
+  //  same live state.
+  // ============================================================
+  function _statusKey() {
+    const db = activeDb();
+    const dbName = db ? (db.n || db.ip) : 'demo';
+    return 'rrv8-status-' + MODE + '-' + dbName;
+  }
+  function _readStatus() {
+    try {
+      const raw = sessionStorage.getItem(_statusKey());
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) { return null; }
+  }
+  function _writeStatus(s) {
+    try { sessionStorage.setItem(_statusKey(), JSON.stringify(s)); } catch (_) {}
+  }
+
+  // Paint the System Status dot + drawer banner. NO-SIGNAL IS NOT GREEN: the
+  // defaults here used to be color 'green' / headline 'Up to date', so an absent
+  // or unreadable status painted a confident all-clear. sidebar.js reports the
+  // same dot as amber "no live read yet" when nothing has been read, and the two
+  // have to agree — a health light that goes green on no data is worse than no
+  // light at all.
+  const STATUS_UNKNOWN = { color: 'amber', eyebrow: 'System Status', headline: 'No live read yet', sub: 'Open Reconciliation or Account Roll Forward to check the latest refresh.' };
+  function paintStatusDot(status) {
+    const dot    = document.getElementById('js-status-dot');
+    const banner = document.getElementById('status-banner');
+    const eye    = document.getElementById('status-banner-eyebrow');
+    const head   = document.getElementById('status-banner-headline');
+    const sub    = document.getElementById('status-banner-sub');
+    if (!dot || !banner) return;
+    const s = (status && status.color && status.headline) ? status : STATUS_UNKNOWN;
+    dot.className = 'sidebar-status-dot is-' + s.color;
+    banner.className = 'status-banner is-' + s.color;
+    if (eye)  eye.textContent  = s.eyebrow || 'System Status';
+    if (head) head.textContent = s.headline;
+    if (sub)  sub.textContent  = s.sub || '';
+  }
+
+  function loadStatus() {
+    const cached = _readStatus();
+    if (cached) {
+      paintStatusDot(cached);
+      return Promise.resolve(cached);
+    }
+    if (IS_DEMO) {
+      return fetch('data/system-status-log.json', { cache: 'no-cache' })
+        .then(r => r.ok ? r.json() : null)
+        .then(log => {
+          if (!log || !log.currentJob) {
+            const s = { color: 'green', eyebrow: 'System Status', headline: 'Up to date', sub: '' };
+            _writeStatus(s); paintStatusDot(s); return s;
+          }
+          const j = log.currentJob;
+          const map = { 'Successful': 'green', 'In Progress': 'amber', 'Failed': 'red', 'Cancelled': 'red', 'Not Found': 'amber' };
+          const s = {
+            color: map[j.jobStatus] || 'amber',
+            eyebrow: 'Latest cycle',
+            headline: j.jobStatus || 'Unknown',
+            sub: j.jobDate ? ('Ran ' + j.jobDate + ' · ' + (j.minutes || 0) + ' min') : '',
+          };
+          _writeStatus(s); paintStatusDot(s); return s;
+        })
+        .catch(() => { paintStatusDot(null); return null; });
+    }
+    // Prod path: this page has no status read of its own — it relies on whatever
+    // Reconciliation / Account Roll Forward wrote into the shared cache. When that
+    // cache is empty (the analyst landed here first) we know NOTHING about the last
+    // refresh, so say that. This used to hard-code green "Up to date" with no read
+    // behind it, which told the accountant the nightly refresh was fine on a page
+    // that had never asked.
+    paintStatusDot(null);
+    return Promise.resolve(null);
+  }
+
+  // System Status drawer wiring
+  const statusOverlay = document.getElementById('status-overlay');
+  const statusRow     = document.getElementById('js-status-row');
+  const statusCancel  = document.getElementById('status-cancel');
+  const statusDownload= document.getElementById('status-download');
+  if (statusRow && statusOverlay) {
+    statusRow.addEventListener('click', () => { statusOverlay.hidden = false; });
+    statusCancel.addEventListener('click', () => { statusOverlay.hidden = true; });
+    statusOverlay.addEventListener('click', e => {
+      if (e.target === statusOverlay) statusOverlay.hidden = true;
+    });
+    statusDownload.addEventListener('click', () => {
+      // Cross-page concern: the full diagnostic pipeline lives on
+      // Account Roll Forward. Open it in a new tab with a query hint.
+      window.open('inventory-account-rollforward.html?statusDownload=1', '_blank');
+    });
+  }
+
+  // Pin button + module collapse wiring lives in sidebar.js now.
+
+  // ============================================================
+  //  Sidebar filter popovers — bare-bones (the chrome's full
+  //  popover wiring lives on the other pages; here we just keep
+  //  the affordance from looking dead). Clicking a filter pops a
+  //  one-line note that filters don't change DMAAI scope.
+  // ============================================================
+  const filterPop = document.getElementById('filter-popover');
+  document.querySelectorAll('.sidebar-filter').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      if (!filterPop) return;
+      filterPop.innerHTML =
+        '<div class="popover-section-label">' +
+          escapeHtml(btn.querySelector('.sidebar-filter-text').textContent) +
+        '</div>' +
+        '<div class="popover-row" style="font-style:italic;color:var(--text-muted);cursor:default;">' +
+          'DMAAIs are JDE configuration &mdash; not period-scoped. Filters here affect Reconciliation / Transactions.' +
+        '</div>';
+      const r = btn.getBoundingClientRect();
+      filterPop.style.left = (r.right + 8) + 'px';
+      filterPop.style.top  = (r.top - 4) + 'px';
+      filterPop.hidden = false;
+    });
+  });
+  document.addEventListener('click', e => {
+    if (filterPop && !filterPop.contains(e.target) && !e.target.closest('.sidebar-filter')) {
+      filterPop.hidden = true;
+    }
+  });
+
+  // ============================================================
+  //  Module → AAI-table mapping. Mirror of the extract script's
+  //  MODULE_AAI dict so the page can ask "which module does this
+  //  AAI belong to?" if it ever needs to (e.g. clicking a
+  //  worklist Reference link → jump to the module tab).
+  // ============================================================
+  const MODULE_AAI = {
+    'Sales':         new Set(['4220','4226','4228','4230','4240','4245','4250','4270']),
+    'Inventory':     new Set(['4122','4124','4134','4136','4140','4141','4152','4154','4162','4164','4172','4174']),
+    'Manufacturing': new Set(['3110','3120','3130','3210','3220','3240','3260','3270','3280','3400','3401']),
+    'Purchasing':    new Set(['4126','4128','4310','4315','4318','4320','4330','4332','4335','4337','4340','4350','4355','4365','4370','4375','4385','4390','4400','4405']),
+  };
+  const MODULE_ORDER = ['Sales', 'Inventory', 'Manufacturing', 'Purchasing'];
+
+  // ============================================================
+  //  Page-scope Company filter
+  //
+  //  When set, narrows everything on the page:
+  //    - Worklist FIX FIRST + ASK CUSTOMER rows (findings with the
+  //      matching `company`; null-company findings always pass)
+  //    - Module grids (rows with the matching `companyNumber`)
+  //    - Tab counts (recomputed inside the filter)
+  // ============================================================
+  // Keyed PER DATABASE. The old key was global, so a company picked on one
+  // database stayed in force after switching to another — where the same company
+  // number is a different company (or doesn't exist). Every other persisted V8
+  // preference is per-db for exactly this reason; the pill is no different.
+  function companyLsKey() {
+    let db = '';
+    try { db = (window.RRDB && RRDB.name && RRDB.name()) || ''; } catch (_) {}
+    return 'rrv8-dmaai-page-company-v1.' + (db || '_');
+  }
+  let _pageCompanyFilter = null;
+  try {
+    const v = localStorage.getItem(companyLsKey());
+    if (v) _pageCompanyFilter = v;
+  } catch (_) {}
+
+  function saveCompanyFilter() {
+    try {
+      if (_pageCompanyFilter) localStorage.setItem(companyLsKey(), _pageCompanyFilter);
+      else localStorage.removeItem(companyLsKey());
+    } catch (_) {}
+  }
+
+  // --- Shared working-company scope (set on Home, owned by sidebar.js). The
+  // page filters everything to the in-scope companies; the local company pill
+  // is a drill WITHIN that set, and is ignored if it falls out of scope. ---
+  function scopedCompanySet() {
+    const sc = (window.RRV8 && window.RRV8.readSessionScope) ? window.RRV8.readSessionScope() : null;
+    if (!sc) return null;
+    const act = (sc.activeCompanies || []).map(String);
+    const allow = (sc.allowedCompanies || []).map(String);
+    if (!act.length) return null;
+    if (allow.length && act.length >= allow.length) return null;   // all selected = no narrowing
+    return act.reduce((s, c) => { s[String(c)] = true; return s; }, {});
+  }
+  // Trimmed: company codes arrive padded from some sources and bare from others, and
+  // an untrimmed key miss reads as "out of scope" rather than as a formatting problem.
+  function inScopeCo(co) { const s = scopedCompanySet(); return !s || !!s[String(co == null ? '' : co).trim()]; }
+  // The local pill only applies when it's within the current scope; a stale
+  // out-of-scope pick (persisted from another session) is ignored.
+  function effPageCompany() { return (_pageCompanyFilter && inScopeCo(_pageCompanyFilter)) ? _pageCompanyFilter : null; }
+
+  function getAvailableCompanies() {
+    const set = new Set();
+    const a = window._dmaaiAnalysis;
+    if (a) {
+      (a.fixFirst || []).forEach(f => { if (f.company) set.add(f.company); });
+      (a.askCustomer || []).forEach(f => { if (f.company) set.add(f.company); });
+    }
+    MODULE_ORDER.forEach(m => {
+      const rows = (_gridState[m] && _gridState[m].rows) || [];
+      rows.forEach(r => { if (r.companyNumber) set.add(r.companyNumber); });
+    });
+    return Array.from(set).filter(inScopeCo).sort();   // only companies in the Home scope
+  }
+
+  // Set when ?company= named a company outside the working scope. Without this the
+  // page kept whatever company was persisted in localStorage from a PRIOR session and
+  // rendered a full, plausible grid for the WRONG company — the analyst clicked a card
+  // for company A and read company B's configs believing they were A's.
+  let _scopeError = null;
+  const _coEq = (a, b) => String(a == null ? '' : a).trim() === String(b == null ? '' : b).trim();
+
+  function findingPassesCompanyFilter(f) {
+    if (_scopeError) return false;                                  // unhonorable URL scope → show nothing
+    if (f.company != null && !inScopeCo(f.company)) return false;   // honor Home working-company scope
+    const pc = effPageCompany();
+    if (!pc) return true;
+    if (f.company == null) return true;        // cross-company finding (e.g. unrec)
+    return _coEq(f.company, pc);
+  }
+  function rowPassesCompanyFilter(r) {
+    if (_scopeError) return false;
+    if (!inScopeCo(r.companyNumber)) return false;   // honor Home working-company scope
+    const pc = effPageCompany();
+    return !pc || _coEq(r.companyNumber, pc);
+  }
+
+  function paintCompanyPill() {
+    const pill = document.getElementById('js-company-pill');
+    const val  = document.getElementById('js-company-pill-value');
+    const pc = effPageCompany();
+    if (val) val.textContent = _scopeError
+      ? ('Company ' + _scopeError.value + ' not in scope')
+      : (pc || (scopedCompanySet() ? 'All in scope' : 'All'));
+    if (pill) pill.classList.toggle('is-narrowed', !!pc || !!_scopeError);
+  }
+
+  function openCompanyPopover(anchor) {
+    const pop = document.getElementById('company-popover');
+    if (!pop) return;
+    const companies = getAvailableCompanies();
+    const pc = effPageCompany();
+    const rows = [
+      '<div class="popover-section-label">Company</div>',
+      '<div class="popover-row' + (!pc ? ' is-active' : '') + '" data-co="">' + (scopedCompanySet() ? 'All companies in scope' : 'All companies') + '</div>',
+      '<div class="popover-section">',
+        ...companies.map(co =>
+          '<div class="popover-row' + (co === pc ? ' is-active' : '') + '" data-co="' + escapeHtml(co) + '">' +
+            escapeHtml(co) +
+          '</div>'
+        ),
+      '</div>'
+    ];
+    pop.innerHTML = rows.join('');
+    const r = anchor.getBoundingClientRect();
+    pop.style.left = r.left + 'px';
+    pop.style.top  = (r.bottom + 6) + 'px';
+    pop.style.right = 'auto';
+    pop.hidden = false;
+    pop.onclick = e => {
+      const row = e.target.closest('[data-co]');
+      if (!row) return;
+      const co = row.dataset.co || null;
+      if (co === _pageCompanyFilter || (co === '' && !_pageCompanyFilter)) {
+        pop.hidden = true; return;
+      }
+      _pageCompanyFilter = co || null;
+      saveCompanyFilter();
+      paintCompanyPill();
+      // Re-render everything that respects the filter.
+      const a = window._dmaaiAnalysis;
+      if (a) {
+        renderWorklist(a.fixFirst, 'js-fix-first-tbody');
+        renderWorklist(a.askCustomer, 'js-ask-customer-tbody');
+        refreshProgress(a.fixFirst, 'fix');
+        refreshProgress(a.askCustomer, 'ask');
+      }
+      // Clear any active focus — its scope may no longer match.
+      MODULE_ORDER.forEach(m => {
+        if (_gridState[m]) { _gridState[m].findingFocus = null; paintFindingFocus(m); }
+      });
+      rerenderAllModuleGrids();
+      refreshTabCounts();
+      pop.hidden = true;
+    };
+  }
+
+  document.addEventListener('click', e => {
+    const pop = document.getElementById('company-popover');
+    if (!pop) return;
+    if (pop.contains(e.target) || e.target.closest('#js-company-pill')) return;
+    pop.hidden = true;
+  });
+
+  // ============================================================
+  //  Finding ↔ F4095 row matching
+  //
+  //  Each finding's semantic identity (issueType|company|scope|glClass)
+  //  maps to a set of F4095 rows in the JDE Data tab. The matchers
+  //  encode the analyzer's pattern semantics so the page can:
+  //    - show "N applicable rows" on each worklist row
+  //    - tag every F4095 row with `_findingId` once at load
+  //    - in the module grid, paint a status chip per row + dim
+  //      rows whose finding is Intended / Fixed
+  //    - apply the 3-state row filter (All / Hide intended / Open only)
+  //
+  //  Note for `mc` (missing complement) findings: the 4th element of
+  //  the semantic tuple is the *focus AAI* (which side of the pair
+  //  the finding is about), not a GL class. The extractor stores it
+  //  under `glClass` — the field is overloaded by issueType.
+  // ============================================================
+  function matchRowsForFinding(finding, allRows) {
+    const t = finding.issueType;
+    const co = finding.company;
+    const scope = finding.scope || '';
+
+    if (t === 'glsub') {
+      // glsub|co|aai|glClass  →  every row with (co, aai, glClass)
+      const gl = finding.glClass;
+      return allRows.filter(r =>
+        r.companyNumber === co &&
+        r.aaiNumber === scope &&
+        r.glClass === gl
+      );
+    }
+
+    if (t === 'nz') {
+      // nz|co|aaiA-aaiB  →  rows for both AAIs where the Dr/Cr pair
+      // share the same (docType, glClass, objAccount). These are
+      // the configurations that net to zero. IT is exempt (matches
+      // the derive-side filter).
+      const parts = scope.split('-');
+      if (parts.length !== 2) return [];
+      const [aA, aB] = parts;
+      const inCo = allRows.filter(r =>
+        r.companyNumber === co &&
+        (r.aaiNumber === aA || r.aaiNumber === aB) &&
+        r.docType !== 'IT'
+      );
+      const keyOf = r => r.docType + '|' + r.glClass + '|' + r.objAccount;
+      const byA = new Map();
+      const byB = new Map();
+      inCo.forEach(r => {
+        const k = keyOf(r);
+        const target = r.aaiNumber === aA ? byA : byB;
+        if (!target.has(k)) target.set(k, []);
+        target.get(k).push(r);
+      });
+      const matched = [];
+      byA.forEach((rowsA, k) => {
+        const rowsB = byB.get(k);
+        if (rowsB) { matched.push.apply(matched, rowsA); matched.push.apply(matched, rowsB); }
+      });
+      return matched;
+    }
+
+    if (t === 'itnz') {
+      // itnz|co|aaiA-aaiB  →  IT pairs for `co` where both Dr + Cr
+      // sides exist at the same (orderType, glClass) but route to
+      // different full accounts. Inverse of nz; IT is expected to
+      // wash, so a non-wash means the entry leaves a balance.
+      const parts = scope.split('-');
+      if (parts.length !== 2) return [];
+      const [aA, aB] = parts;
+      const itA = allRows.filter(r =>
+        r.companyNumber === co && r.aaiNumber === aA && r.docType === 'IT'
+      );
+      const itB = allRows.filter(r =>
+        r.companyNumber === co && r.aaiNumber === aB && r.docType === 'IT'
+      );
+      const keyOf = r => r.orderType + '|' + r.glClass;
+      const acctOf = r => r.businessUnit + '|' + r.objAccount + '|' + r.subsidiary;
+      const aBy = new Map(), bBy = new Map();
+      itA.forEach(r => { const k = keyOf(r); if (!aBy.has(k)) aBy.set(k, r); });
+      itB.forEach(r => { const k = keyOf(r); if (!bBy.has(k)) bBy.set(k, r); });
+      const matched = [];
+      aBy.forEach((rA, k) => {
+        const rB = bBy.get(k);
+        if (rB && acctOf(rA) !== acctOf(rB)) matched.push(rA, rB);
+      });
+      return matched;
+    }
+
+    if (t === 'mc') {
+      // mc|co|aaiA-aaiB|focusAai  →  the focusAai-side rows for `co`
+      // that are missing their complement at the same (docType, glClass)
+      const parts = scope.split('-');
+      if (parts.length !== 2) return [];
+      const focusAai = finding.glClass;            // overloaded — see header
+      const otherAai = parts.find(p => p !== focusAai);
+      if (!focusAai || !otherAai) return [];
+      const focusRows = allRows.filter(r =>
+        r.companyNumber === co && r.aaiNumber === focusAai
+      );
+      const otherKeys = new Set(
+        allRows
+          .filter(r => r.companyNumber === co && r.aaiNumber === otherAai)
+          .map(r => r.docType + '|' + r.glClass)
+      );
+      return focusRows.filter(r => !otherKeys.has(r.docType + '|' + r.glClass));
+    }
+
+    if (t === 'unrec') {
+      // unrec|series  →  every row whose AAI sits in `series`. The
+      // series is the 2-digit prefix family (e.g. "4900" → 4920, 4921).
+      const prefix = scope.slice(0, 2);
+      return allRows.filter(r => String(r.aaiNumber).startsWith(prefix));
+    }
+
+    return [];
+  }
+
+  // _rowsByFinding[findingId] -> array of F4095 row references.
+  // Side effect: each matched row gets `_findingId` set in place so
+  // module grid rendering can look up status without a reverse scan.
+  const _rowsByFinding = Object.create(null);
+
+  function tagRowsWithFinding(allFindings, moduleRowsByName) {
+    // Concatenate all module rows into one flat list for matching.
+    // Each row keeps its identity by reference, so tagging in place
+    // shows up in the module-specific arrays too.
+    const all = [];
+    MODULE_ORDER.forEach(m => {
+      const rows = (moduleRowsByName && moduleRowsByName[m]) || [];
+      rows.forEach(r => all.push(r));
+    });
+    allFindings.forEach(f => {
+      const matched = matchRowsForFinding(f, all);
+      _rowsByFinding[f.id] = matched;
+      matched.forEach(r => {
+        if (!r._findingId) r._findingId = f.id;
+      });
+    });
+  }
+
+  // ============================================================
+  //  Response state
+  //
+  //  Local truth: `_dmaaiResponses` keyed by findingId, holds the
+  //  current Answer / Decision / Status (status is derived from
+  //  Answer per the spec). Mutations flip a "dirty" flag that
+  //  shows the save bar. `Save` POSTs to /aai-save-responses
+  //  (PROD-TODO) or persists locally in demo.
+  // ============================================================
+  const ANSWER_TO_STATUS = {
+    '':              'Open',
+    'Intended':      'Closed by intent',
+    'Needs review':  'In Progress',
+    'Fixed':         'Resolved',
+  };
+  // One status vocabulary, one place it maps to paint. Two renderers
+  // show a finding's status: the worklist pill (`statusPillHtml`) and
+  // the module-grid row chip (`rowStatusChipHtml`). Both read this map,
+  // so a new status is one edit and cannot land styled on one surface
+  // and mislabelled on the other.
+  //
+  // `_none` is the sentinel `rowStatus` returns for a grid row that
+  // matched no finding: there is nothing to report on it.
+  //
+  // `statusClass` is the only way to get from a status to a class.
+  // A status this build doesn't recognise (a newer Services jar, or a
+  // persisted response written by a later version) resolves to
+  // `is-none`, which makes no claim, and logs once. It must never
+  // inherit another status's treatment: rendering an unknown value as
+  // `is-open` told the analyst the finding was untriaged when the truth
+  // is that we couldn't read it. Same handling as the model sign-off
+  // badge in `renderModelVerdict`.
+  const STATUS_CLASS = {
+    '_none':             'is-none',
+    'Open':              'is-open',
+    'In Progress':       'is-progress',
+    'Resolved':          'is-resolved',
+    'Closed by intent':  'is-intended',
+    'Still Flagged':     'is-still',
+  };
+  const _statusClassWarned = Object.create(null);
+  function statusClass(status) {
+    const cls = STATUS_CLASS[status];
+    if (cls) return cls;
+    const key = String(status);
+    if (!_statusClassWarned[key]) {
+      _statusClassWarned[key] = true;
+      console.warn('[dmaais] unrecognized finding status:', status);
+    }
+    return 'is-none';
+  }
+
+  const _dmaaiResponses = Object.create(null);
+  const _dmaaiResponsesInitial = Object.create(null);
+  let _saveBusy = false;
+
+  function getResponse(findingId) {
+    return _dmaaiResponses[findingId] || { answer: '', decision: '', status: 'Open' };
+  }
+
+  function setResponse(findingId, patch) {
+    const r = Object.assign({ answer: '', decision: '', status: 'Open' }, getResponse(findingId), patch);
+    if (patch && Object.prototype.hasOwnProperty.call(patch, 'answer')) {
+      r.status = ANSWER_TO_STATUS[r.answer] || 'Open';
+    }
+    _dmaaiResponses[findingId] = r;
+    return r;
+  }
+
+  function pendingChangeCount() {
+    let n = 0;
+    Object.keys(_dmaaiResponses).forEach(id => {
+      const cur = _dmaaiResponses[id];
+      const init = _dmaaiResponsesInitial[id] || { answer: '', decision: '', status: 'Open' };
+      if (cur.answer !== init.answer || cur.decision !== init.decision) n++;
+    });
+    return n;
+  }
+
+  function refreshSaveBar() {
+    const bar = document.getElementById('js-save-bar');
+    const count = document.getElementById('js-save-bar-count');
+    const status = document.getElementById('js-save-bar-status');
+    const n = pendingChangeCount();
+    if (!bar) return;
+    count.textContent = String(n);
+    bar.classList.toggle('is-visible', n > 0);
+    if (status && !_saveBusy) status.textContent = '';
+  }
+
+  // ============================================================
+  //  Render — headline strip + worklists
+  // ============================================================
+  function renderHeadline(meta) {
+    const subline = document.getElementById('js-headline-subline');
+    const metaList = document.getElementById('js-headline-meta');
+    const caveatEl = document.getElementById('js-headline-caveat');
+    if (subline) {
+      // Finance audience: highlight the count itself rather than the
+      // word "flagged"; let the prose carry the sentence structure.
+      const s = meta.subline || '';
+      const html = escapeHtml(s).replace(/^(\d[\d,]*)/, '<span class="hs-flagged">$1</span>');
+      subline.innerHTML = html || 'Analysis loaded';
+    }
+    if (metaList) {
+      // Lean meta strip — analysis date + audited count. Company scope is shown
+      // by the company pill at the top of the page, so it's not repeated here.
+      const items = [];
+      if (meta.analysisDateLabel || meta.analysisDate) {
+        items.push(['Last analyzed', meta.analysisDateLabel || meta.analysisDate]);
+      }
+      if (meta.totalRows) {
+        items.push(['Configurations audited', meta.totalRows.toLocaleString()]);
+      }
+      metaList.innerHTML = items.map(([k, v]) =>
+        '<div><dt>' + escapeHtml(k) + '</dt><dd>' + escapeHtml(v) + '</dd></div>'
+      ).join('');
+    }
+    if (caveatEl) {
+      const body = document.getElementById('js-headline-caveat-text');
+      if (meta.caveat && body) {
+        body.textContent = meta.caveat;
+        caveatEl.hidden = false;
+      } else {
+        caveatEl.hidden = true;
+      }
+    }
+  }
+
+  function answerSelectHtml(findingId, current) {
+    const cls = current === 'Intended' ? 'is-intended'
+              : current === 'Needs review' ? 'is-review'
+              : current === 'Fixed' ? 'is-fixed' : '';
+    return (
+      '<select class="wl-answer-select ' + cls + '" data-finding-id="' + escapeHtml(findingId) + '" data-field="answer">' +
+        '<option value=""'             + (current === '' ? ' selected' : '')             + '>—</option>' +
+        '<option value="Intended"'     + (current === 'Intended' ? ' selected' : '')     + '>Intended</option>' +
+        '<option value="Needs review"' + (current === 'Needs review' ? ' selected' : '') + '>Needs review</option>' +
+        '<option value="Fixed"'        + (current === 'Fixed' ? ' selected' : '')        + '>Fixed</option>' +
+      '</select>'
+    );
+  }
+
+  function decisionInputHtml(findingId, current) {
+    return (
+      '<textarea class="wl-decision-input" data-finding-id="' + escapeHtml(findingId) +
+        '" data-field="decision" rows="1" placeholder="Notes · the why">' +
+        escapeHtml(current || '') +
+      '</textarea>'
+    );
+  }
+
+  function statusPillHtml(status) {
+    return '<span class="wl-status-pill ' + statusClass(status) + '">' + escapeHtml(status) + '</span>';
+  }
+
+  function rowsChipHtml(findingId) {
+    const n = (_rowsByFinding[findingId] || []).length;
+    if (!n) {
+      return '<span class="wl-rows-chip is-empty" title="No matching configurations detected">—</span>';
+    }
+    return '<span class="wl-rows-chip" title="' + n + ' configuration' + (n === 1 ? '' : 's') +
+           ' affected by this finding · jump to the module tab to inspect">' + n + '</span>';
+  }
+
+  // List distinct values for a column across the finding's matched
+  // F4095 rows. Caps at LIMIT entries with a "(+ N more)" suffix —
+  // the analyzer's headline truncates these too, but we widen the
+  // budget so the analyst can see the real population without
+  // hunting through the module tab. Empty / blank values are
+  // surfaced as "(blank)" since "missing subsidiary" is itself a
+  // valid finding pattern.
+  function distinctValuesForFinding(findingId, key, limit) {
+    const rows = _rowsByFinding[findingId] || [];
+    if (!rows.length) return '';
+    const set = new Set();
+    rows.forEach(r => {
+      const raw = (r[key] == null ? '' : String(r[key])).trim();
+      set.add(raw === '' ? '(blank)' : raw);
+    });
+    const list = Array.from(set).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    );
+    if (list.length <= limit) return list.join(', ');
+    return list.slice(0, limit).join(', ') + '  (+ ' + (list.length - limit) + ' more)';
+  }
+
+  function referenceCellHtml(row) {
+    const ref = row.reference || '';
+    const navigable = navTargetForFinding(row.id);
+    if (!ref) return '<span class="wl-ref">—</span>';
+    if (!navigable) return '<span class="wl-ref">' + escapeHtml(ref) + '</span>';
+    return (
+      '<button class="wl-ref-link" type="button" data-action="focus-finding" data-finding-id="' +
+        escapeHtml(row.id) + '" title="Jump to the ' + escapeHtml(navigable) +
+        ' tab and narrow the grid to these rows">' +
+        escapeHtml(ref) +
+        '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="12" y2="4"/><polyline points="6 4 12 4 12 10"/></svg>' +
+      '</button>'
+    );
+  }
+
+  function renderWorklistRow(row) {
+    const r = getResponse(row.id);
+    const trClass =
+      r.status === 'Resolved' ? 'is-resolved' :
+      r.status === 'Closed by intent' ? 'is-intended' : '';
+    const docTypes  = distinctValuesForFinding(row.id, 'docType', 15) || row.docTypes  || '';
+    const glClasses = distinctValuesForFinding(row.id, 'glClass', 15) || row.glClasses || '';
+    return (
+      '<tr data-finding-id="' + escapeHtml(row.id) + '" class="' + trClass + '">' +
+        '<td class="wl-col-id">' + escapeHtml(row.id) + '</td>' +
+        '<td class="wl-col-co">' + escapeHtml(row.company || '') + '</td>' +
+        '<td class="wl-col-task">' +
+          '<div class="wl-task">' + escapeHtml(row.task || '') + '</div>' +
+        '</td>' +
+        '<td class="wl-col-doc">' + escapeHtml(docTypes) + '</td>' +
+        '<td class="wl-col-gl">' + escapeHtml(glClasses) + '</td>' +
+        '<td class="wl-col-ref">' + referenceCellHtml(row) + '</td>' +
+        '<td class="wl-col-rows">' + rowsChipHtml(row.id) + '</td>' +
+        '<td class="wl-col-answer">' + answerSelectHtml(row.id, r.answer) + '</td>' +
+        '<td class="wl-col-decision">' + decisionInputHtml(row.id, r.decision) + '</td>' +
+        '<td class="wl-col-status">' + statusPillHtml(r.status) + '</td>' +
+      '</tr>'
+    );
+  }
+
+  // Which module tab can host this finding's matched rows? Prefers
+  // the finding's `module` field, falls back to scanning. Returns
+  // null when no module hosts the rows (e.g. unrec on 4920/4921 which
+  // live in `unmappedAais`, no V8 tab).
+  function navTargetForFinding(findingId) {
+    const a = window._dmaaiAnalysis;
+    const f = (a && a._findingIndex && a._findingIndex[findingId]) || null;
+    if (!f) return null;
+    const matched = _rowsByFinding[findingId] || [];
+    if (!matched.length) return null;
+    if (f.module && MODULE_ORDER.indexOf(f.module) !== -1 &&
+        _gridState[f.module] && matched.some(r => _gridState[f.module].rows.indexOf(r) !== -1)) {
+      return f.module;
+    }
+    for (let i = 0; i < MODULE_ORDER.length; i++) {
+      const m = MODULE_ORDER[i];
+      if (_gridState[m] && matched.some(r => _gridState[m].rows.indexOf(r) !== -1)) return m;
+    }
+    return null;
+  }
+
+  function renderWorklist(rows, tbodyId) {
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
+    const visible = (rows || []).filter(findingPassesCompanyFilter);
+    if (!visible.length) {
+      const msg = _pageCompanyFilter
+        ? 'No findings in this bucket for company ' + escapeHtml(_pageCompanyFilter) + '.'
+        : 'No findings in this bucket.';
+      tbody.innerHTML = '<tr><td colspan="10" class="grid-empty">' + msg + '</td></tr>';
+      return;
+    }
+    tbody.innerHTML = visible.map(renderWorklistRow).join('');
+  }
+
+  function refreshProgress(rows, kind) {
+    if (!rows) return;
+    const visible = rows.filter(findingPassesCompanyFilter);
+    let done = 0;
+    visible.forEach(r => {
+      const ans = getResponse(r.id).answer;
+      if (kind === 'fix') {
+        if (ans === 'Fixed' || ans === 'Intended') done++;
+      } else {
+        if (ans) done++;
+      }
+    });
+    const total = visible.length;
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    const barId = kind === 'fix' ? 'js-fix-progress' : 'js-ask-progress';
+    const labelId = kind === 'fix' ? 'js-fix-progress-label' : 'js-ask-progress-label';
+    const bar = document.getElementById(barId);
+    const label = document.getElementById(labelId);
+    if (bar) bar.style.width = pct + '%';
+    if (label) label.textContent = done + ' / ' + total + (kind === 'fix' ? ' cleared' : ' answered');
+  }
+
+  // ============================================================
+  //  Worklist event delegation — answer dropdown + decision text
+  // ============================================================
+  function bindWorklistEvents(rows, tbodyId, kind) {
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
+
+    tbody.addEventListener('change', e => {
+      const t = e.target;
+      if (!t || t.dataset.field !== 'answer') return;
+      const id = t.dataset.findingId;
+      const next = setResponse(id, { answer: t.value });
+      // Update select tint
+      t.classList.remove('is-intended', 'is-review', 'is-fixed');
+      if (next.answer === 'Intended')      t.classList.add('is-intended');
+      else if (next.answer === 'Needs review') t.classList.add('is-review');
+      else if (next.answer === 'Fixed')        t.classList.add('is-fixed');
+      // Update row tint + status pill
+      const tr = t.closest('tr');
+      if (tr) {
+        tr.classList.toggle('is-resolved', next.status === 'Resolved');
+        tr.classList.toggle('is-intended', next.status === 'Closed by intent');
+        const pill = tr.querySelector('.wl-status-pill');
+        if (pill) pill.outerHTML = statusPillHtml(next.status);
+      }
+      refreshProgress(rows, kind);
+      refreshSaveBar();
+      rerenderAllModuleGrids();
+      refreshTabCounts();
+    });
+
+    tbody.addEventListener('input', e => {
+      const t = e.target;
+      if (!t || t.dataset.field !== 'decision') return;
+      const id = t.dataset.findingId;
+      setResponse(id, { decision: t.value });
+      refreshSaveBar();
+    });
+
+    tbody.addEventListener('click', e => {
+      const btn = e.target.closest('[data-action="focus-finding"]');
+      if (!btn) return;
+      focusFindingInModule(btn.dataset.findingId);
+    });
+  }
+
+  function rerenderAllModuleGrids() {
+    MODULE_ORDER.forEach(m => {
+      if (_gridState[m]) renderTableBody(m);
+    });
+    // The Model + Exception GL grids are scoped by the same working-company scope
+    // and the same _scopeError, so they have to repaint on a scope change too. They
+    // load independently of the module grids, so this can run before or after their
+    // first render — both are declared above and guard on their own DOM nodes.
+    if (typeof renderModel === 'function') renderModel();
+    if (typeof renderExcGlc === 'function') renderExcGlc();
+  }
+
+  // ============================================================
+  //  Tab counts = "remaining to address"
+  //
+  //  Analysis tab: findings still Open / In Progress / Still Flagged.
+  //  Module tabs: matched F4095 rows whose finding falls in the same
+  //  set. Unflagged config rows (no _findingId) are excluded — they
+  //  represent rows that didn't trip a pattern, so they're not work
+  //  the analyst owes anything on.
+  // ============================================================
+  function isRemainingStatus(s) {
+    return s === 'Open' || s === 'In Progress' || s === 'Still Flagged';
+  }
+  function refreshTabCounts() {
+    const a = window._dmaaiAnalysis;
+    if (a) {
+      const all = (a.fixFirst || []).concat(a.askCustomer || []);
+      let n = 0;
+      all.forEach(f => {
+        if (!findingPassesCompanyFilter(f)) return;
+        const s = (_dmaaiResponses[f.id] && _dmaaiResponses[f.id].status) || 'Open';
+        if (isRemainingStatus(s)) n++;
+      });
+      const el = document.getElementById('js-tab-count-analysis');
+      if (el) el.textContent = n.toLocaleString();
+    }
+    MODULE_ORDER.forEach(m => {
+      const st = _gridState[m];
+      if (!st) return;
+      let n = 0;
+      st.rows.forEach(r => {
+        if (!rowPassesCompanyFilter(r)) return;
+        if (r._findingId && isRemainingStatus(rowStatus(r))) n++;
+      });
+      const el = document.getElementById('js-tab-count-' + m);
+      if (el) el.textContent = n.toLocaleString();
+    });
+  }
+
+  // ============================================================
+  //  Tab switching
+  // ============================================================
+  function activateTab(tabId) {
+    // An unrecognized tab id used to deactivate EVERY panel, leaving a blank page with
+    // no explanation. Ignore it instead and say so — the page keeps its current tab.
+    const known = ['model', 'exception-gl', 'analysis'].concat(MODULE_ORDER);
+    if (known.indexOf(tabId) < 0) {
+      console.error('[drill] ?tab=' + tabId + ' is not a tab on this page (known: ' + known.join(', ') + ') — keeping the current tab.');
+      return;
+    }
+    document.querySelectorAll('.tab-pill').forEach(p => {
+      const active = p.dataset.tab === tabId;
+      p.classList.toggle('is-active', active);
+      p.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    document.getElementById('js-panel-model'       ).classList.toggle('is-active', tabId === 'model');
+    document.getElementById('js-panel-exception-gl').classList.toggle('is-active', tabId === 'exception-gl');
+    document.getElementById('js-panel-analysis'    ).classList.toggle('is-active', tabId === 'analysis');
+    MODULE_ORDER.forEach(m => {
+      const panel = document.getElementById('js-panel-' + m);
+      if (panel) panel.classList.toggle('is-active', tabId === m);
+    });
+  }
+
+  document.getElementById('js-tab-bar').addEventListener('click', e => {
+    const pill = e.target.closest('.tab-pill');
+    if (!pill) return;
+    activateTab(pill.dataset.tab);
+  });
+
+  // ============================================================
+  //  Module grid (per-tab V8 grid)
+  //
+  //  Each module gets its own state slice (`_gridState[module]`)
+  //  holding the column-visibility map, the drag order, the sort
+  //  column + direction, and the search string. State is persisted
+  //  under `rrv8-dmaai-<module>-<feature>-v1` so each module
+  //  remembers its own layout.
+  //
+  //  Column definition: tdClass:'is-num' (right-aligned tabular),
+  //  tdClass:'is-mono' (mono font for compact identifiers).
+  // ============================================================
+  // `_findingStatus` is a derived column — its value is computed
+  // per-row from the row's `_findingId` + the current response state.
+  // Sort priority puts un-flagged rows first (so the analyst sees
+  // the "still to triage" tail when sorting ascending).
+  const ROW_STATUS_SORT_RANK = {
+    '_none':            0,
+    'Open':             1,
+    'In Progress':      2,
+    'Still Flagged':    3,
+    'Closed by intent': 4,
+    'Resolved':         5,
+  };
+  const GRID_COLUMNS = [
+    { key: '_findingStatus', label: 'Status',        tdClass: 'is-status', defaultOn: true, derived: true },
+    { key: 'aaiNumber',    label: 'AAI',           tdClass: 'is-mono', defaultOn: true,  sortNumeric: true },
+    { key: 'companyNumber',label: 'Company',       tdClass: 'is-mono', defaultOn: true,  sortNumeric: false },
+    { key: 'orderType',    label: 'Or Ty',         tdClass: 'is-mono', defaultOn: true },
+    { key: 'docType',      label: 'Doc Ty',        tdClass: 'is-mono', defaultOn: true },
+    { key: 'glClass',      label: 'GL Class',      tdClass: 'is-mono', defaultOn: true },
+    { key: 'costType',     label: 'Cost Type',     tdClass: 'is-mono', defaultOn: true },
+    { key: 'businessUnit', label: 'Business Unit', tdClass: 'is-mono', defaultOn: true },
+    { key: 'objAccount',   label: 'Obj Acct',      tdClass: 'is-mono', defaultOn: true,  sortNumeric: true },
+    { key: 'subsidiary',   label: 'Sub',           tdClass: 'is-mono', defaultOn: true },
+    { key: 'analyzerNote', label: 'Analyzer Note', tdClass: '',        defaultOn: true },
+  ];
+
+  // Look up a row's effective status by walking _findingId → response.
+  // Rows without a matched finding return '_none'.
+  function rowStatus(row) {
+    if (!row._findingId) return '_none';
+    const r = _dmaaiResponses[row._findingId];
+    return (r && r.status) || 'Open';
+  }
+  function rowStatusChipHtml(row) {
+    const s = rowStatus(row);
+    if (s === '_none') {
+      return '<span class="row-status-chip ' + statusClass(s) +
+        '" title="No finding matched this configuration">&mdash;</span>';
+    }
+    const label = s === 'Closed by intent' ? 'Intended' : s;
+    return '<span class="row-status-chip ' + statusClass(s) + '" title="Finding ' +
+      escapeHtml(row._findingId) + ' &middot; ' + escapeHtml(s) + '">' +
+      escapeHtml(label) + '</span>';
+  }
+  const GRID_COLUMNS_BY_KEY = Object.fromEntries(GRID_COLUMNS.map(c => [c.key, c]));
+  const DEFAULT_COL_ORDER = GRID_COLUMNS.map(c => c.key);
+
+  const _gridState = {}; // module -> { rows, colVisibility, colOrder, sort, search }
+
+  function gridStorageKey(module, feature) {
+    return 'rrv8-dmaai-' + module.toLowerCase() + '-' + feature + '-v1';
+  }
+  function loadColVisibility(module) {
+    try {
+      const raw = localStorage.getItem(gridStorageKey(module, 'columns'));
+      if (!raw) throw 0;
+      const saved = JSON.parse(raw);
+      const out = {};
+      GRID_COLUMNS.forEach(c => {
+        out[c.key] = Object.prototype.hasOwnProperty.call(saved, c.key) ? !!saved[c.key] : c.defaultOn;
+      });
+      return out;
+    } catch (_) {
+      const out = {}; GRID_COLUMNS.forEach(c => { out[c.key] = c.defaultOn; }); return out;
+    }
+  }
+  function saveColVisibility(module) {
+    try { localStorage.setItem(gridStorageKey(module, 'columns'), JSON.stringify(_gridState[module].colVisibility)); }
+    catch (_) {}
+  }
+  function loadColOrder(module) {
+    try {
+      const raw = localStorage.getItem(gridStorageKey(module, 'col-order'));
+      if (!raw) throw 0;
+      const saved = JSON.parse(raw);
+      const known = new Set(DEFAULT_COL_ORDER);
+      const kept = saved.filter(k => known.has(k));
+      DEFAULT_COL_ORDER.forEach(k => { if (kept.indexOf(k) === -1) kept.push(k); });
+      return kept;
+    } catch (_) { return DEFAULT_COL_ORDER.slice(); }
+  }
+  function saveColOrder(module) {
+    try { localStorage.setItem(gridStorageKey(module, 'col-order'), JSON.stringify(_gridState[module].colOrder)); }
+    catch (_) {}
+  }
+  function loadSort(module) {
+    try {
+      const raw = localStorage.getItem(gridStorageKey(module, 'sort'));
+      if (!raw) throw 0;
+      const s = JSON.parse(raw);
+      if (s && GRID_COLUMNS_BY_KEY[s.key] && (s.dir === 'asc' || s.dir === 'desc')) return s;
+    } catch (_) {}
+    return { key: null, dir: 'asc' };
+  }
+  function saveSort(module) {
+    try { localStorage.setItem(gridStorageKey(module, 'sort'), JSON.stringify(_gridState[module].sort)); }
+    catch (_) {}
+  }
+  // Column value-filters serialize as { colKey: [value, value, ...] }.
+  // The active runtime shape uses Set for O(1) membership.
+  function loadColumnFilters(module) {
+    try {
+      const raw = localStorage.getItem(gridStorageKey(module, 'colfilter'));
+      if (!raw) return {};
+      const obj = JSON.parse(raw);
+      const out = {};
+      Object.keys(obj).forEach(k => {
+        if (GRID_COLUMNS_BY_KEY[k] && Array.isArray(obj[k])) {
+          out[k] = new Set(obj[k]);
+        }
+      });
+      return out;
+    } catch (_) { return {}; }
+  }
+  function saveColumnFilters(module) {
+    const st = _gridState[module];
+    const out = {};
+    Object.keys(st.columnFilters || {}).forEach(k => {
+      const set = st.columnFilters[k];
+      if (set && set.size) out[k] = Array.from(set);
+    });
+    try { localStorage.setItem(gridStorageKey(module, 'colfilter'), JSON.stringify(out)); }
+    catch (_) {}
+  }
+
+  function visibleColumns(module) {
+    const st = _gridState[module];
+    const vis = st.colVisibility || {};
+    return st.colOrder.map(k => GRID_COLUMNS_BY_KEY[k]).filter(c => c && vis[c.key] !== false);
+  }
+
+  function compareRows(a, b, key, dir) {
+    const col = GRID_COLUMNS_BY_KEY[key];
+    let cmp;
+    if (key === '_findingStatus') {
+      const ar = ROW_STATUS_SORT_RANK[rowStatus(a)] ?? 99;
+      const br = ROW_STATUS_SORT_RANK[rowStatus(b)] ?? 99;
+      cmp = ar - br;
+    } else if (col && col.sortNumeric) {
+      const an = Number(a[key]); const bn = Number(b[key]);
+      cmp = (isFinite(an) ? an : 0) - (isFinite(bn) ? bn : 0);
+    } else {
+      cmp = String(a[key] || '').localeCompare(String(b[key] || ''), undefined, { numeric: true, sensitivity: 'base' });
+    }
+    return dir === 'desc' ? -cmp : cmp;
+  }
+
+  // 3-state row filter. `all` shows everything; `hide-intended` hides
+  // Closed-by-intent rows; `open-only` hides Intended AND Resolved.
+  const ROWFILTER_STATES  = ['all', 'hide-intended', 'open-only'];
+  const ROWFILTER_LABELS  = { 'all': 'All rows', 'hide-intended': 'Hide intended', 'open-only': 'Open only' };
+  const ROWFILTER_CLASSES = { 'all': '',          'hide-intended': 'is-narrowed-amber', 'open-only': 'is-narrowed-blue' };
+
+  function loadRowFilter(module) {
+    try {
+      const raw = localStorage.getItem(gridStorageKey(module, 'rowfilter'));
+      if (raw && ROWFILTER_STATES.indexOf(raw) !== -1) return raw;
+    } catch (_) {}
+    return 'all';
+  }
+  function saveRowFilter(module) {
+    try { localStorage.setItem(gridStorageKey(module, 'rowfilter'), _gridState[module].rowFilter); } catch (_) {}
+  }
+
+  function applyRowFilter(rows, filter) {
+    if (filter === 'all') return rows;
+    if (filter === 'hide-intended') {
+      return rows.filter(r => rowStatus(r) !== 'Closed by intent');
+    }
+    if (filter === 'open-only') {
+      return rows.filter(r => {
+        const s = rowStatus(r);
+        return s !== 'Closed by intent' && s !== 'Resolved';
+      });
+    }
+    return rows;
+  }
+
+  // Distinct values for a column across the module's full row set
+  // (after the page Company filter — so per-column choices reflect
+  // what's actually selectable). Used to populate the filter popover.
+  function distinctValuesForColumn(module, colKey) {
+    const st = _gridState[module];
+    let rows = st.rows.filter(rowPassesCompanyFilter);   // honor Home scope + local drill
+    const set = new Set();
+    rows.forEach(r => {
+      const v = colValue(r, colKey);
+      set.add(v);
+    });
+    return Array.from(set).sort((a, b) =>
+      String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' })
+    );
+  }
+  function colValue(r, colKey) {
+    if (colKey === '_findingStatus') return rowStatus(r);
+    return (r[colKey] == null ? '' : String(r[colKey])).trim();
+  }
+  function applyColumnFilters(rows, columnFilters) {
+    const keys = columnFilters ? Object.keys(columnFilters) : [];
+    if (!keys.length) return rows;
+    return rows.filter(r => {
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        const set = columnFilters[k];
+        if (set && set.size && !set.has(colValue(r, k))) return false;
+      }
+      return true;
+    });
+  }
+
+  function filteredRows(module) {
+    const st = _gridState[module];
+    let rows = st.rows.filter(rowPassesCompanyFilter);   // honor Home scope + local drill
+    if (st.findingFocus) {
+      rows = rows.filter(r => r._findingId === st.findingFocus);
+    }
+    rows = applyColumnFilters(rows, st.columnFilters);
+    rows = applyRowFilter(rows, st.rowFilter || 'all');
+    if (st.search) {
+      const q = st.search.toLowerCase();
+      const cols = visibleColumns(module).map(c => c.key);
+      rows = rows.filter(r => cols.some(k => {
+        if (k === '_findingStatus') return rowStatus(r).toLowerCase().indexOf(q) !== -1;
+        return String(r[k] || '').toLowerCase().indexOf(q) !== -1;
+      }));
+    }
+    if (st.sort && st.sort.key) {
+      rows.sort((a, b) => compareRows(a, b, st.sort.key, st.sort.dir));
+    }
+    return rows;
+  }
+
+  function paintFindingFocus(module) {
+    const st = _gridState[module];
+    const banner = document.querySelector('#js-panel-' + module + ' [data-grid="focus-banner"]');
+    if (!banner) return;
+    if (!st || !st.findingFocus) {
+      banner.hidden = true;
+      banner.innerHTML = '';
+      return;
+    }
+    const fid = st.findingFocus;
+    const matched = (_rowsByFinding[fid] || []).filter(r => st.rows.indexOf(r) !== -1);
+    banner.innerHTML =
+      '<span>Focused on finding <code>' + escapeHtml(fid) + '</code> &middot; ' +
+        '<strong>' + matched.length.toLocaleString() + '</strong> matching row' +
+        (matched.length === 1 ? '' : 's') +
+      '</span>' +
+      '<button type="button" class="focus-clear" data-grid="focus-clear">Clear focus</button>';
+    banner.hidden = false;
+    banner.querySelector('[data-grid="focus-clear"]').addEventListener('click', () => {
+      st.findingFocus = null;
+      paintFindingFocus(module);
+      renderTableBody(module);
+    });
+  }
+
+  function focusFindingInModule(findingId) {
+    const target = navTargetForFinding(findingId);
+    if (!target) return;
+    // Clear focus on every other module so only one panel is focused
+    // at a time (avoids stale banners hiding under inactive tabs).
+    MODULE_ORDER.forEach(m => {
+      if (m !== target && _gridState[m]) {
+        _gridState[m].findingFocus = null;
+        paintFindingFocus(m);
+      }
+    });
+    _gridState[target].findingFocus = findingId;
+    activateTab(target);
+    paintFindingFocus(target);
+    renderTableBody(target);
+    const panel = document.getElementById('js-panel-' + target);
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function paintRowFilterPill(module) {
+    const panel = document.getElementById('js-panel-' + module);
+    if (!panel) return;
+    const pill = panel.querySelector('[data-grid="rowfilter"]');
+    if (!pill) return;
+    const state = _gridState[module].rowFilter || 'all';
+    pill.classList.remove('is-narrowed-amber', 'is-narrowed-blue');
+    if (ROWFILTER_CLASSES[state]) pill.classList.add(ROWFILTER_CLASSES[state]);
+    pill.querySelector('[data-grid="rowfilter-label"]').textContent = ROWFILTER_LABELS[state];
+  }
+
+  function buildModulePanel(module) {
+    const container = document.getElementById('js-module-panels');
+    const panel = document.createElement('div');
+    panel.className = 'tab-panel';
+    panel.id = 'js-panel-' + module;
+    panel.setAttribute('role', 'tabpanel');
+    panel.innerHTML =
+      '<section class="grid-card">' +
+        '<div class="grid-head">' +
+          '<span class="grid-title">' + escapeHtml(module) + ' &middot; F4095 rows</span>' +
+          '<div class="grid-state-cluster">' +
+            '<button type="button" class="rowfilter-pill" data-module="' + module + '" data-grid="rowfilter" title="Filter rows by finding status &middot; click to cycle: All → Hide intended → Open only">' +
+              '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="2 3 14 3 10 8 10 13 6 11 6 8 2 3"/></svg>' +
+              '<span data-grid="rowfilter-label">All rows</span>' +
+            '</button>' +
+            '<label class="grid-search" title="Search across visible columns">' +
+              '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4"/><line x1="10" y1="10" x2="14" y2="14"/></svg>' +
+              '<input type="search" data-module="' + module + '" data-grid="search" placeholder="Search rows…" autocomplete="off" spellcheck="false">' +
+              '<button type="button" class="grid-search-clear" data-module="' + module + '" data-grid="search-clear" hidden title="Clear search">&times;</button>' +
+            '</label>' +
+            '<button type="button" class="grid-pill grid-pill-export" data-module="' + module + '" data-grid="export" title="Export current view to Excel">' +
+              '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v3h10v-3"/><path d="M8 2v9"/><polyline points="5 8 8 11 11 8"/></svg>' +
+              '<span>Excel</span>' +
+            '</button>' +
+            '<button type="button" class="grid-pill grid-pill-cols" data-module="' + module + '" data-grid="cols" title="Show or hide columns">' +
+              '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1"/><line x1="6" y1="3" x2="6" y2="13"/><line x1="10" y1="3" x2="10" y2="13"/></svg>' +
+              '<span>Columns</span>' +
+              '<svg class="pill-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 6 8 10 12 6"/></svg>' +
+            '</button>' +
+            '<span class="grid-pill grid-pill-count" data-module="' + module + '" data-grid="count">0 rows</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="finding-focus-banner" data-grid="focus-banner" hidden></div>' +
+        '<div class="grid-scroll">' +
+          '<table class="grid-table" data-module="' + module + '">' +
+            '<thead><tr data-grid="thead-row"></tr></thead>' +
+            '<tbody data-grid="tbody"></tbody>' +
+          '</table>' +
+        '</div>' +
+      '</section>';
+    container.appendChild(panel);
+    return panel;
+  }
+
+  function renderTableHeader(module) {
+    const st = _gridState[module];
+    const tr = document.querySelector('#js-panel-' + module + ' [data-grid="thead-row"]');
+    if (!tr) return;
+    const cols = visibleColumns(module);
+    tr.innerHTML = cols.map(c => {
+      const isActive = st.sort.key === c.key;
+      const caret = isActive ? ' <span class="sort-caret">' + (st.sort.dir === 'asc' ? '▲' : '▼') + '</span>' : '';
+      const filtered = !!(st.columnFilters && st.columnFilters[c.key] && st.columnFilters[c.key].size);
+      const classes = [];
+      if (isActive) classes.push('is-sort-active');
+      if (filtered) classes.push('is-filter-active');
+      const filterGlyph =
+        '<button class="col-filter-trigger" type="button" data-action="filter-col" data-col-key="' + escapeHtml(c.key) + '" title="Filter ' + escapeHtml(c.label) + '" aria-label="Filter ' + escapeHtml(c.label) + '">' +
+          '<svg viewBox="0 0 16 16" fill="' + (filtered ? 'currentColor' : 'none') + '" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+            '<polygon points="2 3 14 3 10 8 10 13 6 11 6 8 2 3"/>' +
+          '</svg>' +
+        '</button>';
+      return '<th draggable="true" data-col-key="' + escapeHtml(c.key) + '"' +
+             (classes.length ? ' class="' + classes.join(' ') + '"' : '') +
+             '>' + escapeHtml(c.label) + caret + filterGlyph + '</th>';
+    }).join('');
+  }
+
+  function renderTableBody(module) {
+    const st = _gridState[module];
+    const tbody = document.querySelector('#js-panel-' + module + ' [data-grid="tbody"]');
+    if (!tbody) return;
+    const rows = filteredRows(module);
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="' + visibleColumns(module).length + '" class="grid-empty">No rows match.</td></tr>';
+    } else {
+      const cols = visibleColumns(module);
+      tbody.innerHTML = rows.map(r => {
+        const status = rowStatus(r);
+        const dim = (status === 'Closed by intent' || status === 'Resolved');
+        return '<tr' + (dim ? ' class="is-dimmed"' : '') + '>' + cols.map(c => {
+          if (c.key === '_findingStatus') {
+            return '<td class="' + (c.tdClass || '') + '">' + rowStatusChipHtml(r) + '</td>';
+          }
+          return '<td class="' + (c.tdClass || '') + '">' + escapeHtml(r[c.key]) + '</td>';
+        }).join('') + '</tr>';
+      }).join('');
+    }
+    const countEl = document.querySelector('#js-panel-' + module + ' [data-grid="count"]');
+    if (countEl) {
+      const totalRows = st.rows.length;
+      countEl.classList.remove('is-loading');
+      countEl.textContent = rows.length === totalRows
+        ? rows.length.toLocaleString() + ' rows'
+        : rows.length.toLocaleString() + ' rows of ' + totalRows.toLocaleString();
+    }
+  }
+
+  function renderGrid(module) {
+    renderTableHeader(module);
+    renderTableBody(module);
+  }
+
+  // Column value-filter popover (per-column distinct-value checkboxes).
+  // Mirrors Excel's per-column filter — checkboxes default to all
+  // checked; unchecking any value applies a filter; "Clear filter"
+  // resets to all-pass.
+  const colFilterPop = document.getElementById('colfilter-popover');
+  function openColumnFilterPopover(module, colKey, anchor) {
+    const st = _gridState[module];
+    const col = GRID_COLUMNS_BY_KEY[colKey];
+    if (!col) return;
+    const values = distinctValuesForColumn(module, colKey);
+    const active = (st.columnFilters && st.columnFilters[colKey]) || null;
+    function rowHtml(v) {
+      const checked = !active || active.has(v);
+      const label = (v === '' || v == null) ? '(blank)' : v;
+      return (
+        '<label class="col-vis-row">' +
+          '<input type="checkbox" data-value="' + escapeHtml(v) + '"' + (checked ? ' checked' : '') + '>' +
+          '<span class="col-vis-label">' + escapeHtml(label) + '</span>' +
+        '</label>'
+      );
+    }
+    colFilterPop.innerHTML =
+      '<div class="popover-section-label">Filter: ' + escapeHtml(col.label) + '</div>' +
+      '<input type="search" class="col-filter-search" data-action="colfilter-search" ' +
+        'placeholder="Search values…" autocomplete="off" spellcheck="false">' +
+      '<div class="col-vis-list" data-grid="colfilter-list">' +
+        values.map(rowHtml).join('') +
+      '</div>' +
+      '<div class="popover-section">' +
+        '<div class="popover-row" data-action="select-all">Select all</div>' +
+        '<div class="popover-row" data-action="select-none">Select none</div>' +
+        '<div class="popover-row" data-action="clear-filter">Clear filter</div>' +
+      '</div>';
+    const r = anchor.getBoundingClientRect();
+    colFilterPop.style.left = Math.min(window.innerWidth - 280, r.left) + 'px';
+    colFilterPop.style.top  = (r.bottom + 6) + 'px';
+    colFilterPop.style.right = 'auto';
+    colFilterPop.style.minWidth = '240px';
+    colFilterPop.hidden = false;
+
+    function readChecked() {
+      return Array.from(
+        colFilterPop.querySelectorAll('input[type="checkbox"]')
+      ).filter(cb => cb.checked).map(cb => cb.dataset.value);
+    }
+    function commit() {
+      const checked = readChecked();
+      const all = colFilterPop.querySelectorAll('input[type="checkbox"]').length;
+      if (!st.columnFilters) st.columnFilters = {};
+      if (checked.length === all) {
+        delete st.columnFilters[colKey];
+      } else {
+        st.columnFilters[colKey] = new Set(checked);
+      }
+      saveColumnFilters(module);
+      renderGrid(module);
+    }
+
+    colFilterPop.oninput = e => {
+      if (e.target.dataset.action === 'colfilter-search') {
+        const q = e.target.value.toLowerCase();
+        colFilterPop.querySelectorAll('.col-vis-row').forEach(row => {
+          const lbl = row.querySelector('.col-vis-label').textContent.toLowerCase();
+          row.style.display = (!q || lbl.indexOf(q) !== -1) ? '' : 'none';
+        });
+      }
+    };
+    colFilterPop.onchange = e => {
+      if (e.target.matches('input[type="checkbox"]')) commit();
+    };
+    colFilterPop.onclick = e => {
+      const action = e.target.closest('[data-action]');
+      if (!action) return;
+      const a = action.dataset.action;
+      if (a === 'select-all') {
+        colFilterPop.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+        commit();
+      } else if (a === 'select-none') {
+        colFilterPop.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+        commit();
+      } else if (a === 'clear-filter') {
+        if (!st.columnFilters) st.columnFilters = {};
+        delete st.columnFilters[colKey];
+        saveColumnFilters(module);
+        renderGrid(module);
+        colFilterPop.hidden = true;
+      }
+    };
+  }
+  document.addEventListener('click', e => {
+    if (!colFilterPop) return;
+    if (colFilterPop.contains(e.target) || e.target.closest('[data-action="filter-col"]')) return;
+    colFilterPop.hidden = true;
+  });
+
+  // Column chooser popover
+  const colPop = document.getElementById('col-popover');
+  function openColPopover(module, anchor) {
+    const st = _gridState[module];
+    const rows = st.colOrder.map(k => GRID_COLUMNS_BY_KEY[k]).filter(Boolean);
+    const list = rows.map(c => {
+      const on = st.colVisibility[c.key] !== false;
+      return (
+        '<label class="col-vis-row">' +
+          '<input type="checkbox"' + (on ? ' checked' : '') + ' data-col-key="' + escapeHtml(c.key) + '">' +
+          '<span class="col-vis-label">' + escapeHtml(c.label) + '</span>' +
+        '</label>'
+      );
+    }).join('');
+    colPop.innerHTML =
+      '<div class="popover-section-label">Columns</div>' +
+      '<div class="col-vis-list">' + list + '</div>' +
+      '<div class="popover-section">' +
+        '<div class="popover-row" data-action="show-all">Show all</div>' +
+        '<div class="popover-row" data-action="reset">Reset to defaults</div>' +
+      '</div>';
+    const r = anchor.getBoundingClientRect();
+    colPop.style.right = (window.innerWidth - r.right) + 'px';
+    colPop.style.left  = 'auto';
+    colPop.style.top   = (r.bottom + 6) + 'px';
+    colPop.hidden = false;
+
+    colPop.onclick = e => {
+      const cb = e.target.closest('input[type="checkbox"]');
+      if (cb) {
+        const k = cb.dataset.colKey;
+        st.colVisibility[k] = cb.checked;
+        saveColVisibility(module);
+        renderGrid(module);
+        return;
+      }
+      const action = e.target.closest('[data-action]');
+      if (!action) return;
+      if (action.dataset.action === 'show-all') {
+        GRID_COLUMNS.forEach(c => { st.colVisibility[c.key] = true; });
+      } else {
+        GRID_COLUMNS.forEach(c => { st.colVisibility[c.key] = c.defaultOn; });
+        st.colOrder = DEFAULT_COL_ORDER.slice();
+        saveColOrder(module);
+        st.sort = { key: null, dir: 'asc' };
+        saveSort(module);
+      }
+      saveColVisibility(module);
+      renderGrid(module);
+      openColPopover(module, anchor); // refresh popover state
+    };
+  }
+  document.addEventListener('click', e => {
+    if (colPop && !colPop.contains(e.target) && !e.target.closest('[data-grid="cols"]')) {
+      colPop.hidden = true;
+    }
+  });
+
+  function wireGrid(module, panel) {
+    // Search
+    const searchInput = panel.querySelector('[data-grid="search"]');
+    const searchClear = panel.querySelector('[data-grid="search-clear"]');
+    let dbTimer = null;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(dbTimer);
+      dbTimer = setTimeout(() => {
+        _gridState[module].search = searchInput.value;
+        searchClear.hidden = !searchInput.value;
+        renderTableBody(module);
+      }, 150);
+    });
+    searchInput.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        searchInput.value = ''; _gridState[module].search = '';
+        searchClear.hidden = true;
+        renderTableBody(module);
+      }
+    });
+    searchClear.addEventListener('click', () => {
+      searchInput.value = ''; _gridState[module].search = '';
+      searchClear.hidden = true;
+      renderTableBody(module); searchInput.focus();
+    });
+
+    // Row-state filter — 3-state click cycle.
+    panel.querySelector('[data-grid="rowfilter"]').addEventListener('click', () => {
+      const cur = _gridState[module].rowFilter || 'all';
+      const idx = ROWFILTER_STATES.indexOf(cur);
+      _gridState[module].rowFilter = ROWFILTER_STATES[(idx + 1) % ROWFILTER_STATES.length];
+      saveRowFilter(module);
+      paintRowFilterPill(module);
+      renderTableBody(module);
+    });
+
+    // Column chooser
+    panel.querySelector('[data-grid="cols"]').addEventListener('click', e => {
+      e.stopPropagation();
+      openColPopover(module, e.currentTarget);
+    });
+
+    // Excel export
+    panel.querySelector('[data-grid="export"]').addEventListener('click', () => {
+      exportGridToExcel(module);
+    });
+
+    // Sort + drag
+    const thead = panel.querySelector('thead');
+    thead.addEventListener('click', e => {
+      // Filter glyph is a sibling click target inside the th — let it
+      // handle its own click and skip sort.
+      const filterBtn = e.target.closest('[data-action="filter-col"]');
+      if (filterBtn) {
+        e.stopPropagation();
+        openColumnFilterPopover(module, filterBtn.dataset.colKey, filterBtn);
+        return;
+      }
+      const th = e.target.closest('th[data-col-key]');
+      if (!th || th.classList.contains('is-dragging')) return;
+      const key = th.dataset.colKey;
+      const s = _gridState[module].sort;
+      if (s.key === key) s.dir = s.dir === 'asc' ? 'desc' : 'asc';
+      else { s.key = key; s.dir = 'asc'; }
+      saveSort(module);
+      renderGrid(module);
+    });
+
+    let dragKey = null;
+    thead.addEventListener('dragstart', e => {
+      const th = e.target.closest('th[data-col-key]');
+      if (!th) return;
+      dragKey = th.dataset.colKey;
+      th.classList.add('is-dragging');
+      try { e.dataTransfer.setData('text/plain', dragKey); e.dataTransfer.effectAllowed = 'move'; } catch (_) {}
+    });
+    thead.addEventListener('dragover', e => {
+      const th = e.target.closest('th[data-col-key]');
+      if (!th || !dragKey) return;
+      e.preventDefault();
+      thead.querySelectorAll('.is-drag-over').forEach(n => n.classList.remove('is-drag-over'));
+      th.classList.add('is-drag-over');
+    });
+    thead.addEventListener('dragleave', e => {
+      const th = e.target.closest('th[data-col-key]');
+      if (th) th.classList.remove('is-drag-over');
+    });
+    thead.addEventListener('drop', e => {
+      const th = e.target.closest('th[data-col-key]');
+      if (!th || !dragKey || dragKey === th.dataset.colKey) return;
+      e.preventDefault();
+      const order = _gridState[module].colOrder.slice();
+      const from = order.indexOf(dragKey);
+      const to   = order.indexOf(th.dataset.colKey);
+      if (from === -1 || to === -1) return;
+      order.splice(from, 1);
+      order.splice(to, 0, dragKey);
+      _gridState[module].colOrder = order;
+      saveColOrder(module);
+      renderGrid(module);
+    });
+    thead.addEventListener('dragend', () => {
+      dragKey = null;
+      thead.querySelectorAll('.is-drag-over, .is-dragging').forEach(n =>
+        n.classList.remove('is-drag-over', 'is-dragging')
+      );
+    });
+  }
+
+  // Audit-quality Excel builder: ../Tools/audit-workbook.js (UI-70). The copy
+  // that lived here was behaviourally identical apart from a 14ch minimum text
+  // column, now 16ch to match every other export.
+  function _dmaaiDbName() {
+    const db = (typeof activeDb === 'function') ? activeDb() : null;
+    return (db && db.n) || (document.getElementById('js-topbar-db') || {}).textContent || 'RapidReconciler';
+  }
+
+  // Every export is scoped — by the working companies, and on the module tabs by
+  // the company pill too. A workbook that doesn't SAY which companies it covers
+  // reads as complete to whoever opens it next (often an auditor), so the scope
+  // rides in the title block and in the filename.
+  function _exportScopeLabel(includesPagePill) {
+    const pc = includesPagePill ? effPageCompany() : null;
+    if (pc) return 'Company ' + pc;
+    return scopedCompanySet() ? 'Companies you’re working in' : 'All companies';
+  }
+  // RRV8.exportName renders `company` as CoNN (or AllCos for 'all') and `scope` as
+  // a free label — pick whichever matches how the sheet is actually narrowed.
+  function _exportNameScope(surface, drill, includesPagePill) {
+    const o = { surface: surface };
+    if (drill) o.drill = drill;
+    const pc = includesPagePill ? effPageCompany() : null;
+    if (pc) o.company = pc;
+    else if (scopedCompanySet()) o.scope = 'InScope';
+    else o.company = 'all';
+    return RRV8.exportName(o);
+  }
+
+  function exportGridToExcel(module) {
+    if (typeof XLSX === 'undefined') { return; }
+    const rows = filteredRows(module);
+    const cols = visibleColumns(module);
+    const stamp = new Date();
+    buildAuditWorkbook({
+      sheetName: module,
+      fileName: _exportNameScope('DMAAI', module, true),
+      titleLines: [
+        module + ' DMAAIs',
+        'Database ' + _dmaaiDbName() + '  ·  ' + _exportScopeLabel(true),
+        'Generated ' + stamp.toLocaleString('en-US') + '  ·  ' + rows.length.toLocaleString('en-US') + ' row' + (rows.length !== 1 ? 's' : '')
+      ],
+      columns: cols.map(c => ({ label: c.label })),
+      rows: rows.map(r => cols.map(c => (r[c.key] == null ? '' : r[c.key])))
+    });
+  }
+
+  // ============================================================
+  //  Save handler
+  // ============================================================
+  function buildSavePayload() {
+    const runId = (window._dmaaiAnalysis && window._dmaaiAnalysis._meta && window._dmaaiAnalysis._meta.runId) ||
+      new Date().toISOString();
+    const responses = [];
+    const findingIdx = window._dmaaiAnalysis && window._dmaaiAnalysis._findingIndex || {};
+    Object.keys(_dmaaiResponses).forEach(findingId => {
+      const r = _dmaaiResponses[findingId];
+      const init = _dmaaiResponsesInitial[findingId] || { answer: '', decision: '' };
+      if (r.answer === init.answer && r.decision === init.decision) return;
+      const f = findingIdx[findingId] || {};
+      responses.push({
+        analysisRunId:    runId,
+        findingId:        findingId,
+        issueType:        f.issueType || null,
+        company:          f.company   || null,
+        scope:            f.scope     || null,
+        glClass:          f.glClass   || null,
+        answer:           r.answer || null,
+        decision:         r.decision || null,
+        status:           r.status,
+        lastModifiedBy:   (RR_SESSION && RR_SESSION.user && RR_SESSION.user.u) || 'demo@local',
+        lastModifiedDate: new Date().toISOString(),
+      });
+    });
+    return { analysisRunId: runId, responses: responses };
+  }
+
+  function applySave() {
+    if (_saveBusy) return;
+    const payload = buildSavePayload();
+    if (!payload.responses.length) return;
+    const status = document.getElementById('js-save-bar-status');
+    _saveBusy = true;
+    if (status) status.textContent = 'Saving…';
+
+    const work = IS_DEMO
+      ? new Promise((res) => { setTimeout(() => res({ ok: true, demo: true }), 250); })
+      : rrFetch('inventory/integrity/aai-save-responses', { method: 'POST', body: payload });
+
+    work.then(() => {
+      // Promote current responses to "initial" so the save bar clears.
+      Object.keys(_dmaaiResponses).forEach(id => {
+        _dmaaiResponsesInitial[id] = Object.assign({}, _dmaaiResponses[id]);
+      });
+      _saveBusy = false;
+      if (status) status.textContent = 'Saved.';
+      refreshSaveBar();
+      if (window.RRV8 && RRV8.logActivity) RRV8.logActivity('DMAAI analyzer responses saved', payload.responses.length + ' account decision' + (payload.responses.length === 1 ? '' : 's') + ' recorded on the DMAAI model review');
+      refreshTabCounts();
+      setTimeout(() => { if (status) status.textContent = ''; }, 2500);
+    }).catch(err => {
+      _saveBusy = false;
+      if (status) status.textContent = 'Save failed · ' + (err && err.message || 'error');
+    });
+  }
+
+  function discardChanges() {
+    Object.keys(_dmaaiResponses).forEach(id => {
+      _dmaaiResponses[id] = Object.assign({ answer: '', decision: '', status: 'Open' }, _dmaaiResponsesInitial[id] || {});
+    });
+    // Re-render worklists + module grids so the chips + dimming
+    // reflect the rolled-back state.
+    const a = window._dmaaiAnalysis;
+    if (a) {
+      renderWorklist(a.fixFirst, 'js-fix-first-tbody');
+      renderWorklist(a.askCustomer, 'js-ask-customer-tbody');
+      refreshProgress(a.fixFirst, 'fix');
+      refreshProgress(a.askCustomer, 'ask');
+    }
+    rerenderAllModuleGrids();
+    refreshTabCounts();
+    refreshSaveBar();
+  }
+
+  document.getElementById('js-save-apply').addEventListener('click', applySave);
+  document.getElementById('js-save-discard').addEventListener('click', discardChanges);
+
+  // ============================================================
+  //  Boot — load analysis + prior responses
+  //
+  //  Production path routes through `rrFetch` to the per-DB agent.
+  //  Demo mode reads from the snapshot generated by
+  //  `RRV8/scripts/derive-dmaai-analysis.py` (which derives the
+  //  analysis from the live `v_integrity_jde_aais` data the agent
+  //  already exposes via `POST /inventory/integrity`).
+  //
+  //  Endpoints (see RRV8/API.md + docs/plans/dmaai-page-overlay-table.md):
+  //    GET  /inventory/integrity/aai-analysis-latest
+  //    GET  /inventory/integrity/aai-responses?runId={runId}
+  //    POST /inventory/integrity/aai-save-responses   (wired in applySave)
+  // ============================================================
+  function loadAnalysis() {
+    if (IS_DEMO) {
+      return fetch('data/dmaai-analysis-latest.json', { cache: 'no-cache' })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    }
+    return rrFetch('inventory/integrity/aai-analysis-latest');
+  }
+
+  // Prior triage decisions (answer / decision / status per finding). A failure here
+  // used to resolve to null, which is indistinguishable from "nothing has been
+  // triaged yet" — so every finding the analyst had already closed reappeared as
+  // Open and the worklist read as untouched work. Resolve to a marked failure so
+  // the boot can say the decisions are missing instead of implying there are none.
+  //
+  // Decisions are keyed on the analysis run, both directions: applySave POSTs under
+  // _meta.runId, and DmaaiController.getResponses declares runId REQUIRED and answers
+  // findByRun(runId). So the runId is not optional decoration — without it the read
+  // key can't match the write key. This used to build the query string conditionally
+  // and then call the endpoint regardless, which on the no-runId path is a guaranteed
+  // 400 (measured on Demo3: GET /inventory/integrity/aai-responses -> 400 Bad
+  // Request), routed to _loadFailed. That reported a load FAILURE for a run that was
+  // never identified — two different situations, one message. Return a marked no-run
+  // instead and make no call.
+  function loadResponses(runId) {
+    if (IS_DEMO) {
+      return fetch('data/dmaai-responses.json', { cache: 'no-cache' })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .catch(err => ({ _loadFailed: err }));
+    }
+    if (!runId) return Promise.resolve({ _noRun: true });
+    return rrFetch('inventory/integrity/aai-responses?runId=' + encodeURIComponent(runId))
+      .catch(err => ({ _loadFailed: err }));
+  }
+
+  // ============================================================
+  //  Model tab — baseline AAI configuration (v_integrity1_aai_base)
+  //
+  //  Reference data: what AAI accounts SHOULD look like per
+  //  (Company, TxComp, Table, OrderType, DocType, GLClass). Analyst
+  //  consults this while working through findings on the Analysis
+  //  + module tabs. 50 rows in dev — small enough to ship the whole
+  //  view to the client and filter in JS.
+  // ============================================================
+  const MODEL_COLUMNS = [
+    { key: 'CompanyNumber',   label: 'Co' },
+    { key: 'TransactionComp', label: 'Tx Co' },
+    { key: 'TableNumber',     label: 'Table' },
+    { key: 'OrderType',       label: 'OT' },
+    { key: 'DocType',         label: 'DT' },
+    { key: 'GLCLass',         label: 'GL Class' },  // view has 'GLCLass' (capital L)
+    { key: 'LongAccount',     label: 'Account' },
+    { key: 'BusUnit',         label: 'BU' },
+    { key: 'Object',          label: 'Obj' },
+    { key: 'Subsidiary',      label: 'Sub' },
+    { key: 'FlexBU',          label: 'Flex BU' },
+    { key: 'BUSource',        label: 'BU Source' },
+    { key: 'FlexSub',         label: 'Flex Sub' },
+    { key: 'SubSource',       label: 'Sub Source' }
+  ];
+  let _modelRows  = [];
+  let _modelQuery = '';
+  // Set when the baseline read failed. An empty _modelRows is otherwise
+  // indistinguishable from "the model table is empty", and the tab badge, the row
+  // count and the export would all report a confident 0 off a read that never
+  // returned. Rendering keys off this to say the rows are missing instead.
+  let _modelFailed = false;
+
+  function loadModel() {
+    if (IS_DEMO) {
+      return fetch('data/v-integrity1-aai-base.json', { cache: 'no-cache' })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .catch(err => { _modelFailed = true; console.error('Model baseline fetch failed:', err); return { data: [] }; });
+    }
+    // /inventory/integrity ignores reconciliationFilter contents
+    // (IntegrityViewRepository.findRows post-filters by JWT
+    // CompanyNumber instead). Sending an empty filter for shape
+    // consistency with other clients on this endpoint.
+    return rrFetch('inventory/integrity', {
+      method: 'POST',
+      body: {
+        report: 'v_integrity1_aai_base',
+        reconciliationFilter: { currencies: [], companies: [], businessUnits: [], objects: [], subsidiaries: [] },
+        take: 1000, skip: 0, page: 1, pageSize: 1000
+      }
+    }).catch(err => {
+      _modelFailed = true;
+      console.error('Model fetch failed:', err);
+      return { data: [] };
+    });
+  }
+
+  function renderModelHeader() {
+    const tr = document.getElementById('js-model-thead-row');
+    if (!tr) return;
+    tr.innerHTML = MODEL_COLUMNS.map(c =>
+      '<th class="is-mono" title="' + escapeHtml(c.key) + '">' + escapeHtml(c.label) + '</th>'
+    ).join('');
+  }
+  // The Model + Exception GL tabs read whole views and used to render EVERY
+  // company's rows regardless of scope — while the worklist, the module grids and
+  // the company pill next to them were narrowed. Worse, when ?company= named a
+  // company outside the working scope (_scopeError), those surfaces correctly went
+  // empty and the pill said "not in scope" while these two tabs kept showing the
+  // full unscoped dataset right beside that message. Both now honor the Home
+  // working-company scope, the same scope accounting-model-review.html applies to
+  // this very view. The local company pill is deliberately NOT applied here: these
+  // two tabs are reference/setup data read across the in-scope companies.
+  function inWorkingScope(rows) {
+    if (_scopeError) return [];
+    return (rows || []).filter(r => inScopeCo(r && r.CompanyNumber));
+  }
+  function modelFilteredRows() {
+    const scoped = inWorkingScope(_modelRows);
+    const q = String(_modelQuery || '').toLowerCase().trim();
+    if (!q) return scoped;
+    return scoped.filter(r => {
+      for (let i = 0; i < MODEL_COLUMNS.length; i++) {
+        const v = r[MODEL_COLUMNS[i].key];
+        if (v != null && String(v).toLowerCase().indexOf(q) !== -1) return true;
+      }
+      return false;
+    });
+  }
+  function renderModel() {
+    const tbody = document.getElementById('js-model-tbody');
+    const count = document.getElementById('js-model-count');
+    const badge = document.getElementById('js-tab-count-model');
+    if (!tbody) return;
+    renderModelHeader();
+    const rows = modelFilteredRows();
+    const scopedTotal = inWorkingScope(_modelRows).length;
+    if (count) {
+      count.classList.remove('is-loading');
+      count.textContent = _modelFailed ? 'not loaded'
+        : (rows.length.toLocaleString('en-US') + ' rows' +
+           (rows.length < scopedTotal ? ' of ' + scopedTotal.toLocaleString('en-US') : ''));
+    }
+    // A count of 0 on a failed read reads as "the model is empty" — show nothing
+    // rather than a number we don't have.
+    if (badge) badge.textContent = _modelFailed ? '' : scopedTotal.toLocaleString('en-US');
+    if (!rows.length) {
+      const msg = _modelFailed
+        ? 'Couldn’t load the model table. Reopen the page in a moment; if it keeps failing, ask your IT department to check that RapidReconciler’s data service is running.'
+        : _scopeError
+          ? ('This link asked for company ' + escapeHtml(_scopeError.value) + ', which is outside the companies you’re working in. Nothing is shown, because showing it would ignore that scope.')
+          : (_modelQuery ? 'No rows match the current search.' : 'No model mappings for the companies you’re working in.');
+      tbody.innerHTML = '<tr><td colspan="' + MODEL_COLUMNS.length + '" class="details-empty">' + msg + '</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r =>
+      '<tr>' + MODEL_COLUMNS.map(c => {
+        const v = r[c.key];
+        const txt = (v == null ? '' : String(v)).trim();
+        return '<td class="is-mono">' + escapeHtml(txt) + '</td>';
+      }).join('') + '</tr>'
+    ).join('');
+  }
+  function wireModelSearch() {
+    const input = document.getElementById('js-model-search');
+    const clear = document.getElementById('js-model-search-clear');
+    if (!input) return;
+    let t = null;
+    function applyNow() {
+      _modelQuery = input.value || '';
+      if (clear) clear.hidden = !_modelQuery;
+      renderModel();
+    }
+    input.addEventListener('input', () => { if (t) clearTimeout(t); t = setTimeout(applyNow, 150); });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && _modelQuery) {
+        e.preventDefault(); input.value = '';
+        if (t) clearTimeout(t);
+        applyNow();
+      }
+    });
+    if (clear) clear.addEventListener('click', () => { input.value = ''; if (t) clearTimeout(t); applyNow(); input.focus(); });
+  }
+  function exportModel() {
+    if (typeof XLSX === 'undefined') {
+      console.warn('Excel library still loading — Model export skipped');
+      return;
+    }
+    // Never write a workbook off a failed read: a zero-row "AAI Model" sheet is
+    // indistinguishable from a model with no mappings once it leaves this page.
+    if (_modelFailed) {
+      showNotice('model-export', 'Nothing to export yet',
+        'The model table didn’t load, so an export would be an empty sheet rather than the baseline. Reopen the page and try again.');
+      return;
+    }
+    const rows = modelFilteredRows();
+    // All columns are JDE mapping identifiers (text) — no numeric total is meaningful.
+    buildAuditWorkbook({
+      sheetName: 'Model',
+      fileName: _exportNameScope('AAIModel', null, false),
+      titleLines: [
+        'AAI Model — F4095 Baseline',
+        'Database ' + _dmaaiDbName() + '  ·  ' + _exportScopeLabel(false),
+        'Generated ' + new Date().toLocaleString('en-US') + '  ·  ' + rows.length.toLocaleString('en-US') + ' row' + (rows.length !== 1 ? 's' : '')
+      ],
+      columns: MODEL_COLUMNS.map(c => ({ label: c.label })),
+      rows: rows.map(r => MODEL_COLUMNS.map(c => (r[c.key] == null ? '' : r[c.key])))
+    });
+  }
+
+  // Fire-and-forget. Model is independent of the Analysis flow.
+  loadModel().then(payload => {
+    const rows = (payload && payload.data) || (Array.isArray(payload) ? payload : []);
+    _modelRows = rows;
+    renderModel();
+  });
+  wireModelSearch();
+  (function wireModelExport() {
+    const btn = document.getElementById('js-model-export-btn');
+    if (btn) btn.addEventListener('click', exportModel);
+  })();
+
+  // Read-only model sign-off status on the Model tab. The approve/re-approve
+  // action lives on Model DMAAI Review; here we just note where the baseline
+  // stands (approved / changed-since-approval / not yet approved).
+  function renderModelVerdict(m) {
+    if (!m) return;
+    const el = document.getElementById('js-model-verdict');
+    const dot = document.getElementById('js-tab-dot-model');
+    if (!el) return;
+    const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    const vdate = iso => { try { return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch (_) { return iso || ''; } };
+    const vname = n => {
+      n = String(n || '').trim(); if (!n) return '';
+      if (n.indexOf('@') > 0) n = n.split('@')[0].replace(/[._]+/g, ' ');
+      return n.replace(/\b\w/g, c => c.toUpperCase());
+    };
+    if (m.state === 'approved') {
+      const by = vname(m.approvedBy), on = vdate(m.approvedDate);
+      el.className = 'model-verdict is-approved';
+      el.innerHTML = CHECK + 'Model approved' + (by ? ' &middot; ' + escapeHtml(by) : '') + (on ? ' &middot; ' + escapeHtml(on) : '');
+      el.title = m.note ? ('Sign-off note: ' + m.note) : 'The F4095 baseline has been reviewed and signed off on Model DMAAI Review.';
+      el.hidden = false;
+      if (dot) { dot.className = 'tab-dot is-approved'; dot.title = 'Model approved'; dot.hidden = false; }
+    } else if (m.state === 'needs-review') {
+      el.className = 'model-verdict is-changed';
+      el.innerHTML = 'Model changed since approval &mdash; <a href="accounting-model-review.html">re-approve</a>';
+      el.hidden = false;
+      if (dot) { dot.className = 'tab-dot is-changed'; dot.title = 'Model changed since approval'; dot.hidden = false; }
+    } else if (m.state === 'unapproved') {   // the endpoint's three states are approved | needs-review | unapproved
+      el.className = 'model-verdict is-none';
+      el.innerHTML = 'Not yet approved &mdash; <a href="accounting-model-review.html">sign off</a>';
+      el.hidden = false;
+      // The tab dot carries no treatment for "not yet approved" — a dot beside the
+      // tab title claims a verdict, and there isn't one to claim yet. Cleared
+      // explicitly so a second render can't leave a stale one behind.
+      if (dot) dot.hidden = true;
+    } else {
+      // A payload we can't classify (empty body, or a state a newer Services jar
+      // reports that this page doesn't know) used to land in the "Not yet approved"
+      // branch — telling the accountant the baseline was never signed off when the
+      // truth is we couldn't read the sign-off. Make no claim instead.
+      console.warn('[dmaais] unrecognized model-approval state:', m && m.state);
+      el.hidden = true;
+      if (dot) dot.hidden = true;
+    }
+  }
+  // Fire-and-forget; independent of the Model grid load. Demo has no sidecar
+  // for this read, and an unreachable DB just leaves the badge hidden (no noise).
+  (function loadModelApproval() {
+    if (IS_DEMO) return;
+    rrFetch('inventory/integrity/model-approval')
+      .then(renderModelVerdict)
+      .catch(() => {});
+  })();
+
+  // ============================================================
+  //  Exception GL tab — items with GL classes not in the AAI
+  //  master (v_integrity3_exc_glc). Item / lot-level setup issue
+  //  distinct from the AAI rule findings on the Analysis tab.
+  //  Same simple-grid pattern as Model — search + Excel + count.
+  //  528 rows in dev; small enough to load + filter in JS.
+  // ============================================================
+  const EXC_GLC_COLUMNS = [
+    { key: 'GLClass',       label: 'GL Class' },
+    { key: 'CompanyNumber', label: 'Co' },
+    { key: 'Branch',        label: 'Branch' },
+    { key: 'ShortItem',     label: 'Short Item',  align: 'right' },
+    { key: 'Item',          label: 'Item' },
+    { key: 'ThirdItem',     label: 'Third Item' },
+    { key: 'Description',   label: 'Description' },
+    { key: 'Quantity',      label: 'Quantity',    align: 'right', numFmt: 'qty' },
+    { key: 'Amount',        label: 'Amount',      align: 'right', numFmt: 'money' }
+  ];
+  let _excGlcRows  = [];
+  let _excGlcQuery = '';
+  // Same reason as _modelFailed: "0 items with a GL class outside the master" is an
+  // all-clear an analyst acts on, so it must never be produced by a failed read.
+  let _excGlcFailed = false;
+
+  function loadExcGlc() {
+    if (IS_DEMO) {
+      return fetch('data/v-integrity3-exc-glc.json', { cache: 'no-cache' })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .catch(err => { _excGlcFailed = true; console.error('Exception GL fetch failed:', err); return { data: [] }; });
+    }
+    return rrFetch('inventory/integrity', {
+      method: 'POST',
+      body: {
+        report: 'v_integrity3_exc_glc',
+        reconciliationFilter: { currencies: [], companies: [], businessUnits: [], objects: [], subsidiaries: [] },
+        take: 5000, skip: 0, page: 1, pageSize: 5000
+      }
+    }).catch(err => {
+      _excGlcFailed = true;
+      console.error('Exception GL fetch failed:', err);
+      return { data: [] };
+    });
+  }
+  function fmtExcGlcCell(col, v) {
+    if (v == null) return '';
+    if (col.numFmt === 'money') {
+      const x = Number(v);
+      if (!isFinite(x)) return '';
+      if (x === 0) return '&mdash;';
+      const abs = Math.abs(x).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return x < 0 ? '<span class="neg">(' + abs + ')</span>' : abs;
+    }
+    if (col.numFmt === 'qty') {
+      const x = Number(v);
+      if (!isFinite(x)) return '';
+      if (x === 0) return '&mdash;';
+      return x.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    }
+    return escapeHtml(String(v).trim());
+  }
+  function renderExcGlcHeader() {
+    const tr = document.getElementById('js-exc-glc-thead-row');
+    if (!tr) return;
+    tr.innerHTML = EXC_GLC_COLUMNS.map(c => {
+      const cls = c.align === 'right' ? ' class="is-num"' : '';
+      return '<th' + cls + ' title="' + escapeHtml(c.key) + '">' + escapeHtml(c.label) + '</th>';
+    }).join('');
+  }
+  function excGlcFilteredRows() {
+    const scoped = inWorkingScope(_excGlcRows);
+    const q = String(_excGlcQuery || '').toLowerCase().trim();
+    if (!q) return scoped;
+    return scoped.filter(r => {
+      for (let i = 0; i < EXC_GLC_COLUMNS.length; i++) {
+        const v = r[EXC_GLC_COLUMNS[i].key];
+        if (v != null && String(v).toLowerCase().indexOf(q) !== -1) return true;
+      }
+      return false;
+    });
+  }
+  function renderExcGlc() {
+    const tbody = document.getElementById('js-exc-glc-tbody');
+    const count = document.getElementById('js-exc-glc-count');
+    const badge = document.getElementById('js-tab-count-exception-gl');
+    if (!tbody) return;
+    renderExcGlcHeader();
+    const rows = excGlcFilteredRows();
+    const scopedTotal = inWorkingScope(_excGlcRows).length;
+    if (count) {
+      count.classList.remove('is-loading');
+      count.textContent = _excGlcFailed ? 'not loaded'
+        : (rows.length.toLocaleString('en-US') + ' rows' +
+           (rows.length < scopedTotal ? ' of ' + scopedTotal.toLocaleString('en-US') : ''));
+    }
+    if (badge) badge.textContent = _excGlcFailed ? '' : scopedTotal.toLocaleString('en-US');
+    if (!rows.length) {
+      const msg = _excGlcFailed
+        ? 'Couldn’t load the excluded GL classes, so this is not an all-clear. Reopen the page in a moment; if it keeps failing, ask your IT department to check that RapidReconciler’s data service is running.'
+        : _scopeError
+          ? ('This link asked for company ' + escapeHtml(_scopeError.value) + ', which is outside the companies you’re working in. Nothing is shown, because showing it would ignore that scope.')
+          : (_excGlcQuery ? 'No rows match the current search.' : 'No items use a GL class that’s missing from the AAI master.');
+      tbody.innerHTML = '<tr><td colspan="' + EXC_GLC_COLUMNS.length + '" class="details-empty">' + msg + '</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r =>
+      '<tr>' + EXC_GLC_COLUMNS.map(c => {
+        const cls = c.align === 'right' ? ' class="is-num"' : '';
+        return '<td' + cls + '>' + fmtExcGlcCell(c, r[c.key]) + '</td>';
+      }).join('') + '</tr>'
+    ).join('');
+  }
+  function wireExcGlcSearch() {
+    const input = document.getElementById('js-exc-glc-search');
+    const clear = document.getElementById('js-exc-glc-search-clear');
+    if (!input) return;
+    let t = null;
+    function applyNow() {
+      _excGlcQuery = input.value || '';
+      if (clear) clear.hidden = !_excGlcQuery;
+      renderExcGlc();
+    }
+    input.addEventListener('input', () => { if (t) clearTimeout(t); t = setTimeout(applyNow, 150); });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && _excGlcQuery) {
+        e.preventDefault(); input.value = '';
+        if (t) clearTimeout(t);
+        applyNow();
+      }
+    });
+    if (clear) clear.addEventListener('click', () => { input.value = ''; if (t) clearTimeout(t); applyNow(); input.focus(); });
+  }
+  function exportExcGlc() {
+    if (typeof XLSX === 'undefined') {
+      console.warn('Excel library still loading — Exception GL export skipped');
+      return;
+    }
+    // A zero-row Exception GL sheet reads as a clean bill of health, so refuse to
+    // produce one when the read is what failed.
+    if (_excGlcFailed) {
+      showNotice('excglc-export', 'Nothing to export yet',
+        'The excluded GL classes didn’t load, so an export would read as a clean result rather than an unknown one. Reopen the page and try again.');
+      return;
+    }
+    const rows = excGlcFilteredRows();
+    const isNumCol = c => c.numFmt === 'money' || c.numFmt === 'qty';
+    const sumQty = rows.reduce((s, r) => s + (Number(r.Quantity) || 0), 0);
+    const sumAmt = rows.reduce((s, r) => s + (Number(r.Amount) || 0), 0);
+    buildAuditWorkbook({
+      sheetName: 'ExceptionGL',
+      fileName: _exportNameScope('ExceptionGL', null, false),
+      titleLines: [
+        'Exception GL',
+        'Database ' + _dmaaiDbName() + '  ·  ' + _exportScopeLabel(false),
+        'Generated ' + new Date().toLocaleString('en-US') + '  ·  ' + rows.length.toLocaleString('en-US') + ' row' + (rows.length !== 1 ? 's' : '')
+      ],
+      columns: EXC_GLC_COLUMNS.map(c => ({
+        label: c.label,
+        num: isNumCol(c),
+        fmt: c.numFmt === 'qty' ? '#,##0.00;(#,##0.00)' : undefined
+      })),
+      rows: rows.map(r => EXC_GLC_COLUMNS.map(c => {
+        const v = r[c.key];
+        if (isNumCol(c)) { const n = Number(v); return isFinite(n) ? n : ''; }
+        return v == null ? '' : v;
+      })),
+      totalRow: EXC_GLC_COLUMNS.map((c, i) => {
+        if (i === 0) return 'TOTAL — ' + rows.length.toLocaleString('en-US') + ' row' + (rows.length !== 1 ? 's' : '');
+        if (c.key === 'Quantity') return Math.round(sumQty * 1000) / 1000;
+        if (c.key === 'Amount') return Math.round(sumAmt * 100) / 100;
+        return '';
+      })
+    });
+  }
+
+  // Fire-and-forget. Exception GL is independent of the Analysis flow.
+  loadExcGlc().then(payload => {
+    const rows = (payload && payload.data) || (Array.isArray(payload) ? payload : []);
+    _excGlcRows = rows;
+    renderExcGlc();
+  });
+  wireExcGlcSearch();
+  (function wireExcGlcExport() {
+    const btn = document.getElementById('js-exc-glc-export-btn');
+    if (btn) btn.addEventListener('click', exportExcGlc);
+  })();
+
+  // The decisions read is keyed on the run the analysis just returned, so it is
+  // SEQUENTIAL, not parallel — a Promise.all here has no runId to pass and the read
+  // can only 400. DmaaiController's own carry-forward note spells the order out: V8
+  // calls aai-responses?runId= after aai-analysis-latest returns, to pick up the
+  // responses for THIS run. Costs one round trip; buys a read key that matches the
+  // key applySave writes under.
+  loadAnalysis().then(data => {
+    const runId = (data && data._meta && data._meta.runId) || '';
+    return loadResponses(runId).then(savedResponses => [data, savedResponses]);
+  }).then(([data, savedResponses]) => {
+    window._dmaaiAnalysis = data;
+
+    // Index all findings by id so save can look up semantic identity.
+    const idx = Object.create(null);
+    (data.fixFirst || []).forEach(r => { idx[r.id] = r; });
+    (data.askCustomer || []).forEach(r => { idx[r.id] = r; });
+    data._findingIndex = idx;
+
+    // Two different reasons the findings below can all read as untriaged, and they get
+    // two different messages. Both used to arrive as _loadFailed, so a run that was
+    // never identified was reported to the analyst as a failed read.
+    if (savedResponses && savedResponses._loadFailed) {
+      // The read ran and failed: decisions may exist and are not on screen.
+      console.error('[dmaais] prior decisions failed to load:', savedResponses._loadFailed);
+      showNotice('responses',
+        'Your earlier decisions on these findings didn’t load',
+        'Every finding below is showing as untriaged, which may not reflect the work already done. Reopen the page in a moment before recording anything new — saving now would only add to what’s already stored, but the list you see is incomplete.');
+    } else if (savedResponses && savedResponses._noRun) {
+      // No read ran: the analysis named no run, so there is no key to look decisions
+      // up under — and none to save them under either.
+      console.warn('[dmaais] analysis carried no _meta.runId — skipped the prior-decisions read');
+      showNotice('responses',
+        'No earlier decisions to load for this analysis',
+        'The analysis returned no run identifier, so there is nothing to look up — every finding below is untriaged because none has been recorded, not because a read failed. Refresh for a fresh analysis run before you record anything: a decision saved against a run this page can’t name won’t be read back.',
+        'info');
+    }
+    // Seed responses from any persisted set (demo round-trip JSON).
+    if (savedResponses && Array.isArray(savedResponses.responses)) {
+      savedResponses.responses.forEach(r => {
+        if (!r.findingId) return;
+        _dmaaiResponses[r.findingId] = {
+          answer:   r.answer || '',
+          decision: r.decision || '',
+          status:   r.status || ANSWER_TO_STATUS[r.answer || ''] || 'Open',
+        };
+        _dmaaiResponsesInitial[r.findingId] = Object.assign({}, _dmaaiResponses[r.findingId]);
+      });
+    }
+
+    // Headline
+    renderHeadline(data._meta || {});
+
+    // Worklists
+    renderWorklist(data.fixFirst, 'js-fix-first-tbody');
+    renderWorklist(data.askCustomer, 'js-ask-customer-tbody');
+    refreshProgress(data.fixFirst, 'fix');
+    refreshProgress(data.askCustomer, 'ask');
+
+    bindWorklistEvents(data.fixFirst,    'js-fix-first-tbody',    'fix');
+    bindWorklistEvents(data.askCustomer, 'js-ask-customer-tbody', 'ask');
+
+    // Ignore blurb
+    const ig = document.getElementById('js-ignore-blurb');
+    if (ig) ig.textContent = data.ignoreBlurb || '—';
+
+    // Modules — set up state slices BEFORE tagging so rows hold
+    // identity across the modules dict and the per-module arrays.
+    MODULE_ORDER.forEach(m => {
+      const rows = (data.modules && data.modules[m]) || [];
+      _gridState[m] = {
+        rows: rows,
+        colVisibility: loadColVisibility(m),
+        colOrder:      loadColOrder(m),
+        sort:          loadSort(m),
+        search:        '',
+        rowFilter:     loadRowFilter(m),
+        findingFocus:  null,
+        columnFilters: loadColumnFilters(m),
+      };
+    });
+
+    // Tag every F4095 row with `_findingId` once, then build panels
+    // (the panel's first render reads the tags).
+    tagRowsWithFinding(
+      [].concat(data.fixFirst || []).concat(data.askCustomer || []),
+      data.modules || {}
+    );
+
+    MODULE_ORDER.forEach(m => {
+      const panel = buildModulePanel(m);
+      wireGrid(m, panel);
+      paintRowFilterPill(m);
+      renderGrid(m);
+    });
+
+    // After tagging, re-render worklists once so the row-count chips
+    // pick up the matched counts (initial render runs before tagging).
+    renderWorklist(data.fixFirst, 'js-fix-first-tbody');
+    renderWorklist(data.askCustomer, 'js-ask-customer-tbody');
+
+    // Page-scope Company pill — paint + wire after data is ready
+    // so the popover knows which companies exist.
+    paintCompanyPill();
+    const companyPill = document.getElementById('js-company-pill');
+    if (companyPill) {
+      companyPill.addEventListener('click', e => {
+        e.stopPropagation();
+        const pop = document.getElementById('company-popover');
+        if (pop && !pop.hidden) { pop.hidden = true; return; }
+        openCompanyPopover(companyPill);
+      });
+    }
+
+    refreshTabCounts();
+    refreshSaveBar();
+
+    // Deep-link intake (from the analyst Transaction Variance plan):
+    //   ?company=NN  → scope the page to that company
+    //   ?finding=Fn  → jump to that finding's configs (module tab, focused)
+    //   ?tab=analysis|model|exception-gl|Sales|…  → open that tab (finding wins)
+    try {
+      const u = new URL(window.location.href);
+      const co = (u.searchParams.get('company') || '').trim();
+      const finding = (u.searchParams.get('finding') || '').trim();
+      const tab = (u.searchParams.get('tab') || '').trim();
+      if (co && typeof inScopeCo === 'function' && inScopeCo(co)) {
+        _pageCompanyFilter = co; saveCompanyFilter(); paintCompanyPill();
+        rerenderAllModuleGrids(); refreshTabCounts();
+      } else if (co) {
+        // Present but unhonorable. Do NOT leave the previously persisted company in
+        // force — that shows one company's configs under another company's question.
+        _scopeError = { param: 'company', value: co, label: 'company' };
+        _pageCompanyFilter = null; saveCompanyFilter(); paintCompanyPill();
+        rerenderAllModuleGrids(); refreshTabCounts();
+        console.error('[drill] ?company=' + co + ' is outside this session’s working company scope'
+          + ' — cleared the saved company filter rather than showing a different company’s configs.');
+      }
+      if (finding && data._findingIndex && data._findingIndex[finding]) {
+        focusFindingInModule(finding);
+      } else if (finding) {
+        // A finding id we don't have must not silently degrade into a tab switch.
+        console.error('[drill] ?finding=' + finding + ' is not in this analysis — leaving the page on its default tab.');
+      } else if (tab) {
+        activateTab(tab);
+      }
+      if (window.RRV8 && RRV8.drillReport) {
+        RRV8.drillReport({ surface: 'DMAAIs',
+          applied: { company: _scopeError ? '' : (effPageCompany() || ''), finding: finding, tab: tab },
+          ignored: _scopeError ? ['company (out of scope)'] : [],
+          actual: null });
+      }
+    } catch (_) {}
+  }).catch(err => {
+    showFetchError('dmaai-analysis-latest', err);
+  });
+
+  // Status light: kick it off async (non-blocking).
+  loadStatus();
+
+  // Seed the sidebar's filter universe cache (currencies / companies /
+  // BUs / objects / subsidiaries). Fire-and-forget — first page in the
+  // tab does the work; subsequent pages short-circuit to the cache.
+  if (window.RRV8 && typeof window.RRV8.ensureInventoryStatus === 'function') {
+    window.RRV8.ensureInventoryStatus(rrFetch);
+  }
+
+  // Topbar DB identifier — pulled from the active session in
+  // prod/staging; demo defaults to the snapshot DB name.
+  (function paintTopbarDb() {
+    const el = document.getElementById('js-topbar-db');
+    if (!el) return;
+    const db = activeDb();
+    if (db && db.n) el.textContent = db.n;
+    else el.textContent = 'RapidReconciler_Dev';
+  })();
+})();
+</script>
+</body>
+</html>
+

@@ -1,0 +1,1827 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Inventory > Cardex Variance  (item-focused SYNC engine)
+  =============================================================================
+  The per-item sync tool. Browse/surfacing lives on Home's "Cardex Variance"
+  tab (3 cards -> drawer item grids); a drawer item deep-links HERE with
+  ?company&item&branch&dim&method. This page focuses ONE item: review its
+  RapidReconciler cardex position against JDE, then sync RR with a logged,
+  reversible "Adjust Beginning Balance". You can also type any item in
+  (item # + branch). Sync is not variance-bound -- an analyst may sync an
+  item with no current variance too.
+
+  DATA SOURCE (canonical): v6ui_itemrollintegritydialog via POST /inventory/
+  integrity (JWT-scoped, whitelisted) -- the SAME view Home's cardex cards and
+  the reconciliation cardex preview read, warmed into a per-DB session cache
+  (rrv8.scope.v1.<mode>.<db>.cardexworklist) so this page opens instantly.
+
+  CORRECTIVE ACTION: POST /inventory/set-beginning-balance (usp8_maint_set_
+  beginning_balance) -- presets Clear-to-JDE / Zero / Manual. Every adjustment
+  is logged to RAdjustLedger (GET /inventory/adjustment-ledger) and reversible
+  (POST /inventory/undo-adjustment). RR is a tool, not a system of record; JDE
+  is the source of truth -- a sync moves RR TO JDE, never the reverse. The
+  guided question-set workflow + richer noise-vs-real rules are still being
+  designed (docs/plans/transaction-variance-process.md Cardex) -- this page
+  keeps the shipped Adjust presets until that workflow lands.
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cardex Variance &mdash; RapidReconciler</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="../Tools/howto.css" rel="stylesheet">
+<script src="config.js"></script>
+<link href="ai-docs.css" rel="stylesheet">
+<script src="ai-docs.js"></script>
+<script src="export-guard.js"></script>
+<script src="vendor/xlsx.full.min.js" defer></script>
+<style>
+  :root {
+    --navy:#1f2d4a; --navy-deep:#142037; --blue:#2b5fb0; --blue-pale:#e6efff;
+    --green:#2e8a55; --green-pale:#def4e6; --orange:#f08a24; --orange-deep:#d97316; --orange-pale:#fbe7ce;
+    --red:#c0392b; --red-pale:#fce5e1; --grey-pale:#eceef3;
+    --bg:#fafbfd; --bg-soft:#f3f5f9; --bg-card:#fff; --text:#1f2d4a; --text-soft:#4a5468; --text-muted:#828a9a;
+    --rule:#e6eaf0; --rule-strong:#cfd6e0;
+    /* The fork's two accents. Navy = the Record / corrected-at-source path,
+       --sync = the Adjust / sync-RR path. Was hard-coded twice; the steps in the
+       What-to-do list now key off the SAME two values, so a step can never end up
+       pointing at a colour the card no longer uses. */
+    --sync:#5a43c9;
+    --shadow-sm:0 1px 2px rgba(20,32,55,.04); --shadow-md:0 4px 12px -2px rgba(20,32,55,.08);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Open Sans',-apple-system,sans-serif; background:var(--bg); color:var(--text); font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased; }
+  h1,h2,h3,h4 { font-family:'Source Sans 3',sans-serif; font-weight:700; }
+  a { color:inherit; text-decoration:none; }
+
+  .topbar { height:56px; background:var(--bg-card); border-bottom:1px solid var(--rule); display:flex; align-items:center; padding:0 24px; gap:10px; box-shadow:var(--shadow-sm); }
+  .topbar-logo { height:28px; }
+  .topbar-name { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:14px; color:var(--navy); }
+  .topbar-db { font-family:'Source Sans 3',sans-serif; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); margin-left:auto; }
+
+  .page { max-width:1320px; margin:0 auto; padding:28px 26px 64px; }
+  .breadcrumb { font-family:'Source Sans 3',sans-serif; font-size:11.5px; font-weight:700; letter-spacing:.10em; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px; }
+  .breadcrumb .sep { margin:0 8px; opacity:.5; }
+  .page-title { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:28px; color:var(--navy); letter-spacing:-.02em; }
+  .page-eyebrow { font-size:12.5px; color:var(--text-muted); margin-top:5px; max-width:820px; }
+
+
+  .actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:18px 0 18px; }
+  .picker-lbl { font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); }
+  /* item-focus entry box (type any item -> item # + branch) */
+  .entry-wrap { display:inline-flex; align-items:center; border:1px solid var(--rule-strong); border-radius:8px; padding:0 11px; background:var(--bg-card); }
+  .entry-wrap:focus-within { border-color:var(--blue); }
+  .entry-in { border:0; outline:none; background:transparent; padding:7px 0; font-family:'JetBrains Mono',ui-monospace,monospace; font-size:13px; font-weight:700; color:var(--navy); min-width:150px; }
+  .entry-in.sm { min-width:88px; }
+  .spacer { flex:1 1 auto; }
+  .kpi { display:inline-flex; flex-direction:column; align-items:flex-end; }
+  .kpi .lbl { font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); }
+  .kpi .val { font-family:'JetBrains Mono',ui-monospace,monospace; font-weight:700; font-size:17px; color:var(--navy); font-variant-numeric:tabular-nums; }
+  /* Per-company cardex materiality tolerance editor (by the KPIs). */
+  .cx-tol .val.cx-tol-row { display:inline-flex; align-items:center; gap:6px; }
+  .cx-tol-dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--text-muted); margin-right:5px; vertical-align:middle; }
+  .cx-tol-dot.green { background:var(--green); }
+  .cx-tol-dot.red { background:var(--red); }
+  .cx-tol-input { width:84px; font-family:'JetBrains Mono',ui-monospace,monospace; font-weight:700; font-size:14px; color:var(--navy); text-align:right; border:1px solid var(--rule-strong); border-radius:6px; padding:3px 7px; background:var(--bg-card); }
+  .cx-tol-input:disabled { background:var(--grey-pale); color:var(--text-muted); }
+  .cx-tol-save { padding:4px 9px; font-size:11.5px; }
+  .cx-tol-save:disabled { opacity:.5; cursor:not-allowed; }
+  .cx-tol-hint { font-size:10.5px; color:var(--text-muted); font-style:italic; }
+  /* UI-161 — the tolerance reads inside the scope band, beside the number it judges.
+     The verdict colour is on the VERDICT, never on the amount: sign is not severity
+     (UI-88) and neither is being inside a threshold somebody chose. */
+  .cxv-tol-item .cx-tol-sub { font-size:11px; font-weight:700; color:var(--text-muted); line-height:1.3; margin-top:2px; }
+  .cxv-tol-item .cx-tol-sub .g-item { color:#b0670c; }
+  .cxv-tol-item .cx-tol-sub .g-co { color:#3c6ba8; }
+  .cxv-tol-item .cx-tol-sub .g-strict { color:var(--text-muted); }
+  .cxv-tol-item .cx-tol-sub .v-under { color:#1a7f5a; }
+  .cxv-tol-item .cx-tol-sub .v-over { color:var(--red); }
+  .cx-tol-editor { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px; padding:11px 16px;
+    background:var(--bg-soft); border:1px solid var(--rule); border-radius:10px; }
+  .cx-tol-editor[hidden] { display:none; }
+  .cx-tol-lbl { font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); }
+  .cx-tol-scope { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; font-weight:700; color:var(--navy); cursor:pointer; }
+  .cx-tol-clear { padding:4px 9px; font-size:11.5px; }
+  .cx-tol-listbtn { appearance:none; -webkit-appearance:none; border:0; background:none; padding:0;
+    font-family:inherit; font-size:12px; font-weight:800; color:var(--blue); cursor:pointer; text-decoration:underline; }
+  .cx-tol-panel { margin:0 0 16px; padding:14px 18px; background:var(--bg-card); border:1px solid var(--rule); border-radius:12px; box-shadow:var(--shadow-sm); }
+  .cx-tol-panel[hidden] { display:none; }
+  .cx-tol-panel-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+  .cx-tol-row { display:grid; grid-template-columns:1fr auto 1fr auto; gap:12px; align-items:center;
+    padding:8px 2px; border-bottom:1px solid var(--rule); font-size:13px; }
+  .cx-tol-row:last-child { border-bottom:0; }
+  .cx-tol-row .it { font-family:'JetBrains Mono',ui-monospace,monospace; font-weight:700; color:var(--navy); }
+  .cx-tol-row .tv { font-family:'JetBrains Mono',ui-monospace,monospace; font-weight:700; font-variant-numeric:tabular-nums; }
+  .cx-tol-row .mt { font-size:11.5px; color:var(--text-muted); font-weight:600; }
+  .cx-tol-empty { font-size:13px; color:var(--text-soft); }
+
+  /* focus header card */
+  .analysis { background:var(--bg-card); border:1px solid var(--rule); border-radius:14px; box-shadow:var(--shadow-sm); padding:18px 20px; margin-bottom:18px; }
+
+  /* Top-section redesign mirroring inventory-transactions.html (Transaction
+     Details): a navy left-accent scope band of the params this sync operates on,
+     then a two-card AI row. Shares the page token set. */
+  .cxv-scope-band { display:flex; gap:20px; flex-wrap:wrap; align-items:center; margin:18px 0 14px; padding:18px 24px; background:var(--bg-soft); border:1px solid var(--rule); border-left:4px solid var(--navy); border-radius:12px; box-shadow:var(--shadow-sm); }
+  .cxv-scope-item { display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .cxv-scope-k { font-size:11.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted); }
+  .cxv-scope-v { font-family:'Source Sans 3',sans-serif; font-size:17px; font-weight:800; color:var(--navy); font-variant-numeric:tabular-nums; }
+  /* No colour for a negative figure (UI-88): sign is not severity. The minus sign
+     and the accounting parentheses carry the direction; the alert colour stays
+     reserved for something detected on the rows. */
+  .cxv-scope-v.proj { color:#1a7f5a; }
+  .rf td .proj, .rf td .proj * { color:#1a7f5a; }
+  .cxv-scope-total { margin-left:auto; padding-left:22px; border-left:1px solid var(--rule-strong); }
+  .cxv-roll-split { display:flex; gap:16px; align-items:flex-start; }
+  .cxv-roll-split > .cxv-roll-col { flex:1 1 0; min-width:0; margin:0; }
+  .cxv-roll-after .grid-title { color:#1a7f5a; }
+  @media (max-width:1100px){ .cxv-roll-split { flex-direction:column; } }
+  .cxv-proj { margin-top:8px; padding-top:8px; border-top:1px dashed var(--rule); font-size:13px; color:var(--text-muted); }
+  .cxv-proj b { color:var(--navy); }
+  .cxv-adjust-panel { margin:14px 0; border-left:4px solid var(--navy); }
+  .cxv-adjust-panel h2 { margin:0; font-size:18px; }
+  .cxv-adjust-head { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:10px; }
+  .adj-clear-link { font-weight:700; color:var(--blue); cursor:pointer; text-transform:none; letter-spacing:0; margin-left:8px; text-decoration:underline; text-underline-offset:2px; }
+  .adj-clear-link:hover { color:var(--navy); text-decoration-thickness:2px; }
+  .cxv-adjust-period { font-size:12.5px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:var(--text-muted); }
+  .cxv-adjust-period b { color:var(--navy); font-variant-numeric:tabular-nums; }
+  .cxv-roll-after .grid-head .btn-go, .cxv-roll-after .grid-head .btn-ghost { padding:6px 14px; font-size:13px; }
+  .adj-grid { display:flex; gap:28px; flex-wrap:wrap; margin:8px 0 10px; }
+  .adj-col { flex:1 1 200px; min-width:180px; }
+  .adj-col-h { font-size:12px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px; }
+  .cxv-aicards { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:0 0 18px; }
+  @media (max-width:900px){ .cxv-aicards { grid-template-columns:1fr; } }
+  .cxv-aicard { display:flex; flex-direction:column; padding:16px 18px; background:var(--bg-card); border:1px solid var(--rule); border-left:4px solid var(--sync); border-radius:12px; box-shadow:var(--shadow-sm); }
+  .cxv-aicard.is-cause { border-left-color:var(--navy); }
+  .cxv-aicard-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .cxv-aicard-title { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:16.5px; color:var(--navy); display:inline-flex; align-items:center; gap:7px; }
+  .cxv-aicard-sub { font-size:13.5px; color:var(--text-soft); margin-top:5px; line-height:1.5; max-width:52ch; }
+  .cxv-steps { margin:8px 0 0; padding-left:20px; font-size:13.5px; line-height:1.55; color:var(--text); max-width:56ch; }
+  /* Steps are three separate decisions, not a run-on list — 5px read as one block
+     of text and the fork in steps 2/3 disappeared into it (owner 2026-08-19). */
+  .cxv-steps li { margin-bottom:12px; }
+  .cxv-steps li:last-child { margin-bottom:0; }
+  .cxv-steps li b { color:var(--navy); }
+  /* Steps 2 and 3 ARE the two fork cards on the right, one each. They carry the
+     card's own left-accent colour so the eye crosses the gutter without reading:
+     the indent also makes them read as branches off the step-1 check. */
+  .cxv-steps li.is-record, .cxv-steps li.is-adjust { border-left:3px solid transparent; padding-left:9px; }
+  .cxv-steps li.is-record { border-left-color:var(--navy); }
+  .cxv-steps li.is-adjust { border-left-color:var(--sync); }
+  .cxv-steps li.is-adjust b.cxv-step-act { color:var(--sync); }
+  .cxv-aicard-launch { flex-shrink:0; font-family:inherit; font-size:13px; font-weight:700; border-radius:8px; padding:8px 14px; cursor:pointer; border:1px solid #d8d0f5; background:#ece8fb; color:var(--sync); white-space:nowrap; }
+  .cxv-aicard-launch:hover:not(:disabled){ background:#e2dcf8; }
+  .cxv-aicard-launch:disabled { opacity:.5; cursor:not-allowed; }
+  .cxv-aicard.is-cause .cxv-aicard-launch { background:var(--bg-soft); color:var(--navy); border-color:var(--rule-strong); }
+  .cxv-aicard-body { margin-top:12px; font-size:13.5px; line-height:1.5; color:var(--text); }
+  .cxv-aicard-body[hidden]{ display:none; }
+  .cxv-aicard-read { color:var(--text); background:var(--bg-soft); border-radius:8px; padding:10px 12px; }
+  .cxv-aicard-hint { display:block; margin-top:5px; font-size:13px; color:var(--text-muted); line-height:1.5; }
+  .cxv-aicard-note { margin-top:8px; font-size:12.5px; color:var(--text-soft); background:var(--bg-soft); border-radius:8px; padding:8px 10px; }
+  .cxv-aicard-ai { margin-top:9px; padding-top:9px; border-top:1px solid var(--rule); display:flex; flex-direction:column; gap:4px; }
+  .cxv-aicard-ai.is-loading { color:var(--text-muted); font-style:italic; border-top-color:transparent; }
+  .cxv-aicard-ai b { color:var(--navy); }
+  .cxv-ai-remedy { margin:2px 0 0; padding-left:18px; }
+  .cxv-ai-remedy li { margin-bottom:3px; }
+  /* Top row — What to do (left) beside the two fork actions stacked (right). */
+  .cxv-toprow { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:0 0 18px; align-items:stretch; }
+  @media (max-width:900px){ .cxv-toprow { grid-template-columns:1fr; } }
+  .cxv-fork-stack { display:flex; flex-direction:column; gap:14px; min-width:0; }
+  .cxv-fork-stack[hidden]{ display:none; }
+  /* The two fork cards are mutually exclusive — renderCxvCards has enforced that
+     since it shipped ("Fork A and Fork B are exclusive"), but the only rendering of
+     it was a button going disabled AFTER you picked. Read cold, two cards with two
+     live buttons look like a to-do list. The lede and the OR say it BEFORE the click. */
+  .cxv-fork-lede { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin:2px 2px 0; }
+  .cxv-fork-lede-k { font-size:11.5px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; color:var(--navy); }
+  .cxv-fork-lede-d { font-size:12.5px; color:var(--text-soft); }
+  .cxv-fork-or { display:flex; align-items:center; gap:12px; margin:-2px 2px; }
+  .cxv-fork-or::before, .cxv-fork-or::after { content:""; flex:1 1 auto; height:1px; background:var(--rule); }
+  .cxv-fork-or span { flex:0 0 auto; font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--text-soft); }
+  #cxvRollDetail .rf { width:100%; margin-top:8px; }
+  /* Fork-A disposition — "corrected at source" (no RR adjustment). */
+  .cxv-dispo { margin-top:12px; display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+  .cxv-dispo-hint { font-size:12px; color:var(--text-muted); flex:1 1 180px; min-width:0; line-height:1.45; }
+  .cxv-dispo.is-compose { align-items:stretch; }
+  .cxv-dispo-note { flex:1 1 240px; min-width:0; border:1px solid var(--rule-strong,#cfd6e0); border-radius:8px; padding:8px 10px; font-family:inherit; font-size:13px; color:var(--text); }
+  .cxv-dispo-note:focus { outline:none; border-color:var(--navy); box-shadow:0 0 0 3px rgba(31,45,74,0.14); }
+  .cxv-dispo.is-done { align-items:flex-start; background:#e7f6ec; border:1px solid #2e9e5b; border-radius:9px; padding:10px 12px; font-size:12.5px; color:var(--text); }
+  .cxv-dispo.is-await { align-items:flex-start; background:#fdf4e3; border:1px solid #d9a441; border-radius:9px; padding:10px 12px; font-size:12.5px; color:var(--text); }
+  .cxv-dispo.is-await b { color:#9a6a12; }
+  .cxv-dispo.is-done b { color:#1e7e42; }
+  .cxv-dispo-sub { font-size:11.5px; color:var(--text-muted); margin-top:3px; }
+  .cxv-dispo-undo { margin-left:auto; flex-shrink:0; font-size:12px; background:none; border:1px solid var(--rule-strong,#cfd6e0); border-radius:6px; padding:4px 10px; cursor:pointer; color:var(--text-soft); font-family:inherit; }
+  .cxv-dispo-undo:hover { border-color:var(--navy); color:var(--navy); }
+  /* Source-fix log status pills. */
+  .cxv-sf-pill { display:inline-block; font-size:11px; font-weight:800; letter-spacing:.03em; border-radius:999px; padding:2px 9px; white-space:nowrap; }
+  .cxv-sf-pill.awaiting { background:var(--bg-soft); color:var(--text-soft); border:1px solid var(--rule-strong,#cfd6e0); }
+  .cxv-sf-pill.await { background:#fdf4e3; color:#9a6a12; border:1px solid #d9a441; }
+  .cxv-sf-pill.cleared  { background:#e7f6ec; color:#1e7e42; border:1px solid #2e9e5b; }
+  #cxvRollDetail tr.is-bl td { font-weight:700; background:var(--bg-soft); }
+  #cxvRollDetail .brk { color:var(--orange-deep,#b0641f); font-weight:800; font-size:11px; text-transform:uppercase; letter-spacing:.03em; }
+  .an-headline { display:flex; align-items:center; gap:11px; }
+  .an-badge { width:34px; height:34px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .an-badge svg { width:19px; height:19px; }
+  .an-title { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:16px; color:var(--navy); }
+  .an-sub { font-size:12.5px; color:var(--text-soft); margin-top:1px; }
+  .an-meta { font-family:'JetBrains Mono',ui-monospace,monospace; font-size:12px; color:var(--text-soft); margin-top:3px; }
+  .an-chip { display:inline-flex; align-items:center; gap:6px; font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:10.5px; letter-spacing:.03em; text-transform:uppercase; color:var(--blue); background:var(--blue-pale); border-radius:100px; padding:2px 10px; margin-left:8px; vertical-align:middle; }
+  .an-note { font-size:12px; color:var(--text-soft); border-left:3px solid var(--orange); background:var(--orange-pale); border-radius:0 8px 8px 0; padding:9px 12px; margin-top:14px; }
+  .an-note b { color:var(--orange-deep); }
+
+  /* grid card */
+  .grid-card { background:var(--bg-card); border:1px solid var(--rule); border-radius:14px; box-shadow:var(--shadow-sm); overflow:hidden; }
+  .grid-head { display:flex; align-items:center; gap:14px; padding:13px 20px; border-bottom:1px solid var(--rule); }
+  .grid-title { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:14px; letter-spacing:.04em; text-transform:uppercase; color:var(--navy); }
+  .grid-count { font-size:12px; color:var(--text-muted); }
+  .btn { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--rule-strong); background:var(--bg-card); border-radius:8px; padding:6px 12px; font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:12.5px; color:var(--text-soft); cursor:pointer; }
+  .btn:hover { border-color:var(--blue); color:var(--blue); }
+  .btn svg { width:13px; height:13px; }
+  .btn.sm { padding:4px 10px; font-size:11.5px; }
+  .btn.primary { border-color:var(--blue); background:var(--blue); color:#fff; }
+  .btn.primary:hover { background:#24509a; color:#fff; }
+  .grid-scroll { max-height:640px; overflow:auto; }
+  table.rf { width:100%; border-collapse:separate; border-spacing:0; font-size:12.5px; }
+  table.rf thead th { position:sticky; top:0; z-index:2; background:var(--bg-soft); color:var(--text-muted); font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:10px; letter-spacing:.07em; text-transform:uppercase; text-align:left; padding:9px 11px; border-bottom:1px solid var(--rule); white-space:nowrap; }
+  table.rf thead th.num { text-align:right; }
+  table.rf tbody td { padding:8px 11px; border-bottom:1px solid var(--rule); white-space:nowrap; }
+  table.rf tbody td.num { text-align:right; font-variant-numeric:tabular-nums; font-family:'JetBrains Mono',ui-monospace,monospace; }
+  table.rf .mono { font-family:'JetBrains Mono',ui-monospace,monospace; }
+  tr.item:hover td { background:rgba(43,95,176,.04); }
+  .empty { padding:40px 20px; text-align:center; color:var(--text-muted); font-style:italic; font-size:13.5px; }
+
+  /* details drill-in — eye button per row opens the RR cardex transactions
+     behind a variance (usp6ItemRollForward), mirroring the As Of grid. */
+  table.rf td.col-detail, table.rf th.col-detail { width:42px; text-align:center; padding-left:12px; padding-right:6px; }
+  .detail-btn { background:transparent; border:0; cursor:pointer; width:24px; height:24px; padding:0; border-radius:5px; color:var(--text-muted); display:inline-flex; align-items:center; justify-content:center; transition:color .12s, background .12s; }
+  .detail-btn:hover, .detail-btn.is-active { color:var(--blue); background:var(--blue-pale); }
+  .detail-btn svg { width:15px; height:15px; }
+
+  .detail-pop { position:fixed; z-index:90; width:780px; max-width:calc(100vw - 32px); max-height:70vh; background:var(--bg-card); border:1px solid var(--rule-strong); border-radius:12px; box-shadow:0 18px 48px rgba(15,23,42,.22); display:flex; flex-direction:column; opacity:0; transform:translateY(4px); transition:opacity .12s ease, transform .12s ease; pointer-events:none; }
+  .detail-pop.show { opacity:1; transform:translateY(0); pointer-events:auto; }
+  .detail-pop[hidden] { display:none; }
+  .detail-pop-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:12px 16px 9px; border-bottom:1px solid var(--rule); }
+  .detail-pop-title { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:14px; color:var(--navy); margin:0; }
+  .detail-pop-sub { font-size:11.5px; color:var(--text-muted); margin-top:2px; font-family:'JetBrains Mono',ui-monospace,monospace; }
+  .detail-pop-actions { display:inline-flex; align-items:center; gap:8px; flex-shrink:0; }
+  .detail-pop-xls { display:inline-flex; align-items:center; gap:6px; background:transparent; border:1px solid var(--rule-strong); border-radius:100px; padding:5px 12px; color:var(--text); font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:11.5px; cursor:pointer; }
+  .detail-pop-xls:hover:not(:disabled) { color:var(--blue); border-color:var(--blue); background:var(--blue-pale); }
+  .detail-pop-xls:disabled { opacity:.45; cursor:not-allowed; }
+  .detail-pop-xls svg { width:13px; height:13px; }
+  .detail-pop-close { background:transparent; border:0; cursor:pointer; width:26px; height:26px; border-radius:5px; color:var(--text-muted); font-size:20px; line-height:1; display:inline-flex; align-items:center; justify-content:center; }
+  .detail-pop-close:hover { background:var(--rule); color:var(--text); }
+  .detail-pop-body { flex:1 1 auto; overflow:auto; padding:0; }
+  .detail-pop-state { padding:26px; text-align:center; color:var(--text-muted); font-style:italic; font-size:12.5px; }
+  table.dpop { width:100%; border-collapse:collapse; font-size:11.5px; }
+  table.dpop th { position:sticky; top:0; background:var(--bg-soft); text-align:left; padding:7px 10px; border-bottom:1px solid var(--rule-strong); font-family:'Source Sans 3',sans-serif; font-weight:800; color:var(--text); font-size:10px; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; }
+  table.dpop th.num { text-align:right; }
+  table.dpop td { padding:6px 10px; border-bottom:1px solid var(--rule); color:var(--text); white-space:nowrap; font-variant-numeric:tabular-nums; }
+  table.dpop td.num { text-align:right; font-family:'JetBrains Mono',ui-monospace,monospace; }
+  table.dpop tbody tr:hover td { background:rgba(43,95,176,.04); }
+  table.dpop tfoot td { padding:8px 10px; background:var(--bg-soft); border-top:2px solid var(--rule-strong); font-weight:800; color:var(--navy); font-variant-numeric:tabular-nums; }
+  table.dpop tfoot td.num { text-align:right; }
+
+  /* adjustment ledger */
+  .ledger { background:var(--bg-card); border:1px solid var(--rule); border-radius:14px; box-shadow:var(--shadow-sm); margin-top:22px; overflow:hidden; }
+  .ledger-head { padding:13px 20px; border-bottom:1px solid var(--rule); display:flex; align-items:center; gap:10px; }
+  .ledger-head h3 { font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--navy); font-weight:800; }
+  .ledger-head .hint { font-size:13.5px; color:var(--text-muted); }
+  .ledger-empty { padding:22px; text-align:center; color:var(--text-muted); font-style:italic; font-size:13.5px; }
+  .ledger table.rf tbody td { font-size:12px; }
+  .pill { display:inline-flex; align-items:center; font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:10.5px; padding:2px 8px; border-radius:100px; text-transform:capitalize; }
+  .pill.applied { background:var(--green-pale); color:var(--green); }
+  .pill.reversed { background:var(--grey-pale); color:var(--text-soft); }
+
+  /* adjust modal */
+  .ov { position:fixed; inset:0; background:rgba(20,32,55,.45); display:none; align-items:center; justify-content:center; z-index:60; padding:24px; }
+  .ov.show { display:flex; }
+  .card { background:var(--bg-card); border-radius:16px; box-shadow:0 18px 50px rgba(20,32,55,.28); width:100%; max-width:520px; max-height:90vh; overflow-y:auto; padding:22px 24px; }
+  .card h2 { font-size:18px; color:var(--navy); margin-bottom:3px; }
+  .card .who { font-size:12.5px; color:var(--text-muted); margin-bottom:10px; }
+  .card .who .mono { font-family:'JetBrains Mono',ui-monospace,monospace; font-weight:700; color:var(--navy); }
+  .adj-period { font-size:12px; color:var(--text-soft); background:var(--bg-soft); border:1px solid var(--rule); border-radius:8px; padding:8px 12px; margin-bottom:14px; }
+  .adj-period b { color:var(--navy); }
+  .adj-period .mono { font-family:'JetBrains Mono',ui-monospace,monospace; font-weight:700; color:var(--navy); }
+  .presets { display:flex; gap:8px; margin-bottom:14px; }
+  .preset { flex:1; border:1px solid var(--rule-strong); border-radius:10px; padding:9px 8px; text-align:center; cursor:pointer; background:#fff; }
+  .preset:hover { border-color:var(--blue); }
+  .preset.active { border-color:var(--blue); background:var(--blue-pale); }
+  .preset .pt { font-weight:800; font-size:12px; color:var(--navy); }
+  .preset .ps { font-size:10.5px; color:var(--text-muted); margin-top:2px; }
+  .fields { display:none; gap:12px; margin-bottom:14px; }
+  .fields.show { display:flex; }
+  .field { flex:1; }
+  .field label { display:block; font-size:11px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); margin-bottom:5px; }
+  .field input { width:100%; border:1px solid var(--rule-strong); border-radius:8px; padding:8px 11px; font-family:'JetBrains Mono',ui-monospace,monospace; font-size:14px; font-weight:700; color:var(--navy); }
+  .explain { font-size:12.5px; color:var(--text-soft); background:var(--bg-soft); border:1px solid var(--rule); border-radius:10px; padding:11px 13px; line-height:1.5; margin-bottom:16px; }
+  .explain b { color:var(--navy); }
+  .adj-attest { display:flex; gap:10px; align-items:flex-start; background:var(--bg-soft); border:1px solid var(--rule); border-radius:10px; padding:11px 13px; font-size:12.5px; color:var(--text-soft); line-height:1.5; margin-bottom:16px; cursor:pointer; }
+  .adj-attest input { width:16px; height:16px; margin-top:1px; accent-color:var(--blue); flex-shrink:0; }
+  .adj-attest b { color:var(--navy); font-family:'JetBrains Mono',ui-monospace,monospace; font-weight:700; }
+  .row-actions { display:flex; justify-content:flex-end; gap:10px; }
+  .btn-ghost { border:1px solid var(--rule-strong); background:var(--bg-card); color:var(--text); border-radius:9px; padding:9px 18px; font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:13.5px; cursor:pointer; }
+  .btn-go { border:1px solid var(--blue); background:var(--blue); color:#fff; border-radius:9px; padding:9px 18px; font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:13.5px; cursor:pointer; }
+  .btn-go:disabled { opacity:.45; cursor:default; }
+
+  .toast { position:fixed; bottom:28px; left:50%; transform:translateX(-50%); background:var(--navy); color:#fff; padding:10px 18px; border-radius:100px; font-family:'Source Sans 3',sans-serif; font-weight:600; font-size:13px; box-shadow:var(--shadow-md); opacity:0; transition:opacity .18s; pointer-events:none; z-index:80; }
+  .toast.show { opacity:1; }
+</style>
+<!-- Shared help panel, carrying BOTH surfaces on this page:
+     data-help-src -> RRUniversity/inventory-cardex-variance.html, the customer
+     walkthrough (it now documents the Record / Adjust fork, the Adjustment
+     ledger and the Undo, so it matches this page rather than the V7 pop-up);
+     data-help-glossary -> RRV8.GLOSSARY filtered to [ON=cardex], so the terms
+     on screen are defined from the same string the analyst AI is given.
+     help-sidebar.js renders a "Terms" toggle in the panel head when both are
+     present -- the glossary stays reachable, it does not get replaced. -->
+<link rel="stylesheet" href="../Tools/help-sidebar.css">
+<script defer src="../Tools/help-sidebar.js"></script>
+</head>
+<body
+  data-help-src="../RRUniversity/inventory-cardex-variance.html"
+  data-help-title="Handling Cardex Variance"
+  data-help-glossary="cardex">
+
+<div class="page">
+  <h1 class="page-title">Cardex Variance</h1>
+
+  <!-- Scope band — the params this sync operates on. Arrives populated from a Home
+       Cardex Variance card (?company&item&branch&method) or from the focus bar
+       below. Mirrors the Transaction Details scope band. -->
+  <div class="cxv-scope-band" id="cxvScope">
+    <span class="cxv-scope-item"><span class="cxv-scope-k">DB</span><span class="cxv-scope-v" id="scopeDb">&mdash;</span></span>
+    <span class="cxv-scope-item"><span class="cxv-scope-k">Co</span><span class="cxv-scope-v" id="scopeCo">&mdash;</span></span>
+    <span class="cxv-scope-item"><span class="cxv-scope-k">Item</span><span class="cxv-scope-v" id="scopeItem">&mdash;</span></span>
+    <span class="cxv-scope-item"><span class="cxv-scope-k">Branch</span><span class="cxv-scope-v" id="scopeBranch">&mdash;</span></span>
+    <span class="cxv-scope-item"><span class="cxv-scope-k">From</span><span class="cxv-scope-v" id="scopeReset">&mdash;</span></span>
+    <span class="cxv-scope-item" id="scopeAsOfItem" style="display:none"><span class="cxv-scope-k">As of</span><span class="cxv-scope-v" id="scopeAsOf">&mdash;</span></span>
+    <span class="cxv-scope-item cxv-scope-total"><span class="cxv-scope-k">Qty var</span><span class="cxv-scope-v" id="kpiQty">&mdash;</span></span>
+    <span class="cxv-scope-item"><span class="cxv-scope-k">Amt var</span><span class="cxv-scope-v" id="kpiAmt">&mdash;</span></span>
+    <span class="cxv-scope-item"><span class="cxv-scope-k">On hand</span><span class="cxv-scope-v" id="kpiQoh">&mdash;</span></span>
+    <span class="cxv-scope-item"><span class="cxv-scope-k">Value</span><span class="cxv-scope-v" id="kpiVal">&mdash;</span></span>
+    <!-- UI-161. The materiality tolerance sits IN the band, beside the Amt var it
+         judges, because a threshold that decides whether a number matters has to be
+         readable in the same glance as the number. A stale item override otherwise
+         suppresses a real variance forever and nothing on screen says why. The
+         sub-line names the GRAIN (item override vs company default) and carries the
+         audit stamp, so an override can never act anonymously. -->
+    <span class="cxv-scope-item cxv-tol-item" id="cxTolBox">
+      <span class="cxv-scope-k">Tolerance</span>
+      <span class="cxv-scope-v" id="cxTolVal">&mdash;</span>
+      <span class="cx-tol-sub" id="cxTolSub"></span>
+    </span>
+  </div>
+
+  <!-- Tolerance editor. Analyst-gated on the server (PUT/DELETE require perms.dm);
+       hidden here for anyone the token does not grant it, so the control is not
+       offered and then refused. -->
+  <div class="cx-tol-editor" id="cxTolEditor" hidden>
+    <span class="cx-tol-lbl">Materiality tolerance</span>
+    <label class="cx-tol-scope"><input type="radio" name="cxTolGrain" value="item" checked> This item</label>
+    <label class="cx-tol-scope"><input type="radio" name="cxTolGrain" value="company"> Company default</label>
+    <input type="text" class="cx-tol-input" id="cxTolInput" inputmode="decimal" autocomplete="off" aria-label="Tolerance amount">
+    <button type="button" class="btn cx-tol-save" id="cxTolSave">Save</button>
+    <button type="button" class="btn cx-tol-clear" id="cxTolClear">Clear</button>
+    <button type="button" class="cx-tol-listbtn" id="cxTolList">Overrides for this company</button>
+    <span class="cx-tol-hint" id="cxTolHint"></span>
+  </div>
+
+  <!-- Every item-level override for the focused company, so they can be reviewed
+       rather than accumulate. A per-item tolerance is a maintenance surface: a
+       customer with thousands of items will not tune them individually, and an
+       override nobody can enumerate is one nobody removes. -->
+  <div class="cx-tol-panel" id="cxTolPanel" hidden>
+    <div class="cx-tol-panel-head">
+      <b id="cxTolPanelTitle">Item tolerance overrides</b>
+      <button type="button" class="cx-tol-listbtn" id="cxTolPanelClose">Close</button>
+    </div>
+    <div id="cxTolPanelBody"></div>
+  </div>
+
+  <!-- ============================================================
+       AI ROW (middle) — cardex-sync AI, mirroring the Transaction
+       Details AI pair. Root cause is the GATE (deterministic shape +
+       AI why/recurrence, tier-gated); Suggested sync enables ONLY on a
+       divergence remedy and drafts the 'clear'-to-JDE Adjust. Buttons
+       start disabled (no focus) and renderCxvCards() drives them.
+       ============================================================ -->
+  <!-- ============================================================
+       ONE LINEAR WORKFLOW — every scenario walks it, forking only at
+       the end:  guide -> tie-out (the check) -> fork (record at source |
+       sync RR) -> supporting detail -> records. IDs preserved; driven by
+       renderCxvCards() + renderRollBand().
+       ============================================================ -->
+
+  <!-- 1 · What to do (left) · the two fork actions stacked (right).
+       Fork = ONE of these, decided by your JDE check. -->
+  <section class="cxv-toprow">
+    <div class="cxv-aicard is-cause">
+      <div class="cxv-aicard-head">
+        <div>
+          <div class="cxv-aicard-title"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>What to do</div>
+          <ol class="cxv-steps">
+            <li><b>Validate in JDE first.</b> Export the item ledger (P4111); sum the quantity against the on-hand.</li>
+            <li class="is-record"><b>JDE off?</b> Fix it in JDE or route it to IT, then <b class="cxv-step-act">Record</b>. RR clears on the next refresh.</li>
+            <li class="is-adjust"><b>RR is off?</b> JDE ties &mdash; <b class="cxv-step-act">Adjust</b> to sync RR.</li>
+          </ol>
+        </div>
+        <button type="button" class="cxv-aicard-launch" id="cxvCauseLaunch" disabled>Investigate</button>
+      </div>
+      <div class="cxv-aicard-body" id="cxvCauseBody" hidden></div>
+    </div>
+    <div class="cxv-fork-stack" id="cxvFork" hidden>
+      <div class="cxv-fork-lede">
+        <span class="cxv-fork-lede-k">Then do one of these</span>
+        <span class="cxv-fork-lede-d">&mdash; your JDE check in step 1 decides which. Not both.</span>
+      </div>
+      <div class="cxv-aicard is-cause">
+        <div class="cxv-aicard-head">
+          <div>
+            <div class="cxv-aicard-title"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>JDE was off</div>
+            <div class="cxv-aicard-sub">Fixed in JDE, or routed to IT.</div>
+          </div>
+          <button type="button" class="cxv-aicard-launch" id="cxvSourceFix" disabled>Record</button>
+        </div>
+        <div class="cxv-aicard-body" id="cxvForkA" hidden></div>
+      </div>
+      <div class="cxv-fork-or" aria-hidden="true"><span>or</span></div>
+      <div class="cxv-aicard is-sync">
+        <div class="cxv-aicard-head">
+          <div>
+            <div class="cxv-aicard-title"><svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M12 1.6l1.9 5.1a5 5 0 0 0 2.9 2.9l5.1 1.9-5.1 1.9a5 5 0 0 0-2.9 2.9L12 21.4l-1.9-5.1a5 5 0 0 0-2.9-2.9L2.1 11.5l5.1-1.9a5 5 0 0 0 2.9-2.9z"/></svg>RR is off</div>
+            <div class="cxv-aicard-sub">JDE ties &mdash; sync RR up to the cardex.</div>
+          </div>
+          <button type="button" class="cxv-aicard-launch" id="cxvSyncLaunch" disabled>Adjust</button>
+        </div>
+        <div class="cxv-aicard-body" id="cxvSyncBody" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Adjust Beginning Balance — inline reflow panel (opens on the row below the fork
+       cards so it never covers the before/after roll grids). Same controls + commit as
+       the retired modal; drives the live what-if. -->
+  <section class="grid-card cxv-adjust-panel" id="cxvAdjustPanel" hidden aria-labelledby="adjTitle">
+    <div class="cxv-adjust-head">
+      <h2 id="adjTitle">Adjust Beginning Balance</h2>
+      <span class="cxv-adjust-period">Period being adjusted&nbsp;<b id="adjPeriodTag">&mdash;</b></span>
+    </div>
+    <div class="adj-grid">
+      <div class="adj-col">
+        <div class="adj-col-h">Beginning balance</div>
+        <div class="field"><label for="adjQty">Qty</label><input type="number" id="adjQty" step="any"></div>
+        <div class="field"><label for="adjAmt">Amount</label><input type="number" id="adjAmt" step="any"></div>
+      </div>
+      <div class="adj-col">
+        <div class="adj-col-h">Variance to cardex <span class="adj-clear-link" id="adjConfirm" role="button" tabindex="0" title="Set the variance to zero and clear it">clear it</span></div>
+        <div class="field"><label for="adjVarQty">Qty</label><input type="number" id="adjVarQty" step="any"></div>
+        <div class="field"><label for="adjVarAmt">Amount</label><input type="number" id="adjVarAmt" step="any"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Roll-forward before/after — hidden until an Adjust (Fork B) opens the panel.
+       LEFT = current, RIGHT = projected. Attestation + commit live on the projected
+       card: the analyst stamps it there once the projection reads right. -->
+  <section id="cxvRollDetail" hidden>
+    <div class="cxv-roll-split">
+      <div class="grid-card cxv-roll-col">
+        <div class="grid-head">
+          <span class="grid-title">Current Roll Forward</span>
+        </div>
+        <div class="grid-scroll">
+          <table class="rf" id="cxvRollTable"><thead id="cxvRollHead"></thead><tbody id="cxvRollBody"></tbody></table>
+        </div>
+      </div>
+      <div class="grid-card cxv-roll-col cxv-roll-after" id="cxvRollAfterCol" hidden>
+        <div class="grid-head">
+          <span class="grid-title">Projected Roll Forward</span>
+        </div>
+        <div class="grid-scroll">
+          <table class="rf" id="cxvRollAfterTable"><thead id="cxvRollAfterHead"></thead><tbody id="cxvRollAfterBody"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid-card">
+    <div class="grid-head">
+      <span class="grid-title">Item position</span>
+      <span class="grid-count" id="gridCount">&mdash;</span>
+      <span class="spacer"></span>
+      <button class="btn-go" id="cxvApproved" type="button">Approved</button>
+    </div>
+    <div class="grid-scroll">
+      <table class="rf" id="rfTable"><thead id="rfHead"></thead><tbody id="rfBody"><tr><td class="empty">Loading&hellip;</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <!-- Fork-A trail: items the analyst validated in JDE and corrected at source. Each
+       clears on the next refresh (RR re-reads the corrected F41021); status auto-derives
+       from whether the item still carries a variance in the loaded worklist. These
+       records also append to the server activity log for the Audit Center. -->
+  <section class="ledger" id="cxvSfLog">
+    <div class="ledger-head">
+      <h3>Source-fix records</h3>
+      <span class="hint">items corrected in JDE (F41021) &mdash; each clears automatically once RapidReconciler refreshes</span>
+      <span class="spacer"></span>
+      <button class="btn sm" id="cxvSfPrune" type="button">Remove cleared</button>
+    </div>
+    <div id="cxvSfLogBody"><div class="ledger-empty">No source-fix records yet &mdash; record one from the tie-out check when a variance is corrected in JDE.</div></div>
+  </section>
+
+  <section class="ledger">
+    <div class="ledger-head">
+      <h3>Adjustment ledger</h3>
+      <span class="hint">every Adjust Beginning Balance is logged here and can be undone</span>
+    </div>
+    <div id="ledgerBody"><div class="ledger-empty">No adjustments yet &mdash; click an <b>Adjust</b> button above.</div></div>
+  </section>
+</div>
+
+<!-- Cardex detail popover — the RR cardex transactions behind a row's variance -->
+<div class="detail-pop" id="detailPop" role="dialog" aria-label="Cardex transaction detail" hidden>
+  <div class="detail-pop-head">
+    <div>
+      <h3 class="detail-pop-title" id="detailTitle">Cardex detail</h3>
+      <div class="detail-pop-sub" id="detailSub">&mdash;</div>
+    </div>
+    <div class="detail-pop-actions">
+      <button type="button" class="detail-pop-xls" id="detailXls" title="Download these transactions to Excel" aria-label="Download to Excel" disabled>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v3h10v-3"/><path d="M8 2v9"/><polyline points="5 8 8 11 11 8"/></svg>Excel
+      </button>
+      <button type="button" class="detail-pop-close" id="detailClose" aria-label="Close detail">&times;</button>
+    </div>
+  </div>
+  <div class="detail-pop-body" id="detailBody"><div class="detail-pop-state">Loading&hellip;</div></div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+  var DATA = [];                 // full warmed worklist (Reason <> 'Reset:')
+  // Off-worklist focus: rows for ONE item fetched on demand from
+  // /inventory/as-of/item-position when the analyst opens an item from the Full
+  // Perpetual Details grid that RR ties out (so it isn't on the variance
+  // worklist). Kept SEPARATE from DATA so it bypasses the zombie/near-zero filter
+  // in ingestWorklist — a tied item is here on purpose, not noise. Never cached,
+  // never counted on Home.
+  var _offWorklistRows = [];
+  // state.focus = { item, branch, company, dim, method } | null. The page shows
+  // ONE item (arrived via ?item=... or typed in the entry box). Browse lives on Home.
+  var state = { focus:null };
+  // Cardex materiality tolerances, BOTH grains (UI-161). Keyed "<company>|<item>",
+  // where an empty item is the company-level default. Absent at both grains = 0 =
+  // strict, which is the behaviour before any threshold is deliberately set.
+  //
+  // PRECEDENCE, and this is the only implementation of it on the client: AN
+  // ITEM-LEVEL TOLERANCE BEATS THE COMPANY-LEVEL ONE FOR THAT ITEM. The same
+  // sentence is in the table DDL, CardexToleranceRepository#resolve, the controller
+  // and RRV8/API.md. A silent disagreement between two tolerances is worse than
+  // either being wrong: the company reads green while the item reads red, both on
+  // screen, and nobody can tell which is the product's actual opinion.
+  var _cxTol = {};        // "<co>|<item>" -> { tol, by, at }
+  var _cxTolLoaded = false, _cxTolWhy = '';
+  function _cxTolKey(co, item){ return String(co==null?'':co).trim()+'|'+String(item==null?'':item).trim(); }
+  /** The threshold that applies to one item, and WHICH grain it came from. The
+   *  grain is returned because the UI has to name it: "500 because someone set it
+   *  for this item" and "500 because that is the company default" are different
+   *  facts, and only the first one is an override anybody needs to review. */
+  function cxTolOf(co, item){
+    var it = _cxTol[_cxTolKey(co, item)];
+    if (String(item==null?'':item).trim() && it) return { tol:Number(it.tol)||0, grain:'item', by:it.by||'', at:it.at||'' };
+    var c = _cxTol[_cxTolKey(co, '')];
+    if (c) return { tol:Number(c.tol)||0, grain:'company', by:c.by||'', at:c.at||'' };
+    return { tol:0, grain:'strict', by:'', at:'' };
+  }
+  /** Every ITEM-level override for one company, tightest-looking review order:
+   *  most recently set first, because the ones nobody has touched in a year are
+   *  exactly the ones that need reading, and a date column makes them findable. */
+  function cxTolOverrides(co){
+    var out = [], pre = String(co==null?'':co).trim()+'|';
+    for (var k in _cxTol) {
+      if (!Object.prototype.hasOwnProperty.call(_cxTol, k)) continue;
+      if (k.indexOf(pre) !== 0) continue;
+      var item = k.slice(pre.length); if (!item) continue;    // '' is the company default, not an override
+      out.push({ item:item, tol:Number(_cxTol[k].tol)||0, by:_cxTol[k].by||'', at:_cxTol[k].at||'' });
+    }
+    return out.sort(function(a,b){ return String(b.at).localeCompare(String(a.at)); });
+  }
+  function _cxTolWhen(iso){
+    if(!iso) return '';
+    var d=new Date(iso); if(isNaN(d.getTime())) return String(iso).slice(0,10);
+    try { return d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }
+    catch(_){ return String(iso).slice(0,10); }
+  }
+  function loadCxTolerances(){
+    return agentFetch('/inventory/cardex-tolerance').then(function(resp){
+      var rows=(resp&&resp.data)||[], m={};
+      rows.forEach(function(t){
+        if(!t||t.company==null) return;
+        m[_cxTolKey(t.company, t.item)] = { tol:Number(t.tolerance)||0, by:t.updatedBy||'', at:t.updatedDate||'' };
+      });
+      _cxTol=m; _cxTolLoaded=true; _cxTolWhy='';
+    }).catch(function(e){
+      // No silent default. If the thresholds could not be read, the band says so
+      // rather than showing "0.00 (strict)", which is a claim about configuration
+      // and not the absence of one.
+      _cxTol={}; _cxTolLoaded=false;
+      _cxTolWhy=(e&&e.message)?e.message:'the service did not answer';
+    });
+  }
+  /** Analyst grant (perms.dm), same rule as home.html canAnalyst: fail-open when
+   *  the token carries no perms block, because the long-lived dev token predates
+   *  it. The server enforces this for real; hiding the control just avoids
+   *  offering an action that would then be refused. */
+  function _cxCanSetTol(){
+    try{
+      var t=token(); if(!t) return false;
+      var p=JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+      var dbs=p&&p.dbs; if(!Array.isArray(dbs)) return true;
+      var d=dbs[_activeDbIdx(dbs)]||dbs[0]||{};
+      if(d.adm===true) return true;
+      return d.perms ? (d.perms.dm!==false) : true;
+    }catch(_){ return true; }
+  }
+  // ---- company scope: the page honors the shared working-company scope (set on
+  //      Home) — it only focuses items in the in-scope companies. ----
+  // Active DB index — delegate to the ONE canonical resolver (config.js RRDB),
+  // which resolves the sticky rrv8.activeDb by name.
+  function _activeDbIdx(dbs){ return (window.RRDB && window.RRDB.index()) || 0; }
+  function _scopeCtx(){
+    try{
+      var token=localStorage.getItem('rrv8.token'); if(!token) return null;
+      var b64=token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'); var pad=b64.length%4; if(pad) b64+='='.repeat(4-pad);
+      var p=JSON.parse(decodeURIComponent(atob(b64).split('').map(function(c){return '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2);}).join('')));
+      var dbs=p.dbs||[]; var idx=_activeDbIdx(dbs); var dbObj=dbs[idx]||dbs[0]||{};
+      var mode=(window.RR_CONFIG&&RR_CONFIG.mode)||'demo';
+      return { key:'rrv8.scope.v1.'+mode+'.'+((dbObj.n)||'_')+'.scope', allowed:(Array.isArray(dbObj.i)?dbObj.i.map(String):[]) };
+    }catch(_){ return null; }
+  }
+  // Active working-company scope as a {company:true} lookup, or null when all
+  // allowed companies are selected (no narrowing). Read-only.
+  function scopedCompanySet(){
+    var ctx=_scopeCtx(); if(!ctx) return null;
+    try{ var raw=sessionStorage.getItem(ctx.key); var sc=raw?(JSON.parse(raw).payload||null):null;
+      var act=(sc&&Array.isArray(sc.activeCompanies)&&sc.activeCompanies.length)?sc.activeCompanies.map(String):null;
+      if(!act) return null; if(ctx.allowed.length && act.length>=ctx.allowed.length) return null;
+      return act.reduce(function(s,c){ s[String(c)]=true; return s; },{});
+    }catch(_){ return null; }
+  }
+  function inScopeCo(co){ var sc=scopedCompanySet(); return !sc || !!sc[String(co)]; }
+  var adj = { itemId:null }, _cxAdjBase=null, _cxProj=null, _cxApprovedCtx=null;
+  var resetDate = '';            // baseline/opening date from the '00000' Reset: row
+
+  // ---- fmt ----
+  function num(n){ var x=Number(n)||0; var a=Math.abs(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); return x<0?'('+a+')':a; }
+  // Currency context for the Amt-variance KPI. Per-item grid cells stay bare.
+  var _curCtx={code:'',mixed:false,codes:[]}, _curSymCache={};
+  function _sym(code){
+    var c=(code!==undefined&&code!==null)?code:_curCtx.code; c=(c||'').toString().trim().toUpperCase();
+    if(!c) return '$';
+    if(_curSymCache[c]!==undefined) return _curSymCache[c];
+    var sym=c;
+    try{ var parts=new Intl.NumberFormat('en-US',{style:'currency',currency:c}).formatToParts(0); for(var i=0;i<parts.length;i++){ if(parts[i].type==='currency'){ sym=parts[i].value; break; } } }catch(e){}
+    _curSymCache[c]=sym; return sym;
+  }
+  function curMoney(v){ var x=Number(v)||0; var s=_sym(_curCtx.code); var a=Math.abs(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); return x<0?'('+s+a+')':s+a; }
+  function _ctxOf(rows){ var set={}; (rows||[]).forEach(function(r){ var c=((r&&r.Currency)||'').toString().trim().toUpperCase(); if(c) set[c]=1; }); var codes=Object.keys(set); return codes.length<=1?{code:codes[0]||'',mixed:false,codes:codes}:{code:'',mixed:true,codes:codes}; }
+  function qty(n){ var x=Number(n)||0; return x.toLocaleString('en-US',{maximumFractionDigits:2}); }
+  function moneyCell(n){ var x=Number(n)||0; if(Math.abs(x)<0.005) return '<span style="color:var(--text-muted)">&mdash;</span>'; return num(x); }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];}); }
+  function toast(m){ var t=document.getElementById('toast'); if(!t) return; t.innerHTML=m; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(function(){t.classList.remove('show');},2400); }
+  function uniq(a){ return Array.from(new Set(a.filter(function(x){return x!=null&&String(x).trim()!=='';}))); }
+  function maxDate(rows){ var best='', bt=-1; rows.forEach(function(r){ var s=String(r.LastActivity||''); var t=Date.parse(s); if(!isNaN(t)&&t>bt){bt=t;best=s;} else if(bt<0&&s){best=s;} }); return best; }
+  // eye icon → opens the cardex transaction popover for a row (data-detail-id =
+  // one concrete lot row's ItemID) or a whole item (data-detail-item = Co|Item).
+  function detailBtn(attr,val){
+    return '<button type="button" class="detail-btn" '+attr+'="'+esc(val)+'" title="View the cardex transactions behind this variance" aria-label="View cardex detail">'+
+      '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2.2"/></svg>'+
+    '</button>';
+  }
+  function colClass(c){ return [c.num?'num':'',c.cls||''].filter(Boolean).join(' '); }
+
+  // ---- columns (per-lot rows for the focused item) ----
+  var COLS = [
+    { k:'_detail',     label:'',  cls:'col-detail', render:function(r){return detailBtn('data-detail-id',r.ItemID);} },
+    { k:'LongAccount', label:'Account',  render:function(r){return '<span class="mono">'+esc(r.LongAccount)+'</span>';} },
+    { k:'Branch',      label:'Branch',   render:function(r){return esc(r.Branch);} },
+    { k:'Location',    label:'Loc / Lot',render:function(r){return esc([r.Location,r.Lot].filter(Boolean).join(' / ')||'&mdash;');} },
+    { k:'CostLevel',   label:'Lvl',      render:function(r){return esc(r.CostLevel);} },
+    { k:'Method',      label:'Method',   render:function(r){return esc(r.Method);} },
+    { k:'QtyOnHand',   label:'QOH',      num:true, render:function(r){return qty(r.QtyOnHand);} },
+    { k:'AmountOnHand',label:'AOH',      num:true, render:function(r){return num(Number(r.AmountOnHand)||0);} },
+    { k:'AdjQty',      label:'Qty Var',  num:true, render:function(r){var v=(Number(r.AdjQty)||0);    return _cxProj?'<span class="proj">'+moneyCell(v*_cxProj.fq)+'</span>':moneyCell(v);} },     // stored AdjQty as-is (projected under a what-if)
+    { k:'AdjAmount',   label:'Amt Var',  num:true, render:function(r){var v=(Number(r.AdjAmount)||0); return _cxProj?'<span class="proj">'+moneyCell(v*_cxProj.fa)+'</span>':moneyCell(v);} }, // stored AdjAmount as-is (projected under a what-if)
+    { k:'LastActivity',label:'Last Activity', render:function(r){return esc(r.LastActivity)||'&mdash;';} },
+    { k:'TxCount',     label:'Trans Count', num:true, render:function(r){return esc(r.TxCount);} }
+  ];
+
+  // ---- focus resolution ----
+  // The rows (per lot/branch/location) for the focused item, within the working
+  // scope. When focus.company is blank (typed entry), the company is adopted from
+  // the matched rows.
+  function _matchesFocus(r,f,itemL,brL){
+    if(!inScopeCo(r.CompanyNumber)) return false;
+    if(f.company && String(r.CompanyNumber)!==String(f.company)) return false;
+    if(String(r.ItemNumber||'').trim().toLowerCase()!==itemL) return false;
+    if(brL && String(r.Branch||'').trim().toLowerCase()!==brL) return false;
+    return true;
+  }
+  function focusRows(){
+    var f=state.focus; if(!f||!f.item) return [];
+    var itemL=String(f.item).trim().toLowerCase(), brL=String(f.branch||'').trim().toLowerCase();
+    var hit=DATA.filter(function(r){ return _matchesFocus(r,f,itemL,brL); });
+    if(hit.length) return hit;
+    // Not on the variance worklist — serve the on-demand off-worklist position
+    // (item opened from the perpetual grid that RR ties out). Same predicate.
+    return _offWorklistRows.filter(function(r){ return _matchesFocus(r,f,itemL,brL); });
+  }
+  // The focused item isn't on the variance worklist (RR ties it out); it's being
+  // served from the on-demand position fetch. Drives the "Adjust balances" framing.
+  function _focusIsOffWorklist(){
+    var f=state.focus; if(!f||!f.item) return false;
+    var itemL=String(f.item).trim().toLowerCase(), brL=String(f.branch||'').trim().toLowerCase();
+    return !DATA.some(function(r){ return _matchesFocus(r,f,itemL,brL); });
+  }
+  function resolvedCompany(){ var f=state.focus; if(!f) return ''; if(f.company) return String(f.company); var r=focusRows()[0]; return r?String(r.CompanyNumber):''; }
+
+
+  // ---- render ----
+  // Paint the read-only scope band (the params this sync operates on). Mirrors
+  // paintScopeBand on the Transaction Details page. Falls back to the URL params
+  // when nothing is focused yet, so an arrival-from-card shows its scope at once.
+  function paintScope(){
+    var f=state.focus;
+    var set=function(id,v){ var el=document.getElementById(id); if(el){ v=(v==null?'':String(v)).trim(); el.textContent=v||'—'; } };
+    var _db=(window.RRDB&&RRDB.active&&RRDB.active()); set('scopeDb', String((_db&&_db.n) || activeDbName()).replace(/^RapidReconciler[_ ]?/i,''));
+    set('scopeCo', (f&&resolvedCompany()) || Q.get('company') || '');
+    set('scopeItem', (f&&f.item) || Q.get('item') || '');
+    var br=String(((f&&f.branch) || Q.get('branch') || '')).trim();
+    var elBr=document.getElementById('scopeBranch'); if(elBr) elBr.textContent = br || (f?'All branches':'—');
+    set('scopeReset', resetDate || '');
+  }
+  function renderKpis(){
+    var rows=focusRows();
+    _curCtx=_ctxOf(rows);
+    paintScope();
+    var kQty=document.getElementById('kpiQty'), kAmt=document.getElementById('kpiAmt'), kQoh=document.getElementById('kpiQoh'), kVal=document.getElementById('kpiVal');
+    if(!state.focus){ kQty.textContent='—'; kAmt.textContent='—'; kQty.classList.remove('proj'); kAmt.classList.remove('proj'); kQoh.textContent='—'; if(kVal){ kVal.textContent='—'; } return; }
+    var qv=rows.reduce(function(a,r){return a+(Number(r.AdjQty)||0);},0);
+    var av=rows.reduce(function(a,r){return a+(Number(r.AdjAmount)||0);},0);
+    var qoh=rows.reduce(function(a,r){return a+(Number(r.QtyOnHand)||0);},0);
+    var aoh=rows.reduce(function(a,r){return a+(Number(r.AmountOnHand)||0);},0);
+    // Display convention: show the STORED value as-is -- AdjQty = estunits, AdjAmount =
+    // baselinevar, both cardex - on-hand. Home's Cardex Variance tab prints the same
+    // stored columns unnegated, so the two surfaces read identically for the same item.
+    // Owner ruled 2026-08-10 (UI-78) that this page aligns on Home's direction; the page
+    // used to negate for display, which made the same item read +500 on Home and -500
+    // here. Don't reintroduce a negation to "correct" the direction.
+    var dqv=qv, dav=av;
+    kQty.textContent=qty(dqv);
+    if(_curCtx.mixed){ kAmt.textContent='Mixed'; }
+    else { kAmt.textContent=curMoney(dav); }
+    kQoh.textContent=qty(qoh);
+    // On-hand VALUE = amount on hand (the $ backing the on-hand qty; AmountOnHand, the
+    // same source the roll-forward carries). Mixed-currency scope can't sum to one figure.
+    if(kVal){
+      if(_curCtx.mixed){ kVal.textContent='Mixed'; }
+      else { kVal.textContent=curMoney(aoh); }
+    }
+    // What-if projection: overlay the projected variance onto the two variance KPIs
+    // (displayed variance moves by −dQ/−dA). ON HAND and VALUE are unaffected by a
+    // beginning-balance adjustment, so they stay actual.
+    if(_cxProj){
+      kQty.textContent=qty(_cxProj.pq); kQty.classList.add('proj');
+      if(!_curCtx.mixed){ kAmt.textContent=curMoney(_cxProj.pa); }
+      kAmt.classList.add('proj');
+    } else { kQty.classList.remove('proj'); kAmt.classList.remove('proj'); }
+  }
+  // ---- item roll-forward (rinvasof) — the on-hand story from the baseline
+  //      forward, scoped server-side to variance items (v8ui_item_rollforward).
+  //      The variance reads AS a break in the roll: a period where on-hand moved
+  //      by something other than the recorded period movement.
+  var _cxRoll=[], _cxRollErr='', _cxRollRows=[];
+  function loadItemRoll(){
+    return agentFetch('/inventory/integrity',{method:'POST',body:{report:'v8ui_item_rollforward'}})
+      .then(function(d){ _cxRoll=Array.isArray(d)?d:((d&&d.data)||[]); _cxRollErr=''; })
+      .catch(function(e){ _cxRoll=[]; _cxRollErr=(e&&e.message)||'unavailable'; });   // 403 until the Services jar whitelists the view + rebuild
+  }
+  function _rollPeriod(v){ var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(v||'')); return m?(parseInt(m[2],10)+'/'+parseInt(m[3],10)+'/'+m[1]):esc(String(v||'').slice(0,10)); }
+  function _rollBL(v){ return v===true||v===1||String(v)==='1'||String(v).toLowerCase()==='true'; }
+  function _rollCell(muted,inner){ return muted?'<span style="color:var(--text-muted)">&mdash;</span>':inner; }
+  // ---- "Data as of" chip: the date RR last completed a load for the active DB
+  //      (server load log, DB-wide). The Fork-A return signal — after IT fixes the
+  //      source, this date advances on the next RR reload, so the analyst can tell
+  //      at a glance whether the fix has been picked up. Rides its own fetch, like
+  //      the roll-forward panel; stays hidden until a real date lands.
+  var _asOfDate='', _asOfErr='';
+  function loadLastLoad(){
+    return agentFetch('/inventory/integrity',{method:'POST',body:{report:'v8ui_last_load_asof'}})
+      .then(function(d){ var rows=Array.isArray(d)?d:((d&&d.data)||[]); _asOfDate=(rows[0]&&String(rows[0].LastLoadAt||'').trim())||''; _asOfErr=''; })
+      .catch(function(e){ _asOfDate=''; _asOfErr=(e&&e.message)||'unavailable'; });   // 403 until the view is whitelisted + the Services jar rebuilds
+  }
+  var _ASOF_MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function _asOfFmt(s){ var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(s||'')); return m?(_ASOF_MON[parseInt(m[2],10)-1]+' '+parseInt(m[3],10)+', '+m[1]):''; }
+  function paintAsOf(){
+    var item=document.getElementById('scopeAsOfItem'), el=document.getElementById('scopeAsOf');
+    if(!item||!el) return;
+    var f=_asOfFmt(_asOfDate);
+    if(f){ el.textContent=f; item.style.display=''; }   // real load date on record: show it
+    else { item.style.display='none'; }                 // view not live yet / no load recorded: stay quiet
+  }
+  // ---- Fork-A disposition: "corrected at source" (validated in JDE, fixed there) ----
+  // Cardex is king; a real quantity variance is fixed in JDE (F41021 recomputed from the
+  // ledger), NOT by an RR adjustment. RR records the hand-off and clears the item on the
+  // next refresh. Persisted client-side (keyed db · company · item · branch) + appended to
+  // the server activity log for the permanent audit trail.
+  var _cxDispoComposing = false;
+  function _cxDispoLsKey(){ return 'rrv8.cardex.dispo.v1.' + activeDbName(); }
+  function _cxDispoAll(){ try{ return JSON.parse(localStorage.getItem(_cxDispoLsKey())||'{}') || {}; }catch(_){ return {}; } }
+  function _cxDispoSave(m){ try{ localStorage.setItem(_cxDispoLsKey(), JSON.stringify(m)); }catch(_){} }
+  function _cxDispoKey(a){ return [String(a.co||''), String(a.item||'').toLowerCase(), String((a.tgt&&a.tgt.Branch)||'').trim().toLowerCase()].join('|'); }
+  function _cxDispoGet(a){ return a ? (_cxDispoAll()[_cxDispoKey(a)] || null) : null; }
+  function _cxDispoRecord(a, note, status){
+    status = (status==='awaiting-it') ? 'awaiting-it' : 'corrected-at-source';
+    var m=_cxDispoAll();
+    m[_cxDispoKey(a)] = { status:status, by:(loginId()||'(unknown)'), at:new Date().toISOString(),
+      // Stored direction, matching the grid's Qty Var / Amt Var and Home (UI-78).
+      note:String(note||'').trim(), item:a.item, co:a.co, branch:(a.tgt&&a.tgt.Branch)||'', varQty:a.qty, varAmt:a.amt };
+    _cxDispoSave(m);
+    if(window.RRV8 && RRV8.logActivity){
+      var lbl = status==='awaiting-it' ? 'Cardex variance — routed to IT (awaiting source fix)' : 'Cardex variance — corrected at source (JDE)';
+      RRV8.logActivity(lbl, 'Co '+a.co+' · item '+a.item+' · variance '+qty(a.qty)+' units'+(note?' · '+String(note).trim():''));
+    }
+  }
+  function _cxDispoRemove(a){ var m=_cxDispoAll(); delete m[_cxDispoKey(a)]; _cxDispoSave(m); }
+  function _cxWhen(iso){ return esc(String(iso||'').replace('T',' ').slice(0,16)); }
+  function _cxAgeDays(iso){ var t=Date.parse(String(iso||'')); if(isNaN(t)) return 0; return Math.max(0, Math.floor((Date.now()-t)/86400000)); }
+  function _cxDispoActionHtml(a){
+    var d=_cxDispoGet(a);
+    if(d){
+      var it = d.status==='awaiting-it';
+      return '<div class="cxv-dispo '+(it?'is-await':'is-done')+'"><div><b>'+(it?'Routed to IT':'Corrected at source')+'</b> &mdash; '+esc(d.by)+' &middot; '+_cxWhen(d.at)
+        + (d.note?' &middot; '+esc(d.note):'')
+        + '<div class="cxv-dispo-sub">'+(it
+            ? 'Awaiting IT&rsquo;s fix (' + _cxAgeDays(d.at) + 'd). Clears on the next refresh once JDE&rsquo;s F41021 is corrected.'
+            : 'RR clears this on the next refresh once JDE&rsquo;s F41021 is corrected. No adjustment here.')+'</div></div>'
+        + '<button type="button" class="cxv-dispo-undo" data-cx-undo="1">Undo</button></div>';
+    }
+    if(_cxDispoComposing) return '<div class="cxv-dispo is-compose"><input type="text" id="cxvSourceFixNote" class="cxv-dispo-note" placeholder="Ticket # or note (optional)" autocomplete="off">'
+      + '<button type="button" class="btn primary" id="cxvSourceFixIt">Routed to IT</button>'
+      + '<button type="button" class="btn primary" id="cxvSourceFixDone">Fixed here</button>'
+      + '<button type="button" class="btn sm" id="cxvSourceFixCancel">Cancel</button></div>';
+    return '<div class="cxv-aicard-read">Fixed it in JDE, or filed a ticket? Record it &mdash; RR clears on the next refresh. No adjustment.</div>';
+  }
+  // Source-fix log — a recorded disposition is "cleared" once its item no longer carries
+  // an active variance in the loaded worklist (RR re-read the corrected F41021 on refresh).
+  function _cxSfActive(d){
+    return DATA.some(function(r){
+      return String(r.CompanyNumber)===String(d.co)
+        && String(r.ItemNumber||'').trim().toLowerCase()===String(d.item||'').trim().toLowerCase()
+        && (!d.branch || String(r.Branch||'').trim().toLowerCase()===String(d.branch||'').trim().toLowerCase());
+    });
+  }
+  function renderSourceFixLog(){
+    var host=document.getElementById('cxvSfLogBody'); if(!host) return;
+    var m=_cxDispoAll(), keys=Object.keys(m);
+    if(!keys.length){ host.innerHTML='<div class="ledger-empty">No source-fix records yet &mdash; record one from the tie-out check when a variance is corrected in JDE.</div>'; return; }
+    var rows=keys.map(function(k){ return m[k]; }).sort(function(a,b){ return String(b.at||'').localeCompare(String(a.at||'')); });
+    var muted='<span style="color:var(--text-muted)">&mdash;</span>';
+    var head='<tr><th>Item</th><th>Co</th><th>Branch</th><th class="num">Qty var</th><th class="num">Amt var</th><th>By</th><th>When</th><th>Note</th><th>Status</th></tr>';
+    var body=rows.map(function(d){
+      var cleared=!_cxSfActive(d);
+      var pill = cleared ? '<span class="cxv-sf-pill cleared">✓ Cleared</span>'
+        : (d.status==='awaiting-it' ? '<span class="cxv-sf-pill await">Awaiting IT &middot; '+_cxAgeDays(d.at)+'d</span>'
+        : '<span class="cxv-sf-pill awaiting">Awaiting refresh</span>');
+      return '<tr><td class="mono">'+esc(d.item)+'</td><td>'+esc(d.co)+'</td><td>'+esc(d.branch||'—')+'</td>'
+        +'<td class="num">'+(d.varQty?qty(d.varQty):muted)+'</td>'
+        +'<td class="num">'+(d.varAmt?num(d.varAmt):muted)+'</td>'
+        +'<td>'+esc(d.by)+'</td><td>'+_cxWhen(d.at)+'</td><td>'+esc(d.note||'—')+'</td>'
+        +'<td>'+pill+'</td></tr>';
+    }).join('');
+    host.innerHTML='<div class="grid-scroll" style="max-height:280px"><table class="rf"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>';
+  }
+  function _cxSfPrune(){
+    var m=_cxDispoAll(), n=0;
+    Object.keys(m).forEach(function(k){ if(!_cxSfActive(m[k])){ delete m[k]; n++; } });
+    _cxDispoSave(m); renderSourceFixLog();
+    toast(n?('Removed '+n+' cleared record'+(n===1?'':'s')+'.'):'No cleared records to remove.');
+  }
+  function renderRollBand(){
+    var forkSec=document.getElementById('cxvFork'), detailSec=document.getElementById('cxvRollDetail');
+    var head=document.getElementById('cxvRollHead'), body=document.getElementById('cxvRollBody'), sub=document.getElementById('cxvRollSub');
+    // _cxAgg is set by renderCxvCards, which runs just before this in renderAll.
+    var id = (_cxAgg && _cxAgg.tgt) ? _cxAgg.tgt.ItemID : null;
+    var show = id!=null;
+    // Fork cards show on focus; the roll-forward detail stays HIDDEN until an Adjust
+    // opens it (openAdjust reveals it, closeAdjust hides it). We still render the left
+    // grid below so it's populated the moment the panel opens.
+    if(forkSec) forkSec.hidden=!show;
+    if(detailSec && !show) detailSec.hidden=true;
+    if(!show) return;
+    // Fork-A record action (Routed to IT / Corrected at source).
+    var forkA=document.getElementById('cxvForkA'); if(forkA){ var fh=_cxDispoActionHtml(_cxAgg); forkA.innerHTML=fh; forkA.hidden=!fh; }
+    // Roll-forward table (rinvasof; needs the whitelisted view + Services rebuild).
+    var rows = _cxRoll.filter(function(r){ return String(r.ItemID)===String(id); });
+    rows.sort(function(a,b){ return String(a.PeriodEnds||'').localeCompare(String(b.PeriodEnds||'')); });
+    _cxRollRows=rows; _cxWhatIfClear();   // the after grid re-shows only when an Adjust what-if fires
+    if(!rows.length){
+      // Focused, but no roll rows: either the view isn't whitelisted on the jar
+      // yet (403 → rebuild pending) or this item has no as-of history.
+      head.innerHTML=''; if(sub) sub.textContent='';
+      body.innerHTML='<tr><td class="empty" style="padding:14px 4px;color:var(--text-muted)">'
+        + (_cxRollErr ? 'Roll-forward loads after the next Services rebuild (the <code>v8ui_item_rollforward</code> view is whitelisted but not yet in the running jar).' : 'No as-of roll-forward on record for this item.')
+        + '</td></tr>';
+      return;
+    }
+    head.innerHTML='<tr><th>Period end</th><th></th><th class="num">On-hand qty</th><th class="num">On-hand amt</th><th class="num">Period qty</th><th class="num">Period amt</th></tr>';
+    var prev=null;
+    body.innerHTML=rows.map(function(r){
+      var bl=_rollBL(r.BL), qoh=Number(r.QuantityonHand)||0, pq=Number(r.PeriodQuantity)||0, pa=Number(r.PeriodAmount)||0;
+      var expected = prev==null ? qoh : prev + pq;   // prior on-hand + recorded movement
+      var gap = prev==null ? 0 : (qoh - expected);
+      var brk = Math.abs(gap)>=1;
+      prev=qoh;
+      var tag = bl ? '<b>BL</b>' : (brk ? '<span class="brk" title="on-hand moved '+num(gap)+' beyond the recorded period movement">break '+(gap<0?'':'+')+qty(gap)+'</span>' : '');
+      return '<tr class="'+(bl?'is-bl':'')+'">'
+        + '<td>'+_rollPeriod(r.PeriodEnds)+'</td>'
+        + '<td>'+tag+'</td>'
+        + '<td class="num">'+qty(qoh)+'</td>'
+        + '<td class="num">'+num(Number(r.AmountonHand)||0)+'</td>'
+        + '<td class="num">'+_rollCell(bl||Math.abs(pq)<0.005, qty(pq))+'</td>'
+        + '<td class="num">'+_rollCell(bl, moneyCell(pa))+'</td>'
+        + '</tr>';
+    }).join('');
+    if(sub) sub.textContent='';
+  }
+  // ---- before/after what-if: the RIGHT roll-forward grid, re-derived LIVE from a
+  //      JDE-ties Adjust (Fork B only; never shown for Fork A). RULE: RE-DERIVE, never
+  //      shift — after_onhand[t] = adjusted_BL + Σ recorded movement, so the roll is
+  //      internally consistent by construction (every break clears) and, for
+  //      Clear-to-JDE, the ending ties to cardex. Mirrors what the server does on commit.
+  function _cxWhatIfClear(){ _cxProj=null; var col=document.getElementById('cxvRollAfterCol'); if(col) col.hidden=true; }
+  function _cxWhatIf(){
+    var col=document.getElementById('cxvRollAfterCol'); if(!col) return;
+    var rows=_cxRollRows||[], b=_cxAdjBase;
+    if(!rows.length || !b){ _cxWhatIfClear(); return; }
+    var dQ=(Number(document.getElementById('adjQty').value)||0)-b.blQ;   // baseline delta drives the whole roll
+    var dA=(Number(document.getElementById('adjAmt').value)||0)-b.blA;
+    renderRollAfter(rows, dQ, dA);
+    col.hidden=false;
+    // Project the same delta onto the Item Position grid + scope-bar variance KPIs.
+    // Displayed variance is now the stored value (cardex - on-hand), so a baseline delta
+    // dQ moves it by +dQ; it moved by −dQ back when this page negated for display.
+    // On-hand and value are unaffected. No delta → no projection. The factors distribute
+    // the projected total across the lots; they are ratios, so they are sign-invariant.
+    if(Math.abs(dQ)<0.005 && Math.abs(dA)<0.005){ _cxProj=null; }
+    else { var pq=b.varQ+dQ, pa=b.varA+dA;
+      _cxProj={ pq:pq, pa:pa, fq:(Math.abs(b.varQ)<0.005?0:pq/b.varQ), fa:(Math.abs(b.varA)<0.005?0:pa/b.varA) }; }
+    renderKpis(); renderGrid();
+  }
+  function renderRollAfter(rows, dQ, dA){
+    var head=document.getElementById('cxvRollAfterHead'), body=document.getElementById('cxvRollAfterBody'), sub=document.getElementById('cxvRollAfterSub');
+    if(!head||!body) return;
+    head.innerHTML='<tr><th>Period end</th><th></th><th class="num">On-hand qty</th><th class="num">On-hand amt</th><th class="num">Period qty</th><th class="num">Period amt</th></tr>';
+    // The beginning-balance shift propagates uniformly (movement is unchanged), so every
+    // period's on-hand moves by the same delta — mirrors usp8_maint_set_beginning_balance.
+    body.innerHTML=rows.map(function(r){
+      var bl=_rollBL(r.BL), pq=Number(r.PeriodQuantity)||0, pa=Number(r.PeriodAmount)||0;
+      var oq=(Number(r.QuantityonHand)||0)+dQ, oa=(Number(r.AmountonHand)||0)+dA;
+      var tag = bl ? '<b>BL</b>' : '';
+      return '<tr class="'+(bl?'is-bl':'')+'">'
+        + '<td>'+_rollPeriod(r.PeriodEnds)+'</td>'
+        + '<td>'+tag+'</td>'
+        + '<td class="num">'+qty(oq)+'</td>'
+        + '<td class="num">'+num(oa)+'</td>'
+        + '<td class="num">'+_rollCell(bl||Math.abs(pq)<0.005, qty(pq))+'</td>'
+        + '<td class="num">'+_rollCell(bl, moneyCell(pa))+'</td>'
+        + '</tr>';
+    }).join('');
+    if(sub) sub.textContent='';   // subtext removed from the card head
+  }
+  // ---- four linked fields: beginning balance <-> variance-to-cardex, per dimension.
+  //      From usp8_maint_set_beginning_balance: a beginning-balance delta dQ moves stored
+  //      estunits by +dQ. The variance fields carry the SAME stored direction as the grid
+  //      and the KPIs (cardex - on-hand, unnegated -- see renderKpis), so the variance
+  //      shown here moves by +dQ too, and baseline = blQ + (var - varQ0).
+  //      Baseline and variance are one lever per dimension; qty and amt are independent.
+  //      Commit sends the absolute beginning balance (server preset 'manual').
+  //      UI-78 flipped varQ/varA from negated to stored, and flipped the two formulas
+  //      below from −(delta) to +(delta) in the same pass. That pair of changes is
+  //      algebraically neutral: for the clear path the typed variance is 0, so
+  //      blQ − (0 − varQ_negated) === blQ + (0 − varQ_stored). The beginning balance
+  //      committed to the server is byte-identical to what the negated build sent.
+  //      If you ever flip one side, flip the other in the same edit -- a half flip
+  //      writes a real beginning-balance correction in the wrong direction.
+  function _cxTrim(x){ x=Number(x)||0; return String(Math.round(x*10000)/10000); }
+  function _cxAdjCur(){
+    var rows=_cxRollRows||[], a=_cxAgg, blRow=null;
+    for(var i=0;i<rows.length;i++){ if(_rollBL(rows[i].BL)){ blRow=rows[i]; break; } }
+    return { blQ: blRow?(Number(blRow.QuantityonHand)||0):0, blA: blRow?(Number(blRow.AmountonHand)||0):0,
+             varQ: a?(a.qty):0, varA: a?(a.amt):0 };
+  }
+  function _cxAdjInit(){
+    _cxAdjBase=_cxAdjCur();
+    document.getElementById('adjQty').value=_cxTrim(_cxAdjBase.blQ);
+    document.getElementById('adjAmt').value=_cxTrim(_cxAdjBase.blA);
+    document.getElementById('adjVarQty').value=_cxTrim(_cxAdjBase.varQ);
+    document.getElementById('adjVarAmt').value=_cxTrim(_cxAdjBase.varA);
+  }
+  function _cxAdjOnBaseline(dim){
+    var b=_cxAdjBase; if(!b) return;
+    if(dim==='q'){ var bl=Number(document.getElementById('adjQty').value)||0; document.getElementById('adjVarQty').value=_cxTrim(b.varQ+(bl-b.blQ)); }
+    else { var bla=Number(document.getElementById('adjAmt').value)||0; document.getElementById('adjVarAmt').value=_cxTrim(b.varA+(bla-b.blA)); }
+    _cxWhatIf();
+  }
+  function _cxAdjOnVariance(dim){
+    var b=_cxAdjBase; if(!b) return;
+    if(dim==='q'){ var v=Number(document.getElementById('adjVarQty').value)||0; document.getElementById('adjQty').value=_cxTrim(b.blQ+(v-b.varQ)); }
+    else { var va=Number(document.getElementById('adjVarAmt').value)||0; document.getElementById('adjAmt').value=_cxTrim(b.blA+(va-b.varA)); }
+    _cxWhatIf();
+  }
+  function renderGrid(){
+    if(dpop.key) closeDetail();   // the table is about to be rebuilt; drop the anchored popover
+    var head=document.getElementById('rfHead'), body=document.getElementById('rfBody'), cnt=document.getElementById('gridCount');
+    head.innerHTML='<tr>'+COLS.map(function(c){return '<th class="'+colClass(c)+'">'+esc(c.label)+'</th>';}).join('')+'</tr>';
+    if(!state.focus){
+      cnt.textContent='—';
+      body.innerHTML='<tr><td class="empty" colspan="'+COLS.length+'">Enter an item above, or open a card on Home&rsquo;s <b>Cardex Variance</b> tab to jump straight to an item.</td></tr>';
+      return;
+    }
+    var rows=focusRows();
+    if(!rows.length){
+      cnt.textContent='0 rows';
+      body.innerHTML='<tr><td class="empty" colspan="'+COLS.length+'">No cardex variance on record for '+esc(state.focus.item)+(state.focus.branch?' &middot; '+esc(state.focus.branch):'')+' in scope.</td></tr>';
+      return;
+    }
+    cnt.textContent=rows.length.toLocaleString('en-US')+' lot'+(rows.length!==1?'s':'');
+    rows=rows.slice().sort(function(a,b){
+      return String(a.Branch||'').localeCompare(String(b.Branch||''))
+          || String(a.Location||'').localeCompare(String(b.Location||''))
+          || String(a.Lot||'').localeCompare(String(b.Lot||''));
+    });
+    body.innerHTML=rows.map(function(r){
+      return '<tr class="item">'+COLS.map(function(c){return '<td class="'+colClass(c)+'">'+c.render(r)+'</td>';}).join('')+'</tr>';
+    }).join('');
+  }
+  // ---- cardex-sync AI cards (Root cause frames the JDE validation · Suggested sync drafts the tie-to-JDE) ----
+  // AI routes to VALC (api/v1/ai/explain), not the data-services agent. Same
+  // token the page already holds; returns { text }.
+  function valcBase(){ return (window.RR_CONFIG && RR_CONFIG.valcBase) || 'http://localhost:8080'; }
+  function aiExplain(prompt){
+    var h={ 'Content-Type':'application/json;charset=UTF-8', 'Accept':'application/json' };
+    var t=token(); if(t) h['Authorization']='Bearer '+t;
+    return fetch(valcBase()+'/api/v1/ai/explain',{ method:'POST', headers:h, body:JSON.stringify({ prompt:prompt }) })
+      .then(function(r){ if(!r.ok) throw new Error('AI HTTP '+r.status); return r.json(); });
+  }
+  var _cxAgg=null, _cxCauseGen=0;
+  // Aggregate the focused item's variance into one shape + a sync target lot.
+  function _cxFocusAgg(){
+    var rows=focusRows(); if(!rows.length) return null;
+    var qv=0, av=0, qoh=0, aoh=0;
+    rows.forEach(function(r){ qv+=Number(r.AdjQty)||0; av+=Number(r.AdjAmount)||0; qoh+=Number(r.QtyOnHand)||0; aoh+=Number(r.AmountOnHand)||0; });
+    // Target the largest |amount| lot (single-lot for the curated demo items).
+    var tgt=rows.slice().sort(function(a,b){ return Math.abs(Number(b.AdjAmount)||0)-Math.abs(Number(a.AdjAmount)||0); })[0];
+    // Qty floor mirrors usp6_006b's @qtytol (0.05). Was >=1, which hid genuine
+    // 0.05-1 unit quantity variances the proc keeps (fractional-UOM items) behind
+    // an Amount label or dropped them from the fork. Align UI to the proc tolerance.
+    var shape = Math.abs(qv)>0.05 ? 'Quantity' : (Math.abs(av)>0.005 ? 'Amount' : null);
+    return { rows:rows, qty:qv, amt:av, qoh:qoh, amtOnHand:aoh, tgt:tgt, shape:shape,
+      co:resolvedCompany(), item:(state.focus&&state.focus.item)||'',
+      method:tgt.Method, level:tgt.CostLevel, unitCost:Number(tgt.UnitCost)||0 };
+  }
+  // No auto-diagnosis. The analyst's JDE validation (P4111 export → sum vs the
+  // F41021 header) decides the remedy — RR can't see live JDE. Both cards are
+  // available on any variance; the copy conditions the sync on JDE tying.
+  // _cxCauseRest is GONE (owner 2026-08-19). It restated the shape and the figure
+  // the scope strip already prints two inches above (Qty var / Amt var), on every
+  // one of five render paths, so the analyst read the same number twice before
+  // reaching anything actionable. Noise, by the tagline test.
+  function _cxSyncRest(a){
+    return '<div class="cxv-aicard-read">Syncs on-hand up to the cardex, clearing '
+      + (a.shape==='Quantity' ? (qty(a.qty)+' units / ') : '') + curMoney(a.amt)
+      + '. Reversible, logged; JDE unchanged.</div>';
+  }
+  function renderCxvCards(){
+    var syncBtn=document.getElementById('cxvSyncLaunch'), causeBtn=document.getElementById('cxvCauseLaunch'), srcBtn=document.getElementById('cxvSourceFix');
+    var syncBody=document.getElementById('cxvSyncBody'), causeBody=document.getElementById('cxvCauseBody');
+    if(!syncBtn||!causeBtn) return;
+    var agg=_cxFocusAgg(); _cxAgg=agg;
+    [syncBody,causeBody].forEach(function(b){ if(b){ b.hidden=true; b.innerHTML=''; } });
+    if(!agg || !agg.shape){
+      // Tied-out item opened from Full Perpetual Details to align against a JDE
+      // finding: RR shows no variance, but the analyst still needs to Adjust
+      // Balances. Keep the adjust path LIVE (creating a variance is the point).
+      if(agg && _focusIsOffWorklist()){
+        causeBtn.disabled=true; causeBtn.title='This item ties in RR — no variance to diagnose';
+        if(srcBtn){ srcBtn.disabled=true; srcBtn.title='Nothing to record — RR shows this item in balance'; }
+        syncBtn.disabled=false; syncBtn.title='Adjust balances — enter the correction that aligns RR to JDE';
+        syncBody.hidden=false;
+        syncBody.innerHTML='<div class="cxv-aicard-note">RapidReconciler shows this item <b>in balance</b>. You opened it from Full Perpetual Details to <b>adjust balances</b> &mdash; enter the beginning-balance correction that aligns RapidReconciler to what you found in JDE. Creating a variance here is expected; it&rsquo;s reversible and logged.</div>';
+        return;
+      }
+      syncBtn.disabled=true; causeBtn.disabled=true; if(srcBtn) srcBtn.disabled=true;
+      syncBtn.title=causeBtn.title = agg ? 'This item ties — nothing to validate' : 'Focus an item first';
+      return;
+    }
+    causeBtn.disabled=false; causeBtn.title='';
+    // Fork A and Fork B are exclusive: once recorded as corrected-at-source, the RR
+    // sync is off the table (RR clears it on refresh; an adjustment would mask it).
+    var d=_cxDispoGet(agg);
+    if(srcBtn){ srcBtn.disabled=!!d; srcBtn.textContent=d?'Recorded':'Record'; srcBtn.title=d?'Already recorded — corrected at source':''; }
+    if(d){
+      syncBtn.disabled=true; syncBtn.title='Recorded as corrected at source';
+      syncBody.hidden=false; syncBody.innerHTML='<div class="cxv-aicard-note">Recorded as <b>corrected at source</b> ('+esc(d.by)+') &mdash; RapidReconciler clears it on the next refresh. No adjustment needed.</div>';
+    } else {
+      syncBtn.disabled=false; syncBtn.title='';
+      syncBody.hidden=false; syncBody.innerHTML=_cxSyncRest(agg);
+    }
+  }
+  function _cxInvestigate(){
+    var a=_cxAgg; if(!a){ return; }
+    var body=document.getElementById('cxvCauseBody'), btn=document.getElementById('cxvCauseLaunch');
+    var tier=(window.RRAI && RRAI.get())||'full';
+    if(tier==='off'){
+      body.hidden=false;
+      body.innerHTML='<div class="cxv-aicard-note">AI is off — the tie-out check and the JDE validation step still stand. Turn AI on for the likely-cause read.</div>';
+      return;
+    }
+    var scrub = tier==='scrubbed';
+    var coL = scrub ? 'Entity A' : ('Co '+a.co);
+    var itemL = scrub ? 'the item' : ('item '+a.item);
+    var facts = [
+      coL+' — '+itemL+' — cardex variance shape: '+a.shape,
+      'Cost method '+(a.method||'?')+' (07 = Standard, 02 = Average/WAC), cost level '+(a.level||'?'),
+      'Quantity variance '+qty(a.qty)+' units; amount variance '+curMoney(a.amt)+'; on-hand '+qty(a.qoh)+'; unit cost '+curMoney(a.unitCost),
+      'Lots carrying variance: '+a.rows.length
+    ].join('\n');
+    var prompt = (window.RRV8 && RRV8.CARDEX_GROUNDING ? RRV8.CARDEX_GROUNDING+'\n\n' : '')
+      + (window.RRV8 && RRV8.GLOSSARY ? RRV8.GLOSSARY + '\n' : '')
+      + 'You are RapidReconciler AI helping an analyst work ONE item\'s cardex variance (the item ledger does not sum to on-hand). The reader knows JD Edwards; never explain the domain back to them. Use ONLY the facts below and the policy above.\n\n'
+      + 'FACTS (the only figures you may cite):\n'+facts+'\n\n'
+      + 'The analyst validates in JDE FIRST — you cannot see live JDE, so never a verdict. Return TIGHTLY:\n'
+      + '- cause: the SINGLE most likely cause, one clause, MAX 12 words, no figure dump.\n'
+      + '- remedy: EXACTLY two bullets, each MAX 14 words. Bullet 1 = if JDE is out of balance (fix at source; name it, e.g. F41021 not updated for a cardex move — IT). Bullet 2 = if JDE ties, RR is off (sync RR).\n'
+      + 'Name a table or program only where it changes what the analyst does next; no SQL.\n'
+      // UI-8: the same allowlist Home offers, scoped to the analyst. JSON mode,
+      // because this surface returns an object rather than prose — the model adds
+      // an optional "docs" array and ai-docs.js resolves the slugs, so an invented
+      // one can never become a link. The cardex-variance doc is in the list.
+      + (window.RRV8 && RRV8.aiDocs ? RRV8.aiDocs.catalogPrompt('json', 'analyst') : '')
+      + 'Respond with ONLY a JSON object: {"cause":"…","remedy":["…","…"]}';
+    var gen=++_cxCauseGen, old=btn.textContent; btn.disabled=true; btn.textContent='Reading…';
+    body.hidden=false; body.innerHTML='<div class="cxv-aicard-ai is-loading">Reading this item&rsquo;s position…</div>';
+    aiExplain(prompt).then(function(r){
+      if(gen!==_cxCauseGen) return;
+      var o=null; try{ o=JSON.parse(String((r&&r.text)||'').replace(/^```json\s*|```$/g,'').trim()); }catch(_){}
+      var rem = Array.isArray(o&&o.remedy)
+        ? '<div><b>Remedy</b></div><ul class="cxv-ai-remedy">'+o.remedy.map(function(x){return '<li>'+esc(x)+'</li>';}).join('')+'</ul>'
+        : ((o&&o.remedy)?'<div><b>Remedy</b> &mdash; '+esc(o.remedy)+'</div>':'');
+      var html = o
+        ? ('<div class="cxv-aicard-ai"><div><b>Likely cause</b> &mdash; '+esc(o.cause||'')+'</div>'+rem+'</div>')
+        : ('<div class="cxv-aicard-ai">'+esc(String((r&&r.text)||'No reading returned.'))+'</div>');
+      body.innerHTML=html;
+      // UI-8 "Learn more" strip. Slugs pass through the allowlist filter, so a
+      // model that invents one gets nothing rather than a broken link. Rendered
+      // into the card body, which a re-read replaces wholesale.
+      if(window.RRV8&&RRV8.aiDocs) RRV8.aiDocs.renderStrip(body, RRV8.aiDocs.filterSlugs(o&&o.docs), 'cxvDocStrip');
+    }).catch(function(e){
+      if(gen!==_cxCauseGen) return;
+      if(window.RRV8&&RRV8.aiDocs) RRV8.aiDocs.renderStrip(null, [], 'cxvDocStrip');
+      body.innerHTML='<div class="cxv-aicard-note">Root-cause read unavailable ('+esc(e.message)+'). The variance figures in the scope strip above are unaffected.</div>';
+    }).then(function(){ btn.disabled=false; btn.textContent=old; });
+  }
+  function _cxDraftSync(){
+    var a=_cxAgg; if(!a||!a.tgt){ toast('Focus an item first.'); return; }
+    openAdjust(a.tgt.ItemID);   // opens the panel, fields prefilled to current; the analyst types the correction
+  }
+  function renderAll(){
+    renderKpis(); renderCxTolerance(); renderGrid(); renderCxvCards(); renderRollBand(); renderSourceFixLog(); renderLedger();
+  }
+
+  // ---- materiality tolerance (UI-161) ------------------------------------
+  /** The focused item's company. The worklist rows carry it; the focus may too. */
+  function _cxFocusCo(){
+    var f=state.focus; if(!f) return '';
+    if(f.company) return String(f.company).trim();
+    var r=focusRows()[0];
+    return r ? String(r.CompanyNumber||'').trim() : '';
+  }
+  /**
+   * Paint the tolerance into the scope band, beside the Amt var it judges.
+   *
+   * This is the whole reason the row insisted the threshold be visible where it
+   * acts. A per-item override is a maintenance surface: a customer with thousands
+   * of items will not tune them individually, and a stale override suppresses a
+   * real variance forever. A suppression nobody can see is the same defect class
+   * as a status nobody can reach. So the band names the number, the GRAIN it came
+   * from, who set it and when, and whether this item's variance is inside it.
+   */
+  function renderCxTolerance(){
+    var box=document.getElementById('cxTolBox'), val=document.getElementById('cxTolVal'), sub=document.getElementById('cxTolSub');
+    var ed=document.getElementById('cxTolEditor');
+    if(!box||!val||!sub) return;
+    var f=state.focus;
+    if(!f||!f.item){ val.textContent='—'; sub.innerHTML=''; if(ed) ed.hidden=true; return; }
+    if(!_cxTolLoaded){
+      // Not "0.00 (strict)". That would be a claim about how this company is
+      // configured, made on the strength of a request that failed.
+      val.textContent='—';
+      sub.innerHTML='<span class="g-strict">not read &mdash; '+esc(_cxTolWhy||'unavailable')+'</span>';
+      if(ed) ed.hidden=true;
+      return;
+    }
+    var co=_cxFocusCo(), t=cxTolOf(co, f.item);
+    val.textContent=_curCtx.mixed?'Mixed':curMoney(t.tol);
+    var rows=focusRows();
+    var mag=rows.reduce(function(a,r){ return a+Math.abs(Number(r.AdjAmount)||0); },0);
+    var over=mag > t.tol + 0.005;
+    var grainH = t.grain==='item'
+      ? '<span class="g-item">item override</span>'
+      : (t.grain==='company' ? '<span class="g-co">company default</span>' : '<span class="g-strict">no threshold set &mdash; strict</span>');
+    var stampH = (t.by||t.at)
+      ? ' &middot; set '+esc(_cxTolWhen(t.at)||'—')+(t.by?' by '+esc(t.by):'')
+      : '';
+    var verdictH = rows.length
+      ? '<br>' + (over
+          ? '<span class="v-over">over tolerance</span>'
+          : '<span class="v-under">within tolerance &mdash; this item is being suppressed</span>')
+      : '';
+    sub.innerHTML=grainH+stampH+verdictH;
+    if(ed){
+      ed.hidden=!_cxCanSetTol();
+      if(!ed.hidden) _cxTolSyncEditor();
+    }
+  }
+  /** Reflect the CURRENT stored value for whichever grain the radio selects, so
+   *  Save never silently rewrites the other grain with a number the analyst was
+   *  reading off the first one. */
+  function _cxTolSyncEditor(){
+    var f=state.focus; if(!f) return;
+    var co=_cxFocusCo();
+    var grain=(document.querySelector('input[name="cxTolGrain"]:checked')||{}).value||'item';
+    var key=_cxTolKey(co, grain==='item'?f.item:'');
+    var cur=_cxTol[key];
+    var inp=document.getElementById('cxTolInput'), hint=document.getElementById('cxTolHint');
+    var clr=document.getElementById('cxTolClear');
+    if(inp) inp.value = cur ? String(Number(cur.tol)||0) : '';
+    if(clr) clr.disabled = !cur;
+    if(hint){
+      hint.textContent = cur
+        ? ('currently ' + (Number(cur.tol)||0) + (cur.at ? ', set ' + (_cxTolWhen(cur.at)||'') : '') + (cur.by ? ' by ' + cur.by : ''))
+        : (grain==='item'
+            ? 'no override for this item — it follows the company default'
+            : 'no company default — every unoverridden item is strict');
+    }
+    var lbl=document.getElementById('cxTolPanelTitle');
+    if(lbl) lbl.textContent='Item tolerance overrides — company '+(co||'—');
+  }
+  function _cxTolWrite(clear){
+    var f=state.focus; if(!f||!f.item) return;
+    var co=_cxFocusCo();
+    if(!co){ toast('No company on this focus &mdash; open the item from a company card first.'); return; }
+    var grain=(document.querySelector('input[name="cxTolGrain"]:checked')||{}).value||'item';
+    var item=grain==='item'?f.item:'';
+    var save=document.getElementById('cxTolSave'), clr=document.getElementById('cxTolClear');
+    if(save) save.disabled=true; if(clr) clr.disabled=true;
+    var done=function(){
+      if(save) save.disabled=false;
+      loadCxTolerances().then(function(){ renderCxTolerance(); _cxTolRenderPanel(); });
+    };
+    if(clear){
+      var q='?company='+encodeURIComponent(co)+(item?'&item='+encodeURIComponent(item):'');
+      agentFetch('/inventory/cardex-tolerance'+q,{method:'DELETE'}).then(function(){
+        toast(item?('Tolerance override removed for '+esc(item)+' &mdash; it follows the company default again.')
+                  :'Company tolerance cleared &mdash; every unoverridden item is strict again.');
+        done();
+      }).catch(function(e){ toast('Not cleared &mdash; '+esc(e.message)); done(); });
+      return;
+    }
+    var raw=(document.getElementById('cxTolInput')||{}).value;
+    var n=Number(String(raw==null?'':raw).replace(/,/g,'').trim());
+    if(!isFinite(n)||n<0){ toast('Enter a tolerance of 0 or more.'); if(save) save.disabled=false; if(clr) clr.disabled=false; return; }
+    agentFetch('/inventory/cardex-tolerance',{method:'PUT',body:{company:co,item:item,tolerance:n}}).then(function(){
+      toast(item?('Tolerance for '+esc(item)+' set to '+esc(String(n))+'.')
+                :('Company tolerance set to '+esc(String(n))+'.'));
+      done();
+    }).catch(function(e){ toast('Not saved &mdash; '+esc(e.message)); done(); });
+  }
+  function _cxTolRenderPanel(){
+    var body=document.getElementById('cxTolPanelBody'); if(!body) return;
+    var co=_cxFocusCo();
+    var list=cxTolOverrides(co);
+    if(!list.length){
+      body.innerHTML='<p class="cx-tol-empty">No item-level overrides for this company. Every item follows the company default'
+        + (_cxTol[_cxTolKey(co,'')] ? ' of '+esc(String(_cxTol[_cxTolKey(co,'')].tol)) : ' (none set — strict)') + '.</p>';
+      return;
+    }
+    var can=_cxCanSetTol();
+    body.innerHTML=list.map(function(o){
+      return '<div class="cx-tol-row"><span class="it">'+esc(o.item)+'</span>'
+        + '<span class="tv">'+esc(String(o.tol))+'</span>'
+        + '<span class="mt">set '+esc(_cxTolWhen(o.at)||'—')+(o.by?' by '+esc(o.by):'')+'</span>'
+        + (can?'<button type="button" class="cx-tol-listbtn" data-tol-rm="'+esc(o.item)+'">Remove</button>':'<span></span>')
+        + '</div>';
+    }).join('');
+  }
+  (function _wireCxTol(){
+    var save=document.getElementById('cxTolSave'), clr=document.getElementById('cxTolClear');
+    var list=document.getElementById('cxTolList'), panel=document.getElementById('cxTolPanel');
+    var close=document.getElementById('cxTolPanelClose');
+    if(save) save.addEventListener('click',function(){ _cxTolWrite(false); });
+    if(clr)  clr.addEventListener('click',function(){ _cxTolWrite(true); });
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="cxTolGrain"]'),function(r){
+      r.addEventListener('change',_cxTolSyncEditor);
+    });
+    if(list&&panel) list.addEventListener('click',function(){
+      panel.hidden=!panel.hidden;
+      if(!panel.hidden) _cxTolRenderPanel();
+    });
+    if(close&&panel) close.addEventListener('click',function(){ panel.hidden=true; });
+    var body=document.getElementById('cxTolPanelBody');
+    if(body) body.addEventListener('click',function(e){
+      var b=e.target.closest?e.target.closest('[data-tol-rm]'):null; if(!b) return;
+      var item=b.getAttribute('data-tol-rm'), co=_cxFocusCo();
+      b.disabled=true;
+      agentFetch('/inventory/cardex-tolerance?company='+encodeURIComponent(co)+'&item='+encodeURIComponent(item),{method:'DELETE'})
+        .then(function(){
+          toast('Tolerance override removed for '+esc(item)+'.');
+          loadCxTolerances().then(function(){ renderCxTolerance(); _cxTolRenderPanel(); });
+        }).catch(function(e2){ b.disabled=false; toast('Not removed &mdash; '+esc(e2.message)); });
+    });
+  })();
+
+  // ---- focus control ----
+  function setFocus(f){
+    _cxDispoComposing = false;   // drop any half-typed source-fix note when the item changes
+    // Changing focus ends any in-progress Adjust — hide the panel + roll cards so the new
+    // item never inherits a stale open panel (there's no Cancel button by design).
+    var _ap=document.getElementById('cxvAdjustPanel'); if(_ap) _ap.hidden=true;
+    var _rd=document.getElementById('cxvRollDetail'); if(_rd) _rd.hidden=true;
+    _cxWhatIfClear();
+    state.focus = (f && f.item) ? {
+      item:String(f.item).trim(), branch:String(f.branch||'').trim(), company:String(f.company||'').trim(),
+      dim:String(f.dim||''), method:String(f.method||'')
+    } : null;
+    // reflect in the URL so a reload keeps the focus (mode is preserved)
+    try{
+      var q=new URLSearchParams(window.location.search);
+      if(state.focus){ q.set('item',state.focus.item);
+        if(state.focus.branch) q.set('branch',state.focus.branch); else q.delete('branch');
+        if(state.focus.company) q.set('company',state.focus.company); else q.delete('company');
+      } else { q.delete('item'); q.delete('branch'); q.delete('company'); q.delete('dim'); q.delete('method'); }
+      history.replaceState(null,'',window.location.pathname+(q.toString()?'?'+q.toString():'')+window.location.hash);
+    }catch(_){}
+    renderAll();
+  }
+
+  // ---- excel export (focused item) ----
+  function exportXlsx(){
+    var s=focusRows();
+    if(!s.length){ toast('Nothing to export'); return; }
+    if(typeof XLSX==='undefined'){ toast('Excel library still loading &mdash; try again'); return; }
+    var labels=['Company','Long Account','Item','Branch','Location','Lot','Method','Cost Level','Qty Var (F4111-F41021)','Amt Var (F4111-F41021)','QOH','Last Activity','Tx Count'];
+    var aoa=[labels];
+    s.forEach(function(r){ aoa.push([r.CompanyNumber,r.LongAccount,r.ItemNumber,r.Branch,r.Location,r.Lot,r.Method,r.CostLevel,Number(r.AdjQty)||0,Number(r.AdjAmount)||0,Number(r.QtyOnHand)||0,r.LastActivity,Number(r.TxCount)||0]); });
+    var ws=XLSX.utils.aoa_to_sheet(aoa), wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Cardex Variance');
+    if (!RRV8.saveWorkbook(wb, RRV8.exportName({ surface:'CardexVariance', drill:(state.focus&&state.focus.item)||'' }), toast, 'Cardex Variance')) return;
+    toast('Exported '+s.length+' lot'+(s.length!==1?'s':'')+' to Excel');
+  }
+
+  // ---- cardex detail drill-in ----
+  // Clicking a row's eye icon opens the RR cardex transactions behind that
+  // variance. Backed by POST /inventory/as-of/details (usp6ItemRollForward) --
+  // the same endpoint the As Of perpetual grid previews.
+  var dpop = { key:null, btn:null, ctx:null, cache:{}, inflight:null };
+  function dTxt(v){ return esc(String(v==null?'':v).trim()); }
+  function dDate(v){ var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(v||'')); return m?(parseInt(m[2],10)+'/'+parseInt(m[3],10)+'/'+m[1]):esc(String(v||'')); }
+  function dMoney(v){ var n=Number(v); if(!isFinite(n)||n===0) return (v==null||v==='')?'':'-'; return num(n); }
+  function dQty(v){ var n=Number(v); if(!isFinite(n)||n===0) return (v==null||v==='')?'':'-'; return qty(n); }
+  var DCOLS=[
+    { k:'transdate', l:'Trans Date', fmt:dDate }, { k:'periodends', l:'Period End', fmt:dDate },
+    { k:'comm', l:'Source', fmt:dTxt }, { k:'dt', l:'DT', fmt:dTxt }, { k:'doc', l:'Doc', fmt:dTxt },
+    { k:'qty', l:'Qty', num:true, fmt:dQty }, { k:'uom', l:'UOM', fmt:dTxt },
+    { k:'cost', l:'Cost', num:true, fmt:dMoney }, { k:'val', l:'Value', num:true, fmt:dMoney },
+    { k:'runqty', l:'Run Qty', num:true, fmt:dQty }, { k:'runamt', l:'Run Amt', num:true, fmt:dMoney },
+    { k:'qtyvar', l:'Qty Var', num:true, fmt:dQty }, { k:'amtvar', l:'Amt Var', num:true, fmt:dMoney }
+  ];
+  function detailIdLabel(r,lots){
+    var id=[r.CompanyNumber,r.Branch,r.ItemNumber,r.UOM,r.GLClass].map(function(v){return String(v==null?'':v).trim();}).filter(Boolean).join(' · ');
+    return id + (lots>1?'  ('+lots+' lots)':'');
+  }
+  function detailCtx(btn){
+    if(btn.hasAttribute('data-detail-id')){
+      var id=btn.getAttribute('data-detail-id');
+      var r=DATA.filter(function(x){return String(x.ItemID)===String(id);})[0];
+      if(!r) return null;
+      return { key:'id:'+id, single:true, seed:r, title:esc(r.ItemNumber), sub:detailIdLabel(r,1) };
+    }
+    var ik=btn.getAttribute('data-detail-item');  // Company|ItemNumber
+    var rows=DATA.filter(function(x){return (x.CompanyNumber+'|'+x.ItemNumber)===ik;});
+    if(!rows.length) return null;
+    return { key:'item:'+ik, single:false, seed:rows[0], title:esc(rows[0].ItemNumber), sub:detailIdLabel(rows[0],rows.length) };
+  }
+  function detailBody(ctx){
+    var r=ctx.seed, trim=function(v){return v==null?'':String(v).trim();}, co=trim(r.CompanyNumber);
+    return { branchPlant:trim(r.Branch), lot:ctx.single?trim(r.Lot):'', company:co,
+      itemNumber:trim(r.ItemNumber), location:ctx.single?trim(r.Location):'',
+      glClass:trim(r.GLClass), uom:trim(r.UOM), companyNumber:co,
+      take:10000, skip:0, page:1, pageSize:10000, aggregate:[] };
+  }
+  function fetchDetail(ctx){
+    return agentFetch('/inventory/as-of/details',{method:'POST',body:detailBody(ctx)}).then(function(p){
+      var arr=Array.isArray(p)?p:(p&&Array.isArray(p.rows))?p.rows:(p&&Array.isArray(p.data))?p.data:(p&&Array.isArray(p.Data))?p.Data:[];
+      arr.sort(function(a,b){return String(b.transdate||'').localeCompare(String(a.transdate||''));});
+      return arr;
+    });
+  }
+  function renderDetail(st, ctx){
+    var body=document.getElementById('detailBody'), sub=document.getElementById('detailSub'), xls=document.getElementById('detailXls'), ttl=document.getElementById('detailTitle');
+    if(ttl) ttl.innerHTML=ctx?ctx.title:'Cardex detail';
+    if(sub) sub.textContent=ctx?ctx.sub:'';
+    if(xls) xls.disabled=true;
+    if(st==='loading'){ body.innerHTML='<div class="detail-pop-state">Loading cardex transactions&hellip;</div>'; return; }
+    if(st&&st.error){ body.innerHTML='<div class="detail-pop-state">Couldn&rsquo;t load the cardex detail for this position.'+(st.message?'<br><br><span class="mono" style="font-size:11px;color:var(--text)">'+esc(st.message)+'</span>':'')+'</div>'; return; }
+    var rows=st.rows||[];
+    if(!rows.length){ body.innerHTML='<div class="detail-pop-state">No cardex transactions found for this position.</div>'; return; }
+    if(xls) xls.disabled=false;
+    var head=DCOLS.map(function(c){return '<th class="'+(c.num?'num':'')+'">'+esc(c.l)+'</th>';}).join('');
+    var b=rows.map(function(r){return '<tr>'+DCOLS.map(function(c){return '<td class="'+(c.num?'num':'')+'">'+c.fmt(r[c.k])+'</td>';}).join('')+'</tr>';}).join('');
+    var sumQty=rows.reduce(function(a,r){return a+(Number(r.qty)||0);},0);
+    var sumVal=rows.reduce(function(a,r){return a+(Number(r.val)||0);},0);
+    var top=rows[0]||{};
+    var foot='<tr><td colspan="5">Totals</td><td class="num">'+dQty(sumQty)+'</td><td></td><td></td><td class="num">'+dMoney(sumVal)+'</td><td class="num">'+dQty(top.runqty)+'</td><td class="num">'+dMoney(top.runamt)+'</td><td></td><td></td></tr>';
+    body.innerHTML='<table class="dpop"><thead><tr>'+head+'</tr></thead><tbody>'+b+'</tbody><tfoot>'+foot+'</tfoot></table>';
+  }
+  function positionDpop(btn){
+    var pop=document.getElementById('detailPop'); if(!pop||!btn) return;
+    pop.hidden=false;
+    var pr=pop.getBoundingClientRect(), br=btn.getBoundingClientRect(), gap=12, vw=window.innerWidth, vh=window.innerHeight;
+    var left=br.right+gap; if(left+pr.width>vw-8) left=Math.max(8,br.left-pr.width-gap); if(left<8) left=8;
+    var top=br.top-8; if(top+pr.height>vh-8) top=Math.max(8,vh-pr.height-8); if(top<8) top=8;
+    pop.style.left=left+'px'; pop.style.top=top+'px';
+  }
+  function openDetail(btn){
+    var ctx=detailCtx(btn); if(!ctx){ toast('Item not found'); return; }
+    if(dpop.key===ctx.key && dpop.btn===btn){ closeDetail(); return; }   // same icon → toggle closed
+    if(dpop.btn) dpop.btn.classList.remove('is-active');
+    dpop.key=ctx.key; dpop.btn=btn; dpop.ctx=ctx; btn.classList.add('is-active');
+    positionDpop(btn);
+    document.getElementById('detailPop').classList.add('show');
+    if(dpop.cache[ctx.key]){ renderDetail({rows:dpop.cache[ctx.key]},ctx); return; }
+    renderDetail('loading',ctx);
+    if(dpop.inflight) dpop.inflight.aborted=true;
+    var ctl={aborted:false}; dpop.inflight=ctl;
+    fetchDetail(ctx).then(function(rows){ if(ctl.aborted) return; dpop.cache[ctx.key]=rows; if(dpop.key===ctx.key) renderDetail({rows:rows},ctx); })
+      .catch(function(e){ if(ctl.aborted) return; if(dpop.key===ctx.key) renderDetail({error:true,message:(e&&e.message)||String(e)},ctx); });
+  }
+  function closeDetail(){
+    var pop=document.getElementById('detailPop'); if(!pop) return;
+    pop.classList.remove('show'); pop.hidden=true;
+    if(dpop.btn) dpop.btn.classList.remove('is-active');
+    dpop.key=null; dpop.btn=null; dpop.ctx=null;
+    var xls=document.getElementById('detailXls'); if(xls) xls.disabled=true;
+  }
+  function exportDetailXlsx(){
+    if(typeof XLSX==='undefined'){ toast('Excel library still loading &mdash; try again'); return; }
+    var ctx=dpop.ctx; if(!ctx) return;
+    var rows=dpop.cache[ctx.key]||[];
+    if(!rows.length){ toast('No transactions to export'); return; }
+    var headers=['companynumber','longaccount','ukid','branch','itemnumber','location','lot','glclass','transdate','periodends','comm','runqty','runamt','dt','doc','qty','uom','cost','val','qtyvar','amtvar'];
+    var moneyK={runamt:1,cost:1,val:1,amtvar:1}, qtyK={runqty:1,qty:1,qtyvar:1}, intK={ukid:1,doc:1};
+    var data=rows.map(function(r){ return headers.map(function(k){ var v=r[k]; if(v==null||v==='') return '';
+      if(moneyK[k]||qtyK[k]){ var n=Number(v); return isFinite(n)?Math.round(n*1000)/1000:''; }
+      if(intK[k]){ var n2=Number(v); return isFinite(n2)?Math.round(n2):''; }
+      return typeof v==='string'?v.trim():v; }); });
+    var ws=XLSX.utils.aoa_to_sheet([headers].concat(data)), wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Cardex Detail');
+    if (!RRV8.saveWorkbook(wb, RRV8.exportName({ surface:'CardexDetail', drill:(ctx.seed.ItemNumber || 'item') }), toast, 'Cardex Detail')) return;
+    toast('Exported '+rows.length+' transaction'+(rows.length!==1?'s':'')+' to Excel');
+  }
+
+  // ---- adjust modal ----
+  function openAdjust(itemId){
+    var r=DATA.filter(function(x){return String(x.ItemID)===String(itemId);})[0]
+        || _offWorklistRows.filter(function(x){return String(x.ItemID)===String(itemId);})[0];
+    if(!r){ toast('Item not found'); return; }
+    adj.itemId=itemId;
+    // Contextual action label: a tied-out item opened from the perpetual grid is
+    // an ALIGNMENT (type the JDE-correct balance, which creates a variance), not a
+    // clear-to-tie. Relabel the commit link so the verb fits both entry points.
+    var offWl=_focusIsOffWorklist(), lnk=document.getElementById('adjConfirm');
+    if(lnk){
+      lnk.textContent = offWl ? 'adjust balances' : 'clear it';
+      lnk.title = offWl ? 'Commit the beginning balance you entered (aligns RapidReconciler to JDE)'
+                        : 'Set the variance to zero and clear it';
+    }
+    // Period being adjusted = the opening-balance (BL) row's period end (e.g. 12/31/2024),
+    // NOT the data-load / reset date. Read it from the roll's BL row.
+    var blRow=null, _rr=_cxRollRows||[]; for(var _i=0;_i<_rr.length;_i++){ if(_rollBL(_rr[_i].BL)){ blRow=_rr[_i]; break; } }
+    var pt=document.getElementById('adjPeriodTag'); if(pt) pt.textContent = blRow ? _rollPeriod(blRow.PeriodEnds) : '—';
+    _cxAdjInit();   // capture current baseline + variance, prefill the four linked fields
+    var _ap=document.getElementById('cxvAdjustPanel'); if(_ap){ _ap.hidden=false; try{ _ap.scrollIntoView({behavior:'smooth',block:'nearest'}); }catch(_){} }
+    var _rd=document.getElementById('cxvRollDetail'); if(_rd) _rd.hidden=false;   // reveal both roll cards
+    _cxWhatIf();   // before/after starts matched (zero delta) until the analyst types
+  }
+  function closeAdjust(){
+    var _ap=document.getElementById('cxvAdjustPanel'); if(_ap) _ap.hidden=true;
+    var _rd=document.getElementById('cxvRollDetail'); if(_rd) _rd.hidden=true;   // hide both roll cards again
+    _cxWhatIfClear(); renderKpis(); renderGrid();
+  }
+  // "Clear variance" — drive the item's variance to 0. Set the variance fields to 0 and
+  // let the linking recompute the beginning-balance fields to the cleared baseline (so the
+  // panel fields AND the projected roll show the cleared state), zero the worklist so the
+  // KPIs + Item Position read 0, then persist the cleared baseline best-effort.
+  function confirmAdjust(){
+    if(adj.itemId==null) return;
+    // Off-worklist ALIGN: the analyst opened a tied-out item from Full Perpetual
+    // Details and typed the JDE-correct beginning balance. Commit it AS TYPED --
+    // that shift creates a real cardex variance (the whole point), which then
+    // rides the normal worklist/clear flow. Do NOT force the variance to zero,
+    // and do NOT record it to the cleared store (nothing was cleared).
+    if(_focusIsOffWorklist()){ _cxAlignBalances(); return; }
+    var vq=document.getElementById('adjVarQty'), va=document.getElementById('adjVarAmt');
+    if(vq){ vq.value='0'; _cxAdjOnVariance('q'); }   // recomputes beginning-balance qty + projected roll (keeps it visible)
+    if(va){ va.value='0'; _cxAdjOnVariance('a'); }   // recomputes beginning-balance amount
+    var a=_cxAgg;
+    if(a){ var t=a.tgt||{};
+      // Rich snapshot so Home can render the cleared item as a tinted row even after it
+      // drops out of the worklist (variance persisted to 0). Home shows raw AdjQty/Amount.
+      _cxApprovedCtx={ co:a.co, item:a.item, branch:(t.Branch)||'', itemId:adj.itemId, qty:a.qty, amt:a.amt,
+        snap:{ method:(a.method||t.Method||''), level:(a.level||t.CostLevel||''), loc:(t.Location||''), lot:(t.Lot||''),
+          uom:(t.UOM||''), qoh:(a.qoh||0), aoh:(a.amtOnHand||0), qv:(a.qty||0), av:(a.amt||0),
+          tx:(a.rows||[]).reduce(function(s,r){return s+(Number(r.TxCount)||0);},0), last:(t.LastActivity||'') } }; }
+    var btn=document.getElementById('adjConfirm'); if(btn) btn.disabled=true;
+    var body={ itemId:Number(adj.itemId), preset:'manual', beginQty:Number(document.getElementById('adjQty').value)||0, beginAmt:Number(document.getElementById('adjAmt').value)||0 };
+    _cxZeroFocusedLocal();     // zero the item's variance in the worklist (KPIs + Item Position → 0)
+    _cxProj=null;              // actual zero now, not a projection
+    renderKpis(); renderGrid();
+    if(_cxApprovedCtx) _cxClearedRecord(_cxApprovedCtx);   // record to the cross-page cleared store NOW (not gated on Approved) so Home lists it immediately
+    // Server-durable audit trail: the CLEAR is the audited disposition (surfaces as an
+    // analyst entry in the accountant Audit Center). Fires on every clear, not just Approved.
+    if(window.RRV8 && RRV8.logActivity && _cxApprovedCtx){
+      RRV8.logActivity('Cardex variance — cleared (in-place RapidReconciler correction, reversible)',
+        'Co '+_cxApprovedCtx.co+' · item '+_cxApprovedCtx.item+' · cleared '+qty(_cxApprovedCtx.qty)+' units / '+curMoney(_cxApprovedCtx.amt));
+    }
+    agentFetch('/inventory/set-beginning-balance',{method:'POST',body:body})
+      .catch(function(){})     // UI already cleared; server persistence is best-effort
+      // The POST writes the RAdjustLedger row, but nothing here refilled the ledger
+      // cache, so the adjustment stayed invisible until the analyst reloaded the page
+      // (owner 2026-08-19). Undo already did this via reload(); the clear path did not.
+      // Deliberately AFTER the POST settles: the ledger then shows what the SERVER
+      // holds -- including nothing, if the write failed and the optimistic clear above
+      // is all that really happened.
+      .then(function(){ if(btn) btn.disabled=false; return refreshLedger(); });
+    toast('Variance cleared.');
+  }
+  // Commit the TYPED beginning balance for a tied-out item opened from the
+  // perpetual grid (align RapidReconciler to a JDE finding). Persists as typed
+  // (no forced zero), logs it as an adjustment (not a clear), then reloads so the
+  // freshly-created variance appears through the normal worklist path.
+  function _cxAlignBalances(){
+    var a=_cxAgg;
+    var bq=Number(document.getElementById('adjQty').value)||0, ba=Number(document.getElementById('adjAmt').value)||0;
+    var btn=document.getElementById('adjConfirm'); if(btn) btn.disabled=true;
+    var co=(a&&a.co)||resolvedCompany()||'', item=(a&&a.item)||(state.focus&&state.focus.item)||'';
+    if(window.RRV8 && RRV8.logActivity){
+      RRV8.logActivity('Cardex balances — adjusted to align with JDE (reversible)',
+        'Co '+co+' · item '+item+' · beginning balance set to '+qty(bq)+' units / '+curMoney(ba));
+    }
+    agentFetch('/inventory/set-beginning-balance',{method:'POST',body:{ itemId:Number(adj.itemId), preset:'manual', beginQty:bq, beginAmt:ba }})
+      .then(function(){ toast('Balances adjusted &mdash; RapidReconciler re-checked against the new baseline.'); })
+      .catch(function(){ toast('Balances adjusted locally; server persistence will retry.'); })
+      .then(function(){ if(btn) btn.disabled=false; _offWorklistRows=[]; reload(); });   // item now carries a variance -> normal worklist path
+  }
+  function _cxZeroFocusedLocal(){ focusRows().forEach(function(r){ r.AdjQty=0; r.AdjAmount=0; }); }
+  // "Approved" — the behind-the-scenes close-out: Audit Center entry + close the panel and
+  // roll cards. The Home cardex light refreshes from server state on its next load.
+  // Shared "cardex cleared" store (localStorage, cross-page) — Home reads it to tint the
+  // closed row and drop it from the card totals. Keyed co|item|branch per active DB.
+  function _cxClearedKey(){ return 'rrv8.cardex.cleared.v1.'+activeDbName(); }
+  function _cxClearedRecord(c){
+    try{
+      var m=JSON.parse(localStorage.getItem(_cxClearedKey())||'{}')||{};
+      var k=[String(c.co||''), String(c.item||'').trim().toLowerCase(), String(c.branch||'').trim().toLowerCase()].join('|');
+      m[k]={ co:c.co, item:c.item, branch:c.branch||'', itemId:(c.itemId!=null?c.itemId:null), qv:-c.qty, av:-c.amt, by:(loginId()||''), at:new Date().toISOString(), snap:(c.snap||null) };
+      localStorage.setItem(_cxClearedKey(), JSON.stringify(m));
+    }catch(_){}
+  }
+  function cxvApproved(){
+    var c=_cxApprovedCtx;
+    if(c) _cxClearedRecord(c);   // cross-page signal so Home tints the row + reduces its totals
+    // No audit log here: the clear (confirmAdjust) already wrote the audited disposition.
+    // Approved is a UI close-out, not a separate attestation (RR is a utility) — logging it
+    // again would double-list one clear in the Audit Center.
+    toast('Approved &mdash; closed.');
+    closeAdjust();
+  }
+
+  // ---- adjustment ledger ----
+  var _cxLedgerRows=[];
+  // The focused item's ItemID(s): from the worklist rows, plus the URL ?itemId (a cleared
+  // item arrives here from Home's Cleared list with its ItemID, even though it's no longer
+  // in the worklist) — so the ledger + reopen stay reachable for a cleared item.
+  function _cxFocusItemIds(){
+    var ids={};
+    focusRows().forEach(function(r){ if(r.ItemID!=null) ids[String(r.ItemID)]=1; });
+    var u=Q.get('itemId'); if(u) ids[String(u)]=1;
+    return ids;
+  }
+  function renderLedger(){
+    var host=document.getElementById('ledgerBody'); if(!host) return;
+    var ids=_cxFocusItemIds(), hasScope=false; for(var _k in ids){ if(ids.hasOwnProperty(_k)){ hasScope=true; break; } }
+    if(!hasScope){ host.innerHTML='<div class="ledger-empty">Focus an item to see its adjustments.</div>'; return; }
+    var rows=(_cxLedgerRows||[]).filter(function(r){ return ids[String(r.ItemID)]; });   // this item only
+    if(!rows.length){ host.innerHTML='<div class="ledger-empty">No adjustments for this item.</div>'; return; }
+    var head='<tr><th>When</th><th>By</th><th>Account</th><th>Preset</th><th class="num">Begin qty</th><th class="num">Begin amt</th><th class="num">Result var</th><th>Status</th><th></th></tr>';
+    var b=rows.map(function(r){
+      var applied=String(r.Status||'').toLowerCase()==='applied';
+      return '<tr><td>'+esc((r.AdjustTime||'').toString().replace('T',' ').slice(0,16))+'</td>'+
+        '<td>'+esc(r.Username||'&mdash;')+'</td>'+
+        '<td class="mono">'+esc(r.LongAccount)+'</td>'+
+        '<td>'+esc(r.Preset)+'</td>'+
+        '<td class="num">'+qty(r.New_BL_Qty)+'</td>'+
+        '<td class="num">'+num(r.New_BL_Amt)+'</td>'+
+        '<td class="num">'+moneyCell(r.Res_BaselineVar)+'</td>'+
+        '<td><span class="pill '+(applied?'applied':'reversed')+'">'+esc(r.Status||'')+'</span></td>'+
+        '<td>'+(applied?'<button class="btn sm" data-undo="'+esc(r.AdjustID)+'" data-uid="'+esc(r.ItemID)+'">Undo</button>':'')+'</td></tr>';
+    }).join('');
+    host.innerHTML='<div class="grid-scroll" style="max-height:320px"><table class="rf"><thead>'+head+'</thead><tbody>'+b+'</tbody></table></div>';
+  }
+  // Remove a cleared-store entry by ItemID (used when an adjustment is undone → the item
+  // reopens: drops off Home's Cleared list and returns to the active card as its variance
+  // comes back). Closes the clear -> reopen loop.
+  function _cxClearedRemoveByItemId(itemId){
+    try{
+      var m=JSON.parse(localStorage.getItem(_cxClearedKey())||'{}')||{}, changed=false;
+      Object.keys(m).forEach(function(k){ if(m[k] && String(m[k].itemId)===String(itemId)){ delete m[k]; changed=true; } });
+      if(changed) localStorage.setItem(_cxClearedKey(), JSON.stringify(m));
+    }catch(_){}
+  }
+  function undoAdjust(adjustId, itemId){
+    agentFetch('/inventory/undo-adjustment',{method:'POST',body:{adjustId:Number(adjustId)}})
+      .then(function(){ if(itemId!=null && itemId!=='') _cxClearedRemoveByItemId(itemId); toast('Adjustment undone &mdash; variance reopened.'); reload(); })
+      .catch(function(e){ toast('Undo failed: '+esc(e.message)); });
+  }
+
+  // ---- agent I/O (JWT-scoped; same token pattern as Account Roll Forward) ----
+  function agentBaseFromToken(token){
+    if(!window.RRDB) return null;
+    var db=window.RRDB.active();
+    if(db&&db.n){ var el=document.getElementById('scopeDb'); if(el) el.textContent=db.n; }
+    return window.RRDB.agentBase();
+  }
+  function token(){ try{ return localStorage.getItem('rrv8.token'); }catch(_){ return null; } }
+  function tokenPayload(){ var t=token(); if(!t) return null;
+    try { var b64=t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'); var pad=b64.length%4; if(pad) b64+='='.repeat(4-pad);
+      return JSON.parse(decodeURIComponent(atob(b64).split('').map(function(c){return '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2);}).join(''))); }
+    catch(_){ return null; } }
+  // The login id the agent records in the ledger (userRequest.getUsername() == JWT sub).
+  function loginId(){ var p=tokenPayload(); return p ? String(p.sub || (p.user&&p.user.u) || '') : ''; }
+  // Cross-page session cache, same key Home warms (rrv8.scope.v1.<mode>.<db>.cardexworklist).
+  var RR_CONFIG = window.RR_CONFIG || {};
+  var Q = new URLSearchParams(window.location.search);
+  var MODE = Q.get('mode') || RR_CONFIG.mode || 'demo';
+  function activeDbName(){ return (window.RRDB && window.RRDB.name()) || '_'; }
+  function cardexCacheKey(){ return 'rrv8.scope.v1.'+MODE+'.'+activeDbName()+'.cardexworklist'; }
+  function readCardexCache(){ try{ var o=JSON.parse(sessionStorage.getItem(cardexCacheKey())||'null'); return o&&Array.isArray(o.payload)?o.payload:null; }catch(_){ return null; } }
+  function writeCardexCache(rows){ try{ sessionStorage.setItem(cardexCacheKey(), JSON.stringify({ts:Date.now(), payload:rows})); }catch(_){} }
+  function agentFetch(path,opts){
+    opts=opts||{}; var t=token(); var base=t&&agentBaseFromToken(t);
+    if(!base) return Promise.reject(new Error('not signed in'));
+    var h={'Authorization':'Bearer '+t,'Accept':'application/json'};
+    var init={method:opts.method||'GET',headers:h};
+    if(opts.body){ h['Content-Type']='application/json;charset=UTF-8'; init.body=JSON.stringify(opts.body); }
+    return fetch(base+path,init).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.status===204?null:r.json(); });
+  }
+
+  function ingestWorklist(rows){
+    rows=Array.isArray(rows)?rows:[];
+    // pull the '00000' Reset: header row out for the banner
+    var reset=rows.filter(function(r){ return String(r.Reason||'').trim()==='Reset:'; })[0];
+    resetDate = reset ? String(reset.ItemNumber||'').trim() : '';
+    var _sr=document.getElementById('scopeReset'); if(_sr) _sr.textContent=resetDate||'—';
+    // Drop resolved-but-stale "zombie" rows: a variance synced to ~0 whose reason
+    // wasn't re-cleared until the nightly usp6_006b still carries a reason string.
+    // A zero-variance row on a variance worklist is noise. Tolerances mirror the
+    // proc (qty 0.05 / amt 0.005). (Durable fix = clear reason at sync time: DAC-31.)
+    DATA=rows.filter(function(r){ if(String(r.Reason||'').trim()==='Reset:') return false; return Math.abs(Number(r.AdjQty)||0)>0.05 || Math.abs(Number(r.AdjAmount)||0)>0.005; });
+    renderAll();
+  }
+  function loadWorklist(){
+    return agentFetch('/inventory/integrity',{method:'POST',body:{report:'v6ui_itemrollintegritydialog'}})
+      .then(function(d){ return Array.isArray(d)?d:((d&&d.data)||[]); });
+  }
+  // On-demand: the cardex-variance row(s) for the focused item regardless of
+  // whether it carries a variance. Only fetched when the item isn't already on
+  // the worklist (the analyst opened it from Full Perpetual Details). Populates
+  // _offWorklistRows, which focusRows() falls back to. Graceful on 404/403 (the
+  // usp8_item_position proc / endpoint arrives with the next Services rebuild).
+  function loadItemPosition(){
+    var f=state.focus; if(!f||!f.item){ _offWorklistRows=[]; return Promise.resolve(); }
+    return agentFetch('/inventory/as-of/item-position',{method:'POST',body:{
+        itemNumber:f.item, companyNumber:f.company||'', company:f.company||'', branchPlant:f.branch||''
+      }})
+      .then(function(d){ _offWorklistRows=Array.isArray(d)?d:((d&&d.data)||[]); })
+      .catch(function(){ _offWorklistRows=[]; });
+  }
+  // After the worklist lands: if the focused item isn't on it, pull its position
+  // on demand so the analyst can still Adjust Balances (align RR to a JDE finding).
+  function maybeLoadOffWorklist(){
+    if(!state.focus || !state.focus.item){ _offWorklistRows=[]; return; }
+    if(!_focusIsOffWorklist()){ _offWorklistRows=[]; return; }   // already on the worklist
+    loadItemPosition().then(function(){ renderAll(); });
+  }
+  function loadLedger(){ return agentFetch('/inventory/adjustment-ledger').then(function(d){ return (d&&d.data)||[]; }); }
+  // renderLedger() paints _cxLedgerRows; ONLY a fetch refills it. Any path that writes
+  // an adjustment must call this, never renderLedger() on its own -- that would repaint
+  // the pre-write cache and read as "nothing happened".
+  function refreshLedger(){
+    return loadLedger()
+      .then(function(rows){ _cxLedgerRows=Array.isArray(rows)?rows:[]; renderLedger(); })
+      .catch(function(){ /* ledger optional; keep the last good render */ });
+  }
+
+  function reload(){
+    // Cache-first: if Home already warmed the worklist, render it instantly; then
+    // refresh live in the background and re-cache. A failed refresh leaves the
+    // cached view in place rather than blanking it.
+    var cached=readCardexCache();
+    if(cached){ ingestWorklist(cached); maybeLoadOffWorklist(); }
+    loadWorklist().then(function(rows){ writeCardexCache(rows); ingestWorklist(rows); maybeLoadOffWorklist(); }).catch(function(err){
+      if(cached) { toast('Showing the last loaded worklist — refresh failed: '+esc(err.message)); return; }
+      toast('Cardex data isn&rsquo;t available &mdash; sign in so the page can read it from the data service.');
+      document.getElementById('rfBody').innerHTML='<tr><td class="empty" colspan="'+COLS.length+'">No data &mdash; '+esc(err.message)+'</td></tr>';
+      document.getElementById('gridCount').textContent='—';
+    });
+    // Materiality tolerances (UI-161) ride their own fetch; repaint the band once
+    // they land so the threshold appears beside the variance it judges.
+    loadCxTolerances().then(function(){ renderCxTolerance(); });
+    // The per-item roll-forward (rinvasof) rides its own fetch; render once it lands.
+    loadItemRoll().then(function(){ renderRollBand(); });
+    // "Data as of" chip rides its own fetch; reveal it once a real load date lands.
+    loadLastLoad().then(paintAsOf);
+    refreshLedger();
+  }
+
+  // ---- wire ----
+  // seed the focus from the URL (?item=... arrives from a Home Cardex Variance card)
+  (function(){
+    var it=(Q.get('item')||'').trim();
+    if(it){ state.focus={ item:it, branch:(Q.get('branch')||'').trim(), company:(Q.get('company')||'').trim(), dim:(Q.get('dim')||'').trim(), method:(Q.get('method')||'').trim() }; }
+  })();
+  document.getElementById('cxvApproved').addEventListener('click',cxvApproved);
+  document.getElementById('rfBody').addEventListener('click',function(e){
+    var d=e.target.closest('[data-detail-id],[data-detail-item]'); if(d){ openDetail(d); return; }
+  });
+  document.getElementById('ledgerBody').addEventListener('click',function(e){ var u=e.target.closest('[data-undo]'); if(u) undoAdjust(u.getAttribute('data-undo'), u.getAttribute('data-uid')); });
+  document.getElementById('adjQty').addEventListener('input',function(){ _cxAdjOnBaseline('q'); });
+  document.getElementById('adjAmt').addEventListener('input',function(){ _cxAdjOnBaseline('a'); });
+  document.getElementById('adjVarQty').addEventListener('input',function(){ _cxAdjOnVariance('q'); });
+  document.getElementById('adjVarAmt').addEventListener('input',function(){ _cxAdjOnVariance('a'); });
+  document.getElementById('adjConfirm').addEventListener('click',confirmAdjust);
+  document.getElementById('cxvCauseLaunch').addEventListener('click',_cxInvestigate);
+  document.getElementById('cxvSyncLaunch').addEventListener('click',_cxDraftSync);
+  // Source-fix disposition (delegated — the Fork-A panel is rebuilt on each render).
+  (function(){
+    var band=document.getElementById('cxvFork'); if(!band) return;
+    function rec(status, msg){
+      if(_cxAgg){ var n=document.getElementById('cxvSourceFixNote'); _cxDispoRecord(_cxAgg, n?n.value:'', status); }
+      _cxDispoComposing=false; renderRollBand(); renderCxvCards(); renderSourceFixLog(); toast(msg);
+    }
+    band.addEventListener('click',function(e){
+      if(e.target.closest('#cxvSourceFix')){ _cxDispoComposing=true; renderRollBand(); var n=document.getElementById('cxvSourceFixNote'); if(n) n.focus(); }
+      else if(e.target.closest('#cxvSourceFixCancel')){ _cxDispoComposing=false; renderRollBand(); }
+      else if(e.target.closest('#cxvSourceFixIt')){ rec('awaiting-it','Routed to IT &mdash; flagged awaiting fix.'); }
+      else if(e.target.closest('#cxvSourceFixDone')){ rec('corrected-at-source','Recorded &mdash; corrected at source. Clears on the next refresh.'); }
+      else if(e.target.closest('[data-cx-undo]')){
+        if(_cxAgg){ _cxDispoRemove(_cxAgg); }
+        renderRollBand(); renderCxvCards(); renderSourceFixLog(); toast('Record removed.');
+      }
+    });
+    band.addEventListener('keydown',function(e){
+      if(e.key==='Enter' && e.target && e.target.id==='cxvSourceFixNote'){ e.preventDefault(); rec('awaiting-it','Routed to IT &mdash; flagged awaiting fix.'); }
+    });
+  })();
+  (function(){ var b=document.getElementById('cxvSfPrune'); if(b) b.addEventListener('click',_cxSfPrune); })();
+  // Re-tier the Root-cause read live when the AI tier flips (matches home.html).
+  window.addEventListener('rrv8:aitierchange',function(){ renderCxvCards(); });
+  document.getElementById('detailClose').addEventListener('click',closeDetail);
+  document.getElementById('detailXls').addEventListener('click',exportDetailXlsx);
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&dpop.key){ e.preventDefault(); closeDetail(); } });
+  document.addEventListener('mousedown',function(e){ if(!dpop.key) return;
+    var pop=document.getElementById('detailPop');
+    if(pop&&!pop.contains(e.target)&&!e.target.closest('[data-detail-id],[data-detail-item]')) closeDetail(); });
+
+  reload();
+})();
+</script>
+</body>
+</html>
+

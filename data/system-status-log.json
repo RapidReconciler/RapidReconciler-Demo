@@ -1,0 +1,1592 @@
+{
+  "_meta": {
+    "captured": "2026-05-20T08:24:00Z",
+    "source": "SQL Agent step log (mock)",
+    "db": "RapidReconciler_Dev",
+    "seed": 20260520,
+    "cycles": 7,
+    "rows": 156,
+    "convention": "Data-capture rows: Seconds column = MINUTES. Other rows: Seconds column = true seconds. Production mislabel preserved."
+  },
+  "currentJob": {
+    "_source": "Mocks v_diagnostic5_job_status. Production: SELECT * FROM dbo.v_diagnostic5_job_status. In prod the agent polls this and feeds it to the System Status light. Flip jobStatus to 'In Progress' to demo the amber state.",
+    "jobStatus": "Successful",
+    "jobDate": "May 19 2026 2:00AM",
+    "minutes": 0,
+    "avgMinutes": 249,
+    "count": 7
+  },
+  "banner": "System Status Generated 2026-05-20 08:24:00",
+  "columns": [
+    "Capture",
+    "Step",
+    "Process",
+    "StartTime",
+    "EndTime",
+    "Seconds",
+    "UpdateCount",
+    "ErrorNum"
+  ],
+  "rows": [
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "Starting A to B *********************",
+      "starttime": "2026-05-13 02:00:00",
+      "endtime": "2026-05-13 02:00:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "F0911",
+      "starttime": "2026-05-13 02:00:00",
+      "endtime": "2026-05-13 02:34:00",
+      "seconds": 34,
+      "updateCount": 131632,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "F4111",
+      "starttime": "2026-05-13 02:34:00",
+      "endtime": "2026-05-13 03:16:00",
+      "seconds": 42,
+      "updateCount": 196836,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "F4108",
+      "starttime": "2026-05-13 03:16:00",
+      "endtime": "2026-05-13 03:19:00",
+      "seconds": 3,
+      "updateCount": 306,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "F4095",
+      "starttime": "2026-05-13 03:19:00",
+      "endtime": "2026-05-13 03:20:00",
+      "seconds": 1,
+      "updateCount": 385,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "F0902",
+      "starttime": "2026-05-13 03:20:00",
+      "endtime": "2026-05-13 03:34:00",
+      "seconds": 14,
+      "updateCount": 19088,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "F4101",
+      "starttime": "2026-05-13 03:34:00",
+      "endtime": "2026-05-13 03:49:00",
+      "seconds": 15,
+      "updateCount": 29258,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "F4102",
+      "starttime": "2026-05-13 03:49:00",
+      "endtime": "2026-05-13 04:06:00",
+      "seconds": 17,
+      "updateCount": 46482,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "F4105",
+      "starttime": "2026-05-13 04:06:00",
+      "endtime": "2026-05-13 04:16:00",
+      "seconds": 10,
+      "updateCount": 62654,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "F4115",
+      "starttime": "2026-05-13 04:16:00",
+      "endtime": "2026-05-13 04:22:00",
+      "seconds": 6,
+      "updateCount": 8638,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "F0006",
+      "starttime": "2026-05-13 04:22:00",
+      "endtime": "2026-05-13 04:24:00",
+      "seconds": 2,
+      "updateCount": 343,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "F0901",
+      "starttime": "2026-05-13 04:24:00",
+      "endtime": "2026-05-13 04:28:00",
+      "seconds": 4,
+      "updateCount": 4262,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "Data Capture",
+      "process": "Starting B to C *********************",
+      "starttime": "2026-05-13 04:28:00",
+      "endtime": "2026-05-13 04:28:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "Reset variances",
+      "starttime": "2026-05-13 04:28:00",
+      "endtime": "2026-05-13 04:28:48",
+      "seconds": 48,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute carry forward",
+      "starttime": "2026-05-13 04:28:48",
+      "endtime": "2026-05-13 04:34:01",
+      "seconds": 313,
+      "updateCount": 18400,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "Sum unposted batches",
+      "starttime": "2026-05-13 04:34:01",
+      "endtime": "2026-05-13 04:37:23",
+      "seconds": 202,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "End of day snapshot",
+      "starttime": "2026-05-13 04:37:23",
+      "endtime": "2026-05-13 05:02:23",
+      "seconds": 1500,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "Roll cardex forward",
+      "starttime": "2026-05-13 05:02:23",
+      "endtime": "2026-05-13 05:34:04",
+      "seconds": 1901,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute manual JEs",
+      "starttime": "2026-05-13 05:34:04",
+      "endtime": "2026-05-13 05:37:25",
+      "seconds": 201,
+      "updateCount": 1200,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute transactions",
+      "starttime": "2026-05-13 05:37:25",
+      "endtime": "2026-05-13 05:49:07",
+      "seconds": 702,
+      "updateCount": 91000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "Reconcile by company",
+      "starttime": "2026-05-13 05:49:07",
+      "endtime": "2026-05-13 05:55:59",
+      "seconds": 412,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "Update period summary",
+      "starttime": "2026-05-13 05:55:59",
+      "endtime": "2026-05-13 05:58:40",
+      "seconds": 161,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "Index rebuild",
+      "starttime": "2026-05-13 05:58:40",
+      "endtime": "2026-05-13 06:14:06",
+      "seconds": 926,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "Refresh dashboard cache",
+      "starttime": "2026-05-13 06:14:06",
+      "endtime": "2026-05-13 06:15:47",
+      "seconds": 101,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-13 02:00",
+      "step": "RapidReconciler",
+      "process": "Successfully Completed",
+      "starttime": "2026-05-13 06:15:47",
+      "endtime": "2026-05-13 06:15:47",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "Starting A to B *********************",
+      "starttime": "2026-05-14 02:00:00",
+      "endtime": "2026-05-14 02:00:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "F0911",
+      "starttime": "2026-05-14 02:00:00",
+      "endtime": "2026-05-14 02:36:00",
+      "seconds": 36,
+      "updateCount": 119463,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "F4111",
+      "starttime": "2026-05-14 02:36:00",
+      "endtime": "2026-05-14 03:26:00",
+      "seconds": 50,
+      "updateCount": 175760,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "F4108",
+      "starttime": "2026-05-14 03:26:00",
+      "endtime": "2026-05-14 03:29:00",
+      "seconds": 3,
+      "updateCount": 298,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "F4095",
+      "starttime": "2026-05-14 03:29:00",
+      "endtime": "2026-05-14 03:30:00",
+      "seconds": 1,
+      "updateCount": 476,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "F0902",
+      "starttime": "2026-05-14 03:30:00",
+      "endtime": "2026-05-14 03:42:00",
+      "seconds": 12,
+      "updateCount": 18367,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "F4101",
+      "starttime": "2026-05-14 03:42:00",
+      "endtime": "2026-05-14 04:01:00",
+      "seconds": 19,
+      "updateCount": 29579,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "F4102",
+      "starttime": "2026-05-14 04:01:00",
+      "endtime": "2026-05-14 04:17:00",
+      "seconds": 16,
+      "updateCount": 41905,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "F4105",
+      "starttime": "2026-05-14 04:17:00",
+      "endtime": "2026-05-14 04:27:00",
+      "seconds": 10,
+      "updateCount": 59352,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "F4115",
+      "starttime": "2026-05-14 04:27:00",
+      "endtime": "2026-05-14 04:35:00",
+      "seconds": 8,
+      "updateCount": 8310,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "F0006",
+      "starttime": "2026-05-14 04:35:00",
+      "endtime": "2026-05-14 04:37:00",
+      "seconds": 2,
+      "updateCount": 313,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "F0901",
+      "starttime": "2026-05-14 04:37:00",
+      "endtime": "2026-05-14 04:41:00",
+      "seconds": 4,
+      "updateCount": 4444,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "Data Capture",
+      "process": "Starting B to C *********************",
+      "starttime": "2026-05-14 04:41:00",
+      "endtime": "2026-05-14 04:41:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "Reset variances",
+      "starttime": "2026-05-14 04:41:00",
+      "endtime": "2026-05-14 04:41:37",
+      "seconds": 37,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute carry forward",
+      "starttime": "2026-05-14 04:41:37",
+      "endtime": "2026-05-14 04:47:07",
+      "seconds": 330,
+      "updateCount": 18400,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "Sum unposted batches",
+      "starttime": "2026-05-14 04:47:07",
+      "endtime": "2026-05-14 04:50:21",
+      "seconds": 194,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "End of day snapshot",
+      "starttime": "2026-05-14 04:50:21",
+      "endtime": "2026-05-14 05:19:02",
+      "seconds": 1721,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "Roll cardex forward",
+      "starttime": "2026-05-14 05:19:02",
+      "endtime": "2026-05-14 05:50:56",
+      "seconds": 1914,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute manual JEs",
+      "starttime": "2026-05-14 05:50:56",
+      "endtime": "2026-05-14 05:54:59",
+      "seconds": 243,
+      "updateCount": 1200,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute transactions",
+      "starttime": "2026-05-14 05:54:59",
+      "endtime": "2026-05-14 06:07:20",
+      "seconds": 741,
+      "updateCount": 91000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "Reconcile by company",
+      "starttime": "2026-05-14 06:07:20",
+      "endtime": "2026-05-14 06:13:29",
+      "seconds": 369,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "Update period summary",
+      "starttime": "2026-05-14 06:13:29",
+      "endtime": "2026-05-14 06:16:01",
+      "seconds": 152,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "Index rebuild",
+      "starttime": "2026-05-14 06:16:01",
+      "endtime": "2026-05-14 06:31:03",
+      "seconds": 902,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "Refresh dashboard cache",
+      "starttime": "2026-05-14 06:31:03",
+      "endtime": "2026-05-14 06:32:45",
+      "seconds": 102,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-14 02:00",
+      "step": "RapidReconciler",
+      "process": "Successfully Completed",
+      "starttime": "2026-05-14 06:32:45",
+      "endtime": "2026-05-14 06:32:45",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "Starting A to B *********************",
+      "starttime": "2026-05-15 02:00:00",
+      "endtime": "2026-05-15 02:00:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "F0911",
+      "starttime": "2026-05-15 02:00:00",
+      "endtime": "2026-05-15 02:41:00",
+      "seconds": 41,
+      "updateCount": 122983,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "F4111",
+      "starttime": "2026-05-15 02:41:00",
+      "endtime": "2026-05-15 03:30:00",
+      "seconds": 49,
+      "updateCount": 198684,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "F4108",
+      "starttime": "2026-05-15 03:30:00",
+      "endtime": "2026-05-15 03:31:00",
+      "seconds": 1,
+      "updateCount": 271,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "F4095",
+      "starttime": "2026-05-15 03:31:00",
+      "endtime": "2026-05-15 03:32:00",
+      "seconds": 1,
+      "updateCount": 394,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "F0902",
+      "starttime": "2026-05-15 03:32:00",
+      "endtime": "2026-05-15 03:45:00",
+      "seconds": 13,
+      "updateCount": 18338,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "F4101",
+      "starttime": "2026-05-15 03:45:00",
+      "endtime": "2026-05-15 04:01:00",
+      "seconds": 16,
+      "updateCount": 31273,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "F4102",
+      "starttime": "2026-05-15 04:01:00",
+      "endtime": "2026-05-15 04:14:00",
+      "seconds": 13,
+      "updateCount": 43226,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "F4105",
+      "starttime": "2026-05-15 04:14:00",
+      "endtime": "2026-05-15 04:27:00",
+      "seconds": 13,
+      "updateCount": 64153,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "F4115",
+      "starttime": "2026-05-15 04:27:00",
+      "endtime": "2026-05-15 04:31:00",
+      "seconds": 4,
+      "updateCount": 9334,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "F0006",
+      "starttime": "2026-05-15 04:31:00",
+      "endtime": "2026-05-15 04:32:00",
+      "seconds": 1,
+      "updateCount": 350,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "F0901",
+      "starttime": "2026-05-15 04:32:00",
+      "endtime": "2026-05-15 04:37:00",
+      "seconds": 5,
+      "updateCount": 3995,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "Data Capture",
+      "process": "Starting B to C *********************",
+      "starttime": "2026-05-15 04:37:00",
+      "endtime": "2026-05-15 04:37:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "Reset variances",
+      "starttime": "2026-05-15 04:37:00",
+      "endtime": "2026-05-15 04:37:39",
+      "seconds": 39,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute carry forward",
+      "starttime": "2026-05-15 04:37:39",
+      "endtime": "2026-05-15 04:44:20",
+      "seconds": 401,
+      "updateCount": 18400,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "Sum unposted batches",
+      "starttime": "2026-05-15 04:44:20",
+      "endtime": "2026-05-15 04:46:50",
+      "seconds": 150,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "End of day snapshot",
+      "starttime": "2026-05-15 04:46:50",
+      "endtime": "2026-05-15 05:13:14",
+      "seconds": 1584,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "Roll cardex forward",
+      "starttime": "2026-05-15 05:13:14",
+      "endtime": "2026-05-15 05:46:20",
+      "seconds": 1986,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute manual JEs",
+      "starttime": "2026-05-15 05:46:20",
+      "endtime": "2026-05-15 05:49:38",
+      "seconds": 198,
+      "updateCount": 1200,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute transactions",
+      "starttime": "2026-05-15 05:49:38",
+      "endtime": "2026-05-15 06:01:29",
+      "seconds": 711,
+      "updateCount": 91000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "Reconcile by company",
+      "starttime": "2026-05-15 06:01:29",
+      "endtime": "2026-05-15 06:08:16",
+      "seconds": 407,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "Update period summary",
+      "starttime": "2026-05-15 06:08:16",
+      "endtime": "2026-05-15 06:10:53",
+      "seconds": 157,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "Index rebuild",
+      "starttime": "2026-05-15 06:10:53",
+      "endtime": "2026-05-15 06:23:35",
+      "seconds": 762,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "Refresh dashboard cache",
+      "starttime": "2026-05-15 06:23:35",
+      "endtime": "2026-05-15 06:25:17",
+      "seconds": 102,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-15 02:00",
+      "step": "RapidReconciler",
+      "process": "Successfully Completed",
+      "starttime": "2026-05-15 06:25:17",
+      "endtime": "2026-05-15 06:25:17",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "Starting A to B *********************",
+      "starttime": "2026-05-16 02:00:00",
+      "endtime": "2026-05-16 02:00:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "F0911",
+      "starttime": "2026-05-16 02:00:00",
+      "endtime": "2026-05-16 02:30:00",
+      "seconds": 30,
+      "updateCount": 116371,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "F4111",
+      "starttime": "2026-05-16 02:30:00",
+      "endtime": "2026-05-16 03:27:00",
+      "seconds": 57,
+      "updateCount": 184675,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "F4108",
+      "starttime": "2026-05-16 03:27:00",
+      "endtime": "2026-05-16 03:28:00",
+      "seconds": 1,
+      "updateCount": 280,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "F4095",
+      "starttime": "2026-05-16 03:28:00",
+      "endtime": "2026-05-16 03:30:00",
+      "seconds": 2,
+      "updateCount": 390,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "F0902",
+      "starttime": "2026-05-16 03:30:00",
+      "endtime": "2026-05-16 03:39:00",
+      "seconds": 9,
+      "updateCount": 18909,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "F4101",
+      "starttime": "2026-05-16 03:39:00",
+      "endtime": "2026-05-16 03:57:00",
+      "seconds": 18,
+      "updateCount": 31192,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "F4102",
+      "starttime": "2026-05-16 03:57:00",
+      "endtime": "2026-05-16 04:11:00",
+      "seconds": 14,
+      "updateCount": 44353,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "F4105",
+      "starttime": "2026-05-16 04:11:00",
+      "endtime": "2026-05-16 04:22:00",
+      "seconds": 11,
+      "updateCount": 60149,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "F4115",
+      "starttime": "2026-05-16 04:22:00",
+      "endtime": "2026-05-16 04:26:00",
+      "seconds": 4,
+      "updateCount": 8687,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "F0006",
+      "starttime": "2026-05-16 04:26:00",
+      "endtime": "2026-05-16 04:29:00",
+      "seconds": 3,
+      "updateCount": 291,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "F0901",
+      "starttime": "2026-05-16 04:29:00",
+      "endtime": "2026-05-16 04:32:00",
+      "seconds": 3,
+      "updateCount": 3872,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "Data Capture",
+      "process": "Starting B to C *********************",
+      "starttime": "2026-05-16 04:32:00",
+      "endtime": "2026-05-16 04:32:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "Reset variances",
+      "starttime": "2026-05-16 04:32:00",
+      "endtime": "2026-05-16 04:32:50",
+      "seconds": 50,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute carry forward",
+      "starttime": "2026-05-16 04:32:50",
+      "endtime": "2026-05-16 04:38:45",
+      "seconds": 355,
+      "updateCount": 18400,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "Sum unposted batches",
+      "starttime": "2026-05-16 04:38:45",
+      "endtime": "2026-05-16 04:41:23",
+      "seconds": 158,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "End of day snapshot",
+      "starttime": "2026-05-16 04:41:23",
+      "endtime": "2026-05-16 05:07:28",
+      "seconds": 1565,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "Roll cardex forward",
+      "starttime": "2026-05-16 05:07:28",
+      "endtime": "2026-05-16 05:34:26",
+      "seconds": 1618,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute manual JEs",
+      "starttime": "2026-05-16 05:34:26",
+      "endtime": "2026-05-16 05:38:15",
+      "seconds": 229,
+      "updateCount": 1200,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute transactions",
+      "starttime": "2026-05-16 05:38:15",
+      "endtime": "2026-05-16 05:48:38",
+      "seconds": 623,
+      "updateCount": 91000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "Reconcile by company",
+      "starttime": "2026-05-16 05:48:38",
+      "endtime": "2026-05-16 05:55:21",
+      "seconds": 403,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "Update period summary",
+      "starttime": "2026-05-16 05:55:21",
+      "endtime": "2026-05-16 05:57:38",
+      "seconds": 137,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "Index rebuild",
+      "starttime": "2026-05-16 05:57:38",
+      "endtime": "2026-05-16 06:10:34",
+      "seconds": 776,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "Refresh dashboard cache",
+      "starttime": "2026-05-16 06:10:34",
+      "endtime": "2026-05-16 06:12:35",
+      "seconds": 121,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-16 02:00",
+      "step": "RapidReconciler",
+      "process": "Successfully Completed",
+      "starttime": "2026-05-16 06:12:35",
+      "endtime": "2026-05-16 06:12:35",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "",
+      "step": "Manual sproc",
+      "process": "exec usp6getrinvaccountsummary @period='2026-05-16'",
+      "starttime": "2026-05-16 14:12:35",
+      "endtime": "2026-05-16 14:14:35",
+      "seconds": 120,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "",
+      "step": "Manual sproc",
+      "process": "exec usp6getfilteredview @viewname='v6ui_raccountsummary'",
+      "starttime": "2026-05-16 15:14:35",
+      "endtime": "2026-05-16 15:15:55",
+      "seconds": 80,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "",
+      "step": "Manual sproc",
+      "process": "exec usp6getrcardexledgercompare",
+      "starttime": "2026-05-16 16:15:55",
+      "endtime": "2026-05-16 16:45:55",
+      "seconds": 1800,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-17 02:00",
+      "step": "Data Capture",
+      "process": "Starting A to B *********************",
+      "starttime": "2026-05-17 02:00:00",
+      "endtime": "2026-05-17 02:00:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-17 02:00",
+      "step": "Data Capture",
+      "process": "F0911",
+      "starttime": "2026-05-17 02:00:00",
+      "endtime": "2026-05-17 02:32:00",
+      "seconds": 32,
+      "updateCount": 128048,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-17 02:00",
+      "step": "Data Capture",
+      "process": "F4111",
+      "starttime": "2026-05-17 02:32:00",
+      "endtime": "2026-05-17 03:18:00",
+      "seconds": 46,
+      "updateCount": 0,
+      "errorNum": 8152
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "Starting A to B *********************",
+      "starttime": "2026-05-18 02:00:00",
+      "endtime": "2026-05-18 02:00:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "F0911",
+      "starttime": "2026-05-18 02:00:00",
+      "endtime": "2026-05-18 02:32:00",
+      "seconds": 32,
+      "updateCount": 129050,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "F4111",
+      "starttime": "2026-05-18 02:32:00",
+      "endtime": "2026-05-18 03:29:00",
+      "seconds": 57,
+      "updateCount": 179962,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "F4108",
+      "starttime": "2026-05-18 03:29:00",
+      "endtime": "2026-05-18 03:32:00",
+      "seconds": 3,
+      "updateCount": 257,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "F4095",
+      "starttime": "2026-05-18 03:32:00",
+      "endtime": "2026-05-18 03:34:00",
+      "seconds": 2,
+      "updateCount": 435,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "F0902",
+      "starttime": "2026-05-18 03:34:00",
+      "endtime": "2026-05-18 03:47:00",
+      "seconds": 13,
+      "updateCount": 18563,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "F4101",
+      "starttime": "2026-05-18 03:47:00",
+      "endtime": "2026-05-18 04:06:00",
+      "seconds": 19,
+      "updateCount": 30200,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "F4102",
+      "starttime": "2026-05-18 04:06:00",
+      "endtime": "2026-05-18 04:21:00",
+      "seconds": 15,
+      "updateCount": 46996,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "F4105",
+      "starttime": "2026-05-18 04:21:00",
+      "endtime": "2026-05-18 04:30:00",
+      "seconds": 9,
+      "updateCount": 62173,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "F4115",
+      "starttime": "2026-05-18 04:30:00",
+      "endtime": "2026-05-18 04:35:00",
+      "seconds": 5,
+      "updateCount": 9117,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "F0006",
+      "starttime": "2026-05-18 04:35:00",
+      "endtime": "2026-05-18 04:37:00",
+      "seconds": 2,
+      "updateCount": 340,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "F0901",
+      "starttime": "2026-05-18 04:37:00",
+      "endtime": "2026-05-18 04:41:00",
+      "seconds": 4,
+      "updateCount": 4563,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "Data Capture",
+      "process": "Starting B to C *********************",
+      "starttime": "2026-05-18 04:41:00",
+      "endtime": "2026-05-18 04:41:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "Reset variances",
+      "starttime": "2026-05-18 04:41:00",
+      "endtime": "2026-05-18 04:41:46",
+      "seconds": 46,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute carry forward",
+      "starttime": "2026-05-18 04:41:46",
+      "endtime": "2026-05-18 04:48:30",
+      "seconds": 404,
+      "updateCount": 18400,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "Sum unposted batches",
+      "starttime": "2026-05-18 04:48:30",
+      "endtime": "2026-05-18 04:51:09",
+      "seconds": 159,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "End of day snapshot",
+      "starttime": "2026-05-18 04:51:09",
+      "endtime": "2026-05-18 05:15:23",
+      "seconds": 1454,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "Roll cardex forward",
+      "starttime": "2026-05-18 05:15:23",
+      "endtime": "2026-05-18 07:22:47",
+      "seconds": 7644,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute manual JEs",
+      "starttime": "2026-05-18 07:22:47",
+      "endtime": "2026-05-18 07:25:47",
+      "seconds": 180,
+      "updateCount": 1200,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute transactions",
+      "starttime": "2026-05-18 07:25:47",
+      "endtime": "2026-05-18 07:36:09",
+      "seconds": 622,
+      "updateCount": 91000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "Reconcile by company",
+      "starttime": "2026-05-18 07:36:09",
+      "endtime": "2026-05-18 07:44:06",
+      "seconds": 477,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "Update period summary",
+      "starttime": "2026-05-18 07:44:06",
+      "endtime": "2026-05-18 07:46:54",
+      "seconds": 168,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "Index rebuild",
+      "starttime": "2026-05-18 07:46:54",
+      "endtime": "2026-05-18 08:02:40",
+      "seconds": 946,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "Refresh dashboard cache",
+      "starttime": "2026-05-18 08:02:40",
+      "endtime": "2026-05-18 08:04:39",
+      "seconds": 119,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-18 02:00",
+      "step": "RapidReconciler",
+      "process": "Successfully Completed",
+      "starttime": "2026-05-18 08:04:39",
+      "endtime": "2026-05-18 08:04:39",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "Starting A to B *********************",
+      "starttime": "2026-05-19 02:00:00",
+      "endtime": "2026-05-19 02:00:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "F0911",
+      "starttime": "2026-05-19 02:00:00",
+      "endtime": "2026-05-19 02:37:00",
+      "seconds": 37,
+      "updateCount": 122991,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "F4111",
+      "starttime": "2026-05-19 02:37:00",
+      "endtime": "2026-05-19 03:20:00",
+      "seconds": 43,
+      "updateCount": 189275,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "F4108",
+      "starttime": "2026-05-19 03:20:00",
+      "endtime": "2026-05-19 03:21:00",
+      "seconds": 1,
+      "updateCount": 247,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "F4095",
+      "starttime": "2026-05-19 03:21:00",
+      "endtime": "2026-05-19 03:24:00",
+      "seconds": 3,
+      "updateCount": 424,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "F0902",
+      "starttime": "2026-05-19 03:24:00",
+      "endtime": "2026-05-19 03:36:00",
+      "seconds": 12,
+      "updateCount": 19328,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "F4101",
+      "starttime": "2026-05-19 03:36:00",
+      "endtime": "2026-05-19 03:53:00",
+      "seconds": 17,
+      "updateCount": 31697,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "F4102",
+      "starttime": "2026-05-19 03:53:00",
+      "endtime": "2026-05-19 04:06:00",
+      "seconds": 13,
+      "updateCount": 45628,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "F4105",
+      "starttime": "2026-05-19 04:06:00",
+      "endtime": "2026-05-19 04:18:00",
+      "seconds": 12,
+      "updateCount": 60062,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "F4115",
+      "starttime": "2026-05-19 04:18:00",
+      "endtime": "2026-05-19 04:24:00",
+      "seconds": 6,
+      "updateCount": 9110,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "F0006",
+      "starttime": "2026-05-19 04:24:00",
+      "endtime": "2026-05-19 04:26:00",
+      "seconds": 2,
+      "updateCount": 350,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "F0901",
+      "starttime": "2026-05-19 04:26:00",
+      "endtime": "2026-05-19 04:29:00",
+      "seconds": 3,
+      "updateCount": 4252,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "Data Capture",
+      "process": "Starting B to C *********************",
+      "starttime": "2026-05-19 04:29:00",
+      "endtime": "2026-05-19 04:29:00",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "Reset variances",
+      "starttime": "2026-05-19 04:29:00",
+      "endtime": "2026-05-19 04:29:42",
+      "seconds": 42,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute carry forward",
+      "starttime": "2026-05-19 04:29:42",
+      "endtime": "2026-05-19 04:36:10",
+      "seconds": 388,
+      "updateCount": 18400,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "Sum unposted batches",
+      "starttime": "2026-05-19 04:36:10",
+      "endtime": "2026-05-19 04:39:27",
+      "seconds": 197,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "End of day snapshot",
+      "starttime": "2026-05-19 04:39:27",
+      "endtime": "2026-05-19 05:07:50",
+      "seconds": 1703,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "Roll cardex forward",
+      "starttime": "2026-05-19 05:07:50",
+      "endtime": "2026-05-19 05:33:08",
+      "seconds": 1518,
+      "updateCount": 187000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute manual JEs",
+      "starttime": "2026-05-19 05:33:08",
+      "endtime": "2026-05-19 05:36:43",
+      "seconds": 215,
+      "updateCount": 1200,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "Compute transactions",
+      "starttime": "2026-05-19 05:36:43",
+      "endtime": "2026-05-19 05:47:02",
+      "seconds": 619,
+      "updateCount": 91000,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "Reconcile by company",
+      "starttime": "2026-05-19 05:47:02",
+      "endtime": "2026-05-19 05:53:37",
+      "seconds": 395,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "Update period summary",
+      "starttime": "2026-05-19 05:53:37",
+      "endtime": "2026-05-19 05:56:15",
+      "seconds": 158,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "Index rebuild",
+      "starttime": "2026-05-19 05:56:15",
+      "endtime": "2026-05-19 06:10:38",
+      "seconds": 863,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "Refresh dashboard cache",
+      "starttime": "2026-05-19 06:10:38",
+      "endtime": "2026-05-19 06:12:34",
+      "seconds": 116,
+      "updateCount": 0,
+      "errorNum": 0
+    },
+    {
+      "capture": "A to C 2026-05-19 02:00",
+      "step": "RapidReconciler",
+      "process": "Successfully Completed",
+      "starttime": "2026-05-19 06:12:34",
+      "endtime": "2026-05-19 06:12:34",
+      "seconds": 0,
+      "updateCount": 0,
+      "errorNum": 0
+    }
+  ]
+}

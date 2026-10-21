@@ -1,0 +1,1203 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Inventory > Account Roll Forward  (Andy the Analyst's workflow)
+  =============================================================================
+  Home-style banded workflow for keeping the account roll-forward accurate.
+  Andy's question is simple: "is it accurate, and if not, what do I do?" The
+  page answers it top-to-bottom:
+
+    AI brief   — one grounded narrative of THIS company's roll-forward (what's
+                 off, which accounts, the next step in order). Replaces the old
+                 deterministic To Do card.
+    1) RELOAD GL   — the one corrective lever, ungated. A single "Reload GL"
+                     band (no attestation, no email). The R099102 repost is
+                     guidance in the AI brief + the reload modal, not a gate.
+                     The variance side has no lever: the as-of recompute
+                     (usp6_006a) clears it on every refresh; a break that
+                     survives a refresh goes to the customer's IT department.
+    2) AUDIT REPORT — the roll-forward grid (Beg GL -> End GL vs Perpetual +
+                     cardex variance), Excel-exportable.
+
+  Data: v6ui_raccountsummary from the active DB's agent (POST /inventory/
+  integrity, JWT-scoped). Agent-first, no static fallback (production-only). The
+  per-row GL classifier + inline action-bar of the old page were retired — the
+  one lever now lives in the Reload GL band (an in-page modal; no nav to the
+  admin page). The R099102 repost is guidance in the AI brief + the reload
+  modal, not a gate — no attestation, no email. Re-roll (retired by 006a) and
+  Reload Cardex (a standalone cardex data-integrity utility, NOT a roll-forward
+  fix) were removed from this band 2026-07-21; the variance side clears on every
+  refresh, and a break that survives goes to the customer's IT department.
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Account Roll Forward &mdash; RapidReconciler</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="export-guard.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<!-- xlsx-js-style: SheetJS fork with cell styling (the community xlsx build can't
+     write fills) — used for the audit-quality export that highlights break rows. -->
+<script src="vendor/xlsx-js-style.min.js" defer></script>
+<style>
+  /* Shared chrome (canonical palette, command-center wash, corner-chrome Home
+     button) lives in admin-chrome.css, linked above. Only page-specific rules
+     below; --grey-pale is the one palette token admin-chrome.css doesn't define. */
+  :root { --grey-pale:#eceef3; }
+
+  /* Wide work-screen container — kept at the grid's own width (NOT the admin
+     880px shell). Top padding bumped to clear the fixed corner-chrome Home button. */
+  .page { max-width:1320px; margin:0 auto; padding:64px 26px 64px; }
+  .page-title { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:28px; color:var(--navy); letter-spacing:-.02em; }
+  .page-eyebrow { font-size:12.5px; color:var(--text-muted); margin-top:5px; max-width:760px; }
+
+  /* ===== Bands (mirror Home's collapsible section-head + drawer body) ===== */
+  .band { margin:16px 0; }
+  .band-head {
+    cursor:pointer; padding:14px 18px; background:var(--bg-card); border:1px solid var(--rule);
+    border-radius:14px; box-shadow:var(--shadow-sm); transition:box-shadow .14s,border-color .14s,transform .14s;
+    display:flex; align-items:center; gap:14px;
+  }
+  .band-head:hover { border-color:var(--rule-strong); box-shadow:var(--shadow-md); transform:translateY(-1px); }
+  .band-head.band-green { background:var(--green-pale);  border-color:#c5e6d2; box-shadow:inset 4px 0 0 var(--green); }
+  .band-head.band-amber { background:var(--orange-pale); border-color:#f0d2a8; box-shadow:inset 4px 0 0 var(--orange); }
+  .band-head.band-red   { background:var(--red-pale);    border-color:#f1c9c3; box-shadow:inset 4px 0 0 var(--red); }
+  /* badge: the band's identity number + title */
+  .band-badge { display:inline-flex; align-items:center; gap:11px; }
+  .band-n { width:26px; height:26px; border-radius:8px; background:var(--navy); color:#fff; font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:13px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .band-title { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:15px; color:var(--navy); }
+  /* status: one-line roll-up shown in the head */
+  .band-status { flex:1; min-width:0; display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--text-soft); }
+  /* AI chip in the To Do header — shows the plan tier + signals AI is here. */
+  .ai-chip { display:inline-flex; align-items:center; gap:6px; flex-shrink:0; border:1px solid var(--rule-strong); background:var(--bg-card); border-radius:100px; padding:5px 12px; font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:11px; letter-spacing:.03em; color:var(--blue); cursor:pointer; }
+  .ai-chip:hover { border-color:var(--blue); background:var(--blue-pale); }
+  .ai-chip svg { width:14px; height:14px; }
+  .ai-chip.is-off { color:var(--text-muted); }
+  .ai-chip.is-off:hover { border-color:var(--rule-strong); background:var(--bg-card); }
+  .band-status .bs-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .band-status .bs-dot { width:11px; height:11px; border-radius:50%; background:var(--text-muted); flex-shrink:0; }
+  .band-status .bs-dot.green { background:var(--green); } .band-status .bs-dot.amber { background:var(--amber); } .band-status .bs-dot.red { background:var(--red); } .band-status .bs-dot.blue { background:var(--blue); }
+  .band-chev { border:1px solid var(--rule-strong); background:var(--bg-card); color:var(--text-muted); border-radius:8px; width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; }
+  .band-head:hover .band-chev { color:var(--blue); border-color:var(--blue); background:var(--blue-pale); }
+  .band-chev svg { transition:transform .15s; }
+  .band-head[aria-expanded="false"] .band-chev svg { transform:rotate(-90deg); }
+  /* drawer body — merges into the band head (shared seam, continuous left bar) */
+  .band-body { border:1px solid var(--rule); border-top:0; border-radius:0 0 14px 14px; background:var(--bg-card); padding:18px; }
+  .band-head[aria-expanded="true"] { border-radius:14px 14px 0 0; }
+  .band-head.band-green[aria-expanded="true"] + .band-body { border-color:#c5e6d2; box-shadow:inset 4px 0 0 var(--green); }
+  .band-head.band-amber[aria-expanded="true"] + .band-body { border-color:#f0d2a8; box-shadow:inset 4px 0 0 var(--orange); }
+  .band-head.band-red[aria-expanded="true"]   + .band-body { border-color:#f1c9c3; box-shadow:inset 4px 0 0 var(--red); }
+  .band-body.is-collapsed { display:none; }
+
+  /* ===== Band 1 — To Do ===== */
+  .todo-side { margin-bottom:16px; } .todo-side:last-child { margin-bottom:0; }
+  .todo-side-h { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+  .todo-side-h .pip { width:9px; height:9px; border-radius:50%; }
+  .todo-side-h .pip.gl { background:var(--orange); } .todo-side-h .pip.var { background:var(--blue); }
+  .todo-line { font-size:13px; color:var(--text); line-height:1.55; }
+  .todo-accts { margin-top:6px; display:flex; flex-wrap:wrap; gap:6px; }
+  .todo-acct { font-family:'JetBrains Mono',ui-monospace,monospace; font-weight:700; font-size:11.5px; color:var(--blue); background:var(--blue-pale); border:1px solid rgba(43,95,176,.2); border-radius:6px; padding:2px 8px; cursor:pointer; }
+  .todo-acct:hover { background:#dbe8fb; }
+  .todo-rec { margin-top:14px; padding:10px 13px; border-radius:8px; background:var(--bg-soft); border:1px solid var(--rule); font-size:12.5px; color:var(--text-soft); }
+  .todo-rec b { color:var(--navy); }
+  .todo-clean { font-size:13.5px; color:var(--green); font-weight:600; display:flex; gap:9px; align-items:center; }
+  .todo-clean svg { width:18px; height:18px; flex-shrink:0; }
+
+  /* ===== Shared controls (company label, period toggle) ===== */
+  .picker-lbl { font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); }
+  /* Header company context (mirrors Home's .role-hero-context .rh-co). This page
+     is a drill-down opened FOR one company from Home — no switcher here. */
+  .role-hero-context { display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; margin:8px 0 0; }
+  .role-hero-context .rh-co { font-size:15px; font-weight:700; color:var(--navy); }
+  .role-hero-context .rh-co .rh-co-num { font-weight:500; color:var(--text-muted); }
+  /* AI brief band (mirrors Home's day-brief .alh-brief) — replaces the old To Do
+     card with one grounded AI narrative of this company's roll-forward. */
+  .alh-brief { margin:16px 0; background:linear-gradient(135deg,var(--navy) 0%,var(--navy-deep) 100%); border-radius:14px; padding:16px 20px; color:#eaf0fb; box-shadow:0 8px 22px -14px rgba(20,32,55,.6); }
+  .alh-brief-eyebrow { display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:12.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#c8d6f0; }
+  .alh-brief-spark { color:var(--orange); font-size:14px; }
+  .alh-brief-body { margin:0; font-size:16px; line-height:1.55; color:#f2f6fd; white-space:pre-wrap; }
+  .alh-brief-body.is-thinking { animation:alh-think 1.25s ease-in-out infinite; }
+  @keyframes alh-think { 0%,100%{opacity:1;} 50%{opacity:.55;} }
+  @media (prefers-reduced-motion:reduce) { .alh-brief-body.is-thinking { animation:none; opacity:.75; } }
+  .alh-brief-body b { color:#fff; font-weight:800; }
+  .seg { display:inline-flex; border:1px solid var(--rule-strong); border-radius:8px; overflow:hidden; flex-wrap:wrap; }
+  .seg-btn { border:0; background:var(--bg-card); padding:6px 13px; font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:12.5px; color:var(--text-soft); cursor:pointer; border-right:1px solid var(--rule); }
+  .seg-btn:last-child { border-right:0; }
+  .seg-btn:hover { background:var(--bg-soft); color:var(--text); }
+  .seg-btn.is-on { background:var(--navy); color:#fff; }
+  .toggle { display:inline-flex; align-items:center; gap:8px; font-size:12.5px; font-weight:700; color:var(--text-soft); cursor:pointer; user-select:none; }
+  .toggle input { width:15px; height:15px; accent-color:var(--blue); }
+  /* To Do scope row (company picker, now lives in Step 1) */
+  .todo-scope { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:16px 0 4px; }
+  /* AI summary panel — appears when the band is expanded (AI kicks in). */
+  .ai-panel { border:1px solid #c2d8ef; background:var(--blue-pale); border-radius:10px; padding:14px 16px; margin-bottom:18px; }
+  .ai-panel[hidden] { display:none; }
+  .ai-panel-head { display:flex; align-items:center; gap:7px; font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:10.5px; letter-spacing:.07em; text-transform:uppercase; color:var(--blue); margin-bottom:9px; }
+  .ai-panel-head svg { width:14px; height:14px; }
+  .ai-panel-body { font-size:13.5px; color:var(--text); line-height:1.6; white-space:pre-wrap; }
+  .ai-panel.is-thinking .ai-panel-body { color:var(--text-muted); font-style:italic; }
+  .ai-panel.is-error { background:var(--orange-pale); border-color:#f0d2a8; }
+  .ai-panel-foot { margin-top:9px; font-size:10.5px; color:var(--text-muted); letter-spacing:.02em; }
+
+  /* ===== Band 1 — Reload GL (the one corrective lever; ungated) =====
+     The R099102 repost card + attestation gate were removed 2026-07-21 (the gate
+     read as law enforcement, and RR can't verify JDE anyway — RR is a utility, not
+     an enforcement gate). GL-only now; the AI brief carries the R099102-first
+     ordering + the variance clears-on-refresh message. */
+  .rlg { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+  .rlg-ico { width:40px; height:40px; flex-shrink:0; border-radius:10px; display:grid; place-items:center; background:var(--orange-pale); color:var(--orange-deep); }
+  .rlg-ico svg { width:20px; height:20px; }
+  .rlg-main { flex:1; min-width:260px; }
+  .rlg-lede { font-size:13px; color:var(--text-soft); line-height:1.55; }
+  .rlg-lede b { color:var(--navy); }
+  .rlg-accts { margin-top:11px; display:flex; flex-wrap:wrap; gap:6px; }
+  .rlg-accts[hidden] { display:none; }
+  .rlg-acct { font-family:'JetBrains Mono',ui-monospace,monospace; font-weight:700; font-size:11.5px; color:var(--orange-deep); background:var(--orange-pale); border:1px solid #f0d2a8; border-radius:6px; padding:2px 8px; }
+  .rlg-btn { flex-shrink:0; align-self:center; display:inline-flex; align-items:center; gap:8px; font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:13.5px; border-radius:9px; padding:11px 20px; background:var(--orange-deep); color:#fff; text-decoration:none; border:1px solid var(--orange-deep); transition:filter .12s,transform .12s; }
+  .rlg-btn:hover { filter:brightness(1.06); transform:translateY(-1px); }
+  .rlg-btn svg { width:15px; height:15px; }
+  /* Clean state: GL rolled forward fine — calm the accent, mute the button. */
+  .rlg.is-clear .rlg-ico { background:var(--green-pale); color:var(--green); }
+  .rlg.is-clear .rlg-btn { background:var(--bg-card); color:var(--text-soft); border-color:var(--rule-strong); }
+  .rlg.is-clear .rlg-btn:hover { border-color:var(--blue); color:var(--blue); filter:none; }
+
+  /* ===== Band 4 — Audit Report (the grid) ===== */
+  .grid-card { background:var(--bg-card); border:1px solid var(--rule); border-radius:14px; box-shadow:var(--shadow-sm); overflow:hidden; }
+  .grid-head { display:flex; align-items:center; gap:14px; padding:13px 20px; border-bottom:1px solid var(--rule); flex-wrap:wrap; }
+  .grid-title { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:14px; letter-spacing:.04em; text-transform:uppercase; color:var(--navy); }
+  .grid-state-cluster { display:flex; align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap; }
+  .grid-acct { display:inline-flex; align-items:center; gap:7px; }
+  .grid-acct-lbl { font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); }
+  .grid-acct select { border:1px solid var(--rule-strong); border-radius:100px; padding:5px 12px; font-family:'Source Sans 3',sans-serif; font-size:12.5px; font-weight:700; color:var(--text); background:var(--bg-card); max-width:240px; cursor:pointer; }
+  .grid-acct select:focus { outline:none; border-color:var(--blue); }
+  .grid-pill { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--rule-strong); border-radius:100px; padding:5px 10px; font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:12.5px; color:var(--text-soft); background:var(--bg-card); }
+  .grid-pill-export { cursor:pointer; }
+  .grid-pill-export:hover { border-color:var(--blue); color:var(--blue); }
+  .grid-pill-export svg { width:13px; height:13px; }
+  .grid-pill-count { color:var(--text-muted); }
+  .grid-scroll { max-height:620px; overflow:auto; }
+  table.rf { width:100%; border-collapse:separate; border-spacing:0; font-size:12.5px; }
+  table.rf thead th { position:sticky; top:0; z-index:2; background:var(--bg-soft); color:var(--text-muted); font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:10px; letter-spacing:.07em; text-transform:uppercase; text-align:left; padding:9px 11px; border-bottom:1px solid var(--rule); white-space:nowrap; cursor:pointer; }
+  table.rf thead th.num { text-align:right; }
+  table.rf thead th:hover { color:var(--blue); }
+  table.rf tbody td { padding:8px 11px; border-bottom:1px solid var(--rule); white-space:nowrap; }
+  table.rf tbody td.num { text-align:right; font-variant-numeric:tabular-nums; font-family:'JetBrains Mono',ui-monospace,monospace; }
+  table.rf tbody tr:hover td { background:rgba(43,95,176,.04); }
+  table.rf tbody tr.is-end td { background:var(--blue-pale); }
+  table.rf tbody tr.is-end:hover td { background:#dbe8fb; }
+  table.rf .mono { font-family:'JetBrains Mono',ui-monospace,monospace; }
+  table.rf .neg { color:var(--red); }
+  table.rf td .acct { font-weight:700; color:var(--navy); }
+  .chip { display:inline-flex; align-items:center; gap:5px; font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:10.5px; padding:2px 8px; border-radius:100px; }
+  .chip.baseline { background:var(--grey-pale); color:var(--text-soft); }
+  .chip.yes { background:var(--green-pale); color:var(--green); }
+  .chip.end { background:var(--blue-pale); color:var(--blue); border:1px solid rgba(43,95,176,.3); }
+  .chip.break { background:var(--red-pale); color:var(--red); }
+  /* Not evaluated — the roll-forward status column arrived empty or unrecognized.
+     Never green: an unevaluated row is not a passing row. It was amber until UI-80,
+     which is the other half of the same error: amber is the alert colour and it has
+     to mean a check FIRED, or it stops meaning anything on the surfaces where it does.
+     Neutral, and the tooltip carries "It is not a clean result." Per
+     docs/plans/shared-state-registry.md, `open` takes no colour from either end. */
+  .chip.unk { background:var(--grey-pale); color:var(--text-muted); border:1px solid var(--rule-strong); }
+  .empty { padding:40px 20px; text-align:center; color:var(--text-muted); font-style:italic; }
+
+  .toast { position:fixed; bottom:28px; left:50%; transform:translateX(-50%); background:var(--navy); color:#fff; padding:10px 18px; border-radius:100px; font-family:'Source Sans 3',sans-serif; font-weight:600; font-size:13px; box-shadow:var(--shadow-md); opacity:0; transition:opacity .18s; pointer-events:none; }
+  .toast.show { opacity:1; }
+
+  /* ===== Reload GL modal (in-page; replaces the nav to admin-reload-gl.html) =====
+     RR is a utility, not an enforcement gate — no attestation checkbox. Go is
+     shown only to admins (the reload endpoints are admin-gated server-side); a
+     non-admin sees the description plus a "contact your administrator" note. */
+  .modal-backdrop { position:fixed; inset:0; background:rgba(20,32,55,.42); display:none; align-items:center; justify-content:center; padding:24px; z-index:120; }
+  .modal-backdrop.is-open { display:flex; }
+  .modal { background:var(--bg-card); border:1px solid var(--rule); border-radius:14px; box-shadow:var(--shadow-md); width:100%; max-width:520px; overflow:hidden; }
+  .modal-head { display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid var(--rule); }
+  .modal-head .rlg-ico { width:34px; height:34px; }
+  .modal-title { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:16px; color:var(--navy); flex:1; }
+  .modal-x { border:1px solid var(--rule-strong); background:var(--bg-card); color:var(--text-muted); border-radius:8px; width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+  .modal-x:hover { color:var(--blue); border-color:var(--blue); background:var(--blue-pale); }
+  .modal-x svg { width:16px; height:16px; }
+  .modal-body { padding:18px 20px; font-size:13.5px; color:var(--text); line-height:1.6; }
+  .modal-body b { color:var(--navy); }
+  /* Order reminder: subtle caution that the R099102 repost comes first. Not a
+     gate — Go stays enabled. Shown only when there's something to reload. */
+  .modal-note { margin-top:14px; padding:10px 13px; border-radius:8px; background:var(--orange-pale); border:1px solid #f0d2a8; font-size:12.5px; color:var(--text-soft); line-height:1.5; }
+  .modal-note[hidden] { display:none; }
+  .modal-note b { color:var(--orange-deep); }
+  .modal-foot { display:flex; justify-content:flex-end; gap:10px; padding:14px 20px; border-top:1px solid var(--rule); background:var(--bg-soft); }
+  .modal-btn { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:13.5px; border-radius:8px; padding:9px 18px; cursor:pointer; border:1px solid transparent; }
+  .modal-btn-primary { color:#fff; background:var(--orange-deep); border-color:var(--orange-deep); }
+  .modal-btn-primary:hover:not(:disabled) { filter:brightness(1.06); }
+  .modal-btn-primary:disabled { opacity:.5; cursor:not-allowed; filter:none; }
+  .modal-btn-ghost { color:var(--text-soft); background:var(--bg-card); border-color:var(--rule-strong); }
+  .modal-btn-ghost:hover { color:var(--navy); border-color:var(--text-muted); }
+</style>
+</head>
+<body data-help-src="../RRUniversity/inventory-account-roll-forward.html" data-help-title="Account Roll Forward">
+
+<div class="corner-chrome">
+  <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+    Home
+  </a>
+</div>
+
+<div class="page">
+  <h1 class="page-title">Account Roll Forward</h1>
+  <div class="role-hero-context"><span class="rh-co" id="rfCoContext">Company &hellip;</span></div>
+
+  <!-- ===== RapidReconciler AI brief — one grounded narrative of THIS company's
+       roll-forward (replaces the old deterministic To Do card). No fallback. ===== -->
+  <div class="alh-brief" id="rfBrief">
+    <div class="alh-brief-eyebrow"><span class="alh-brief-spark" aria-hidden="true">&#10022;</span> RapidReconciler AI</div>
+    <p class="alh-brief-body is-thinking" id="rfBriefBody">Reading this company&rsquo;s roll-forward&hellip;</p>
+  </div>
+
+  <!-- ===== Reload GL — the one corrective lever (ungated) =====
+       The R099102 repost card + attestation gate were removed 2026-07-21: the
+       gate read as law enforcement, and RR can't verify JDE anyway (RR is a
+       utility, not an enforcement gate). The R099102-first ordering now lives in
+       the AI brief up top as guidance, not a lock. This band is GL-only — a
+       variance break has no lever (clears on every refresh) and is narrated by
+       the brief, not shown here. -->
+  <div class="band">
+    <div class="band-head" id="corrHead" role="button" tabindex="0" aria-expanded="true" aria-controls="corrBody" data-band="corr">
+      <span class="band-badge"><span class="band-n">1</span><span class="band-title">Reload GL</span></span>
+      <span class="band-status" id="corrStatus"><span class="bs-dot"></span><span class="bs-text">GL roll-forward</span></span>
+      <span class="band-chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+    </div>
+    <div class="band-body" id="corrBody">
+      <div class="rlg" id="rlgPanel">
+        <span class="rlg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></span>
+        <div class="rlg-main">
+          <div class="rlg-lede" id="rlgLede">Re-pulls RapidReconciler&rsquo;s copy of the general ledger from JD Edwards, from the earliest period that doesn&rsquo;t tie forward. If an account is out of balance, run <b>Repost Account Balances (R099102)</b> in JD Edwards first to rebuild the balances, then reload here so the corrected figures flow into RapidReconciler on the next refresh.</div>
+          <div class="rlg-accts" id="rlgAccts" hidden></div>
+        </div>
+        <button class="rlg-btn" id="rlgBtn" type="button">Reload GL <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Step 2 — Audit Report (the grid) ===== -->
+  <div class="band">
+    <div class="band-head" id="rptHead" role="button" tabindex="0" aria-expanded="true" aria-controls="rptBody" data-band="rpt">
+      <span class="band-badge"><span class="band-n">2</span><span class="band-title">Audit Report</span></span>
+      <span class="band-status" id="rptStatus"><span class="bs-dot"></span><span class="bs-text">Roll forward by account &amp; period</span></span>
+      <span class="band-chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+    </div>
+    <div class="band-body" id="rptBody" style="padding:0; padding-top:14px;">
+      <section class="grid-card" style="border:0; box-shadow:none; border-radius:0;">
+        <div class="grid-head">
+          <div class="grid-state-cluster">
+            <span class="grid-acct">
+              <label class="grid-acct-lbl" for="accountPick">Account</label>
+              <select id="accountPick" aria-label="Filter roll-forward rows by account"><option value="">All accounts</option></select>
+            </span>
+            <button class="grid-pill grid-pill-export" id="exportBtn" type="button" title="Export the current view to Excel"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v3h10v-3"/><path d="M8 2v9"/><polyline points="5 8 8 11 11 8"/></svg>Excel</button>
+            <span class="grid-pill grid-pill-count" id="gridCount">&mdash;</span>
+          </div>
+        </div>
+        <div class="grid-scroll">
+          <table class="rf" id="rfTable"><thead id="rfHead"></thead><tbody id="rfBody"><tr><td class="empty">Loading roll forward&hellip;</td></tr></tbody></table>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Reload GL modal (opens on THIS page; no nav to a dead-end admin page) =====
+     Preview on open (GET inventory/reload-gl/preview → cutoff + affected). Go
+     POSTs inventory/reload-gl. No attestation checkbox (RR is a utility). Reload
+     GL is analyst-authorized (owner 2026-07-21) — no client permission gate; the
+     server enforces authorization. Go is disabled only when there's nothing to
+     reload (a data state, not a permission state). -->
+<div class="modal-backdrop" id="rlgModal" role="dialog" aria-modal="true" aria-labelledby="rlgModalTitle">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="rlg-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></span>
+      <span class="modal-title" id="rlgModalTitle">Reload GL</span>
+      <button class="modal-x" id="rlgModalX" type="button" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div id="rlgModalDesc">Checking what will reload&hellip;</div>
+      <div class="modal-note" id="rlgModalReminder" hidden>This assumes you&rsquo;ve already run <b>Repost Account Balances (R099102)</b> in JD Edwards. If you haven&rsquo;t, do that first &mdash; reloading now would just pull the same out-of-balance figures back in.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="modal-btn modal-btn-ghost" id="rlgModalCancel" type="button">Cancel</button>
+      <button class="modal-btn modal-btn-primary" id="rlgModalGo" type="button">Go</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+  var DATA = [];
+  var _coNames = null;   // company# -> name, lazily fetched from the agent's /admin/companies
+  // `showAll` was dropped: the period toggle was removed long ago, so the field was
+  // always true and honoured by nothing — yet the drill tie-out still reported it as
+  // an APPLIED dimension. A tie-out naming a filter that does not exist is worse than
+  // one that says nothing.
+  var state = { company:'', account:'', sortKey:null, sortDir:'asc' };
+  // Set true after a successful Reload GL for the current company. The break
+  // stays in the loaded data until the next scheduled refresh, so the band shows
+  // a PENDING state instead of amber "out of balance" in the meantime. In-memory
+  // for the page session; reset when the company context changes (see
+  // ensureSoloCompany) so it never bleeds across companies.
+  var _reloadRequested=false, _lastSoloCompany=null;
+  // Set when a URL scope param arrived that this page cannot honor — the grid then
+  // names it instead of rendering a plausible-looking view of the WRONG scope.
+  var _scopeError=null;
+
+  // ---- company scope: honors the shared working-company scope (set on Home,
+  //      owned by sidebar.js). The company control is SINGLE-SELECT — exactly
+  //      one company at a time (no "All") to keep the view single-currency; it
+  //      is a local drill WITHIN the scoped set and never writes back to the
+  //      shared scope. The pick persists per-DB (rrv8.analystCompany.<db>,
+  //      shared with Home's analyst single-select) and seeds from ?company=. ----
+  function _activeDbIdx(dbs){ return (window.RRDB && window.RRDB.index()) || 0; }
+  function _scopeCtx(){
+    try{
+      var token=localStorage.getItem('rrv8.token'); if(!token) return null;
+      var b64=token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'); var pad=b64.length%4; if(pad) b64+='='.repeat(4-pad);
+      var p=JSON.parse(decodeURIComponent(atob(b64).split('').map(function(c){return '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2);}).join('')));
+      var dbs=p.dbs||[]; var idx=_activeDbIdx(dbs); var dbObj=dbs[idx]||dbs[0]||{};
+      var mode=(window.RR_CONFIG&&RR_CONFIG.mode)||'demo';
+      return { key:'rrv8.scope.v1.'+mode+'.'+((dbObj.n)||'_')+'.scope', allowed:(Array.isArray(dbObj.i)?dbObj.i.map(String):[]) };
+    }catch(_){ return null; }
+  }
+  function scopedCompanySet(){
+    var ctx=_scopeCtx(); if(!ctx) return null;
+    try{
+      var raw=sessionStorage.getItem(ctx.key); var sc=raw?(JSON.parse(raw).payload||null):null;
+      var act=(sc&&Array.isArray(sc.activeCompanies)&&sc.activeCompanies.length)?sc.activeCompanies.map(String):null;
+      if(!act) return null;
+      if(ctx.allowed.length && act.length>=ctx.allowed.length) return null;   // all = no narrowing
+      return act.reduce(function(s,c){ s[String(c)]=true; return s; },{});
+    }catch(_){ return null; }
+  }
+  function inScopeCo(co){ var sc=scopedCompanySet(); return !sc || !!sc[String(co)]; }
+  // Active DB name (from the scope key) — keys the per-DB single-company pick.
+  function dbName(){ var ctx=_scopeCtx(); var nm=(ctx&&ctx.key)?ctx.key.split('.').slice(-2,-1)[0]:null; return (nm&&nm!=='_')?nm:'_'; }
+  function soloKey(){ return 'rrv8.analystCompany.'+dbName(); }
+  // SINGLE-SELECT resolver (mirrors Home's _ensureAnalystSolo): resolve
+  // state.company to exactly one in-scope company. Precedence: ?company= deep-link
+  // > last saved (per-DB) > first company in scope. Persists the pick so it
+  // survives a refresh and hands off to/from Home via rrv8.analystCompany.<db>.
+  function ensureSoloCompany(cos){
+    var list=(cos||[]).map(String).filter(Boolean);
+    if(list.length && (!state.company || list.indexOf(String(state.company))<0)){
+      var q=''; try{ q=(new URLSearchParams(window.location.search).get('company')||'').trim(); }catch(_){}
+      var saved=''; try{ saved=(localStorage.getItem(soloKey())||'').trim(); }catch(_){}
+      // A ?company= we cannot honor must NOT quietly resolve to a different company:
+      // the analyst clicked a figure for one company, and the substituted company's
+      // roll-forward looks exactly as legitimate. Worse, the fallback used to be
+      // PERSISTED below, so one bad link poisoned the cross-page company hand-off for
+      // the whole database. Flag it, show nothing, and leave the saved pick alone.
+      if(q && list.indexOf(q)<0){
+        _scopeError={ param:'company', value:q, label:'company' };
+        console.error('[drill] ?company='+q+' is not in this session’s company list ('
+          +(list.join(', ')||'none')+') — refusing to silently substitute another company.');
+      }
+      state.company=(q && list.indexOf(q)>=0) ? q
+        : (saved && list.indexOf(saved)>=0) ? saved
+        : list.slice().sort(function(a,b){ return a.localeCompare(b,undefined,{numeric:true}); })[0];
+    }
+    // Persist only a company we actually honored — never a fallback we substituted
+    // for a rejected deep-link.
+    try{ if(state.company && !_scopeError) localStorage.setItem(soloKey(), String(state.company)); }catch(_){}
+    // Company changed since the last resolve — a pending reload belongs to the
+    // company it was requested for, so drop it when we switch.
+    if(_lastSoloCompany!==null && _lastSoloCompany!==state.company) _reloadRequested=false;
+    _lastSoloCompany=state.company;
+    return state.company;
+  }
+  // Fails CLOSED by design: an unresolved state.company makes the comparison match
+  // nothing rather than dropping the company scope. Trimmed on both sides — company
+  // codes arrive zero-padded from some sources and bare from others.
+  function rowMatchesCo(r){
+    if(_scopeError) return false;   // unhonorable URL scope → show nothing, not everything
+    return inScopeCo(r.CompanyNumber) && String(r.CompanyNumber==null?'':r.CompanyNumber).trim()===String(state.company==null?'':state.company).trim();
+  }
+  function rawVal(r,k){ return {companyNumber:r.CompanyNumber,longAccount:r.LongAccount,periodEnds:r.PeriodEnds,begGL:r.BegGL,perGL:r.PerGL,endGL:r.EndGL,unpostBatch:r.UnpostBatch,glok:r.GLOK,perpetual:r.Perpetual,perCX:r.PerCX,begVar:r.BegVar,endOfDay:r.EndofDay,variance:r.Variance,jes:r.JEs,oob:r.OOB,cardexVar:r.CardexVar,varok:r.VarOK}[k]; }
+  function accountsInView(){
+    var base = DATA.filter(rowMatchesCo);
+    return Array.from(new Set(base.map(function(r){return r.LongAccount;}))).filter(Boolean)
+      .sort(function(a,b){ return String(a).localeCompare(String(b),undefined,{numeric:true,sensitivity:'base'}); });
+  }
+  function byAccount(r){ return !state.account || r.LongAccount===state.account; }
+
+  // ---- fmt ----
+  function money(n){ var x=Number(n)||0; var a=Math.abs(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); return x<0?'('+a+')':a; }
+  function moneyCell(n){ var x=Number(n)||0; if(Math.abs(x)<0.005) return '<span style="color:var(--text-muted)">&mdash;</span>'; return '<span class="'+(x<0?'neg':'')+'">'+money(x)+'</span>'; }
+  var _curCtx={code:'',mixed:false,codes:[]}, _curSymCache={};
+  function _sym(code){
+    var c=(code!==undefined&&code!==null)?code:_curCtx.code; c=(c||'').toString().trim().toUpperCase();
+    if(!c) return '$';
+    if(_curSymCache[c]!==undefined) return _curSymCache[c];
+    var sym=c;
+    try{ var parts=new Intl.NumberFormat('en-US',{style:'currency',currency:c}).formatToParts(0); for(var i=0;i<parts.length;i++){ if(parts[i].type==='currency'){ sym=parts[i].value; break; } } }catch(e){}
+    _curSymCache[c]=sym; return sym;
+  }
+  function curMoney(v){ var x=Number(v)||0; var s=_sym(_curCtx.code); var a=Math.abs(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); return x<0?'('+s+a+')':s+a; }
+  function _ctxOf(rows){ var set={}; (rows||[]).forEach(function(r){ var c=((r&&r.Currency)||'').toString().trim().toUpperCase(); if(c) set[c]=1; }); var codes=Object.keys(set); return codes.length<=1?{code:codes[0]||'',mixed:false,codes:codes}:{code:'',mixed:true,codes:codes}; }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];}); }
+  function fmtDate(iso){ if(!iso) return ''; var p=String(iso).split('-'); if(p.length!==3) return iso; var mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return mo[(+p[1])-1]+' '+(+p[2])+', '+p[0]; }
+  // Display label + chip class for a normalized GL OK / Var OK token. 'unk' is the
+  // "never evaluated" case (see RRV8.rollForward.tok) — it reads as its own amber state so it can
+  // never be mistaken for a pass, and it exports with the same words it shows.
+  function tokLabel(v){
+    var s=String(v==null?'':v).trim().toLowerCase();
+    return s==='unk' ? 'Not evaluated' : (v==null||s==='' ? '' : String(v));
+  }
+  function chip(v){
+    var s=String(v==null?'':v).trim().toLowerCase();
+    var k=(s==='baseline'||s==='yes'||s==='end'||s==='unk')?(s==='unk'?'unk':s):'break';
+    var lbl=tokLabel(v);
+    return '<span class="chip '+k+'"'+(s==='unk'?' title="RapidReconciler has no prior period to roll this account forward from, so this row was never compared. It is not a clean result."':'')+'>'+esc(lbl||'&mdash;')+'</span>';
+  }
+  // An 'end' row is the CURRENT OPEN period. Its GLOK/VarOK token is not a verdict —
+  // usp6_009_account_summary skips the break comparisons for it — so before DAC-33 a
+  // break in the period the analyst is actually reconciling drew as a neutral grey chip
+  // and appeared in neither total. The verdict now arrives as EndGLOK / EndVarOK
+  // (v8_raccountsummary_rollcheck), and RRV8.rollForward.classify resolves it.
+  //
+  // The chip keeps the 'end' word, because that is what the row IS, but takes its colour
+  // and a suffix from the verdict. A count that says "1 break" while the only break on
+  // screen looks neutral is the same defect wearing a different hat.
+  function chipFor(r, axis){
+    var raw = (axis==='gl') ? r.GLOK : r.VarOK;
+    var s = String(raw==null?'':raw).trim().toLowerCase();
+    if (s.indexOf('end') !== 0) return chip(raw);
+    var v = (axis==='gl') ? RRV8.rollForward.classify(r).glok : RRV8.rollForward.classify(r).varok;
+    var k = (v==='no') ? 'break' : (v==='unk' ? 'unk' : 'yes');
+    var lbl = 'end · ' + (v==='unk' ? 'not evaluated' : v);
+    var tip = (v==='no')
+      ? 'This is the current open period, and it did NOT roll forward from the period before it. Counted as a break.'
+      : (v==='unk'
+        ? 'This is the current open period and there is no prior period to roll it forward from, so it was never compared. It is not a clean result.'
+        : 'This is the current open period, and it rolled forward cleanly from the period before it.');
+    return '<span class="chip '+k+'" title="'+esc(tip)+'">'+esc(lbl)+'</span>';
+  }
+  function isNo(v){ return String(v==null?'':v).trim().toLowerCase()==='no'; }
+  function isUnk(v){ return String(v==null?'':v).trim().toLowerCase()==='unk'; }
+  function toast(m){ var t=document.getElementById('toast'); if(!t) return; t.textContent=m; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(function(){t.classList.remove('show');},2200); }
+
+  // ---- columns (mirror the workbook Roll Forward sheet) ----
+  var COLS = [
+    { k:'companyNumber', label:'Co',      render:function(r){return '<span class="mono">'+esc(r.CompanyNumber)+'</span>';} },
+    { k:'longAccount',   label:'Account', render:function(r){return '<span class="mono acct">'+esc(r.LongAccount)+'</span>';} },
+    { k:'periodEnds',    label:'Period',  render:function(r){return fmtDate(r.PeriodEnds);} },
+    { k:'begGL',  label:'Beg GL',   num:true, render:function(r){return moneyCell(r.BegGL);} },
+    { k:'perGL',  label:'Per GL',   num:true, render:function(r){return moneyCell(r.PerGL);} },
+    { k:'endGL',  label:'End GL',   num:true, render:function(r){return moneyCell(r.EndGL);} },
+    { k:'unpostBatch', label:'Unp Btch', num:true, render:function(r){return moneyCell(r.UnpostBatch);} },
+    { k:'glok',   label:'GL OK',    render:function(r){return chipFor(r,'gl');} },
+    { k:'perpetual', label:'Perp',  num:true, render:function(r){return moneyCell(r.Perpetual);} },
+    { k:'perCX',  label:'Per CX',   num:true, render:function(r){return moneyCell(r.PerCX);} },
+    { k:'begVar',  label:'Beg Var', num:true, render:function(r){return moneyCell(r.BegVar);} },
+    { k:'endOfDay',label:'EOD',     num:true, render:function(r){return moneyCell(r.EndofDay);} },
+    { k:'variance',  label:'Variance', num:true, render:function(r){return moneyCell(r.Variance);} },
+    { k:'jes',    label:'JEs',      num:true, render:function(r){return moneyCell(r.JEs);} },
+    { k:'oob',    label:'OOB',      num:true, render:function(r){return moneyCell(r.OOB);} },
+    { k:'cardexVar', label:'CX Var', num:true, render:function(r){return moneyCell(r.CardexVar);} },
+    { k:'varok',  label:'Var OK',   render:function(r){return chipFor(r,'var');} }
+  ];
+  var SORTABLE = { companyNumber:'CompanyNumber', longAccount:'LongAccount', periodEnds:'PeriodEnds', begGL:'BegGL', perGL:'PerGL', endGL:'EndGL', unpostBatch:'UnpostBatch', glok:'GLOK', perpetual:'Perpetual', perCX:'PerCX', begVar:'BegVar', endOfDay:'EndofDay', variance:'Variance', jes:'JEs', oob:'OOB', cardexVar:'CardexVar', varok:'VarOK' };
+  var NUMCOL = { begGL:1, perGL:1, endGL:1, unpostBatch:1, perpetual:1, perCX:1, begVar:1, endOfDay:1, variance:1, jes:1, oob:1, cardexVar:1 };
+
+  // ---- filter / sort ----
+  function rows(){
+    var r = DATA.filter(rowMatchesCo);
+    // Always show all periods/rows (the current-period toggle was removed).
+    if (state.sortKey){
+      var f=SORTABLE[state.sortKey], num=NUMCOL[state.sortKey], mult=state.sortDir==='desc'?-1:1;
+      r = r.slice().sort(function(a,b){
+        if(num){ return ((Number(a[f])||0)-(Number(b[f])||0))*mult; }
+        return String(a[f]==null?'':a[f]).localeCompare(String(b[f]==null?'':b[f]),undefined,{numeric:true})*mult;
+      });
+    } else {
+      r = r.slice().sort(function(a,b){
+        var c = String(a.CompanyNumber==null?'':a.CompanyNumber).localeCompare(String(b.CompanyNumber==null?'':b.CompanyNumber),undefined,{numeric:true}); if(c) return c;
+        c = String(a.LongAccount==null?'':a.LongAccount).localeCompare(String(b.LongAccount==null?'':b.LongAccount),undefined,{numeric:true,sensitivity:'base'}); if(c) return c;
+        return String(a.PeriodEnds==null?'':a.PeriodEnds).localeCompare(String(b.PeriodEnds==null?'':b.PeriodEnds));
+      });
+    }
+    return r;
+  }
+
+  // ============ Break facts (feed the AI brief + the Corrective band) ============
+  // Count GL-side (GLOK) and variance-side (VarOK) breaks in scope and summarize
+  // them by account. These are the ONLY facts handed to the AI brief (grounding)
+  // and the corrective-band recommendation — no per-row cause classification here.
+  // The three buckets come from RRV8.rollForward.summary in config.js — the SAME
+  // function Home's Account Roll Forward band calls (UI-71). This page and that
+  // band read the same rows from the same report and used to classify them
+  // separately, which is how the page could say "14 accounts could not be
+  // evaluated" while the band beside its own link showed a green tick.
+  function breakSummary(){
+    return RRV8.rollForward.summary(DATA, rowMatchesCo);
+  }
+  function setBandStatus(statusId, dot, text){
+    var s=document.getElementById(statusId); if(!s) return;
+    s.querySelector('.bs-dot').className='bs-dot'+(dot?(' '+dot):'');
+    s.querySelector('.bs-text').textContent=text;
+  }
+  // Reload GL band — ungated (owner 2026-07-21). The old R099102 attestation
+  // gate read as law enforcement, and RR can't verify JDE anyway, so it's gone;
+  // the R099102-first ordering now lives in the AI brief as guidance, not a lock.
+  // GL-only: a variance break has no lever (clears on every refresh) and is
+  // narrated by the brief, not shown in this band.
+  //
+  // Three states: PENDING (a reload was requested this session and the break is
+  // still in the loaded data — re-pulls on the next scheduled refresh), amber
+  // (out of balance, nothing requested yet), and green (clean).
+  function renderCorrective(){
+    var sum=breakSummary(); var glAccts=sum.gl.accts, glA=glAccts.length;
+    var panel=document.getElementById('rlgPanel'), lede=document.getElementById('rlgLede'), accts=document.getElementById('rlgAccts');
+    // Nothing in scope is NOT "clean" — it means we have no roll-forward to judge.
+    // Saying "rolled forward cleanly" off an empty set is the same lie as saying it
+    // off a failed load.
+    if(!sum.scopeRows){
+      setBandStatus('corrStatus','', _scopeError ? 'Company scope not recognized — nothing checked'
+        : 'No roll-forward rows for this company — nothing checked');
+      if(panel) panel.classList.remove('is-clear');
+      if(lede) lede.innerHTML=_scopeError
+        ? 'This page was opened for a company that isn&rsquo;t in your access, so no roll-forward was read. Nothing here has been checked.'
+        : 'RapidReconciler has no account roll-forward rows for this company, so there is nothing to judge &mdash; this is not a clean result. If you expect rows here, ask your IT department to confirm the nightly refresh completed for this company.';
+      if(accts){ accts.hidden=true; accts.innerHTML=''; }
+      return;
+    }
+    if(glA && _reloadRequested){
+      // Reload was requested but the refresh hasn't run yet — the break is still
+      // in the data. Neutral/blue, not amber, so it doesn't read as "nothing
+      // happened". The Reload GL button stays available (harmless to re-run).
+      setBandStatus('corrStatus','blue','Reload requested — re-pulls on the next scheduled refresh');
+      if(panel) panel.classList.remove('is-clear');
+      if(lede) lede.innerHTML='You&rsquo;ve requested a GL reload for this account. RapidReconciler clears its copy and re-pulls the corrected balances from JD Edwards on the next scheduled refresh &mdash; check back after it runs.';
+      if(accts){ accts.innerHTML=glAccts.slice(0,24).map(function(x){ return '<span class="rlg-acct">'+esc(x.acct)+'</span>'; }).join(''); accts.hidden=false; }
+    } else if(glA){
+      setBandStatus('corrStatus','amber', glA+' GL account'+(glA!==1?'s':'')+' out of balance');
+      if(panel) panel.classList.remove('is-clear');
+      if(lede) lede.innerHTML='The Account Balances (F0902) don&rsquo;t tie to the posted Account Ledger (F0911) on the account'+(glA!==1?'s':'')+' below. Run <b>Repost Account Balances (R099102)</b> in JD Edwards first to rebuild the balances, then reload here so the corrected figures flow into RapidReconciler on the next refresh.';
+      if(accts){ accts.innerHTML=glAccts.slice(0,24).map(function(x){ return '<span class="rlg-acct">'+esc(x.acct)+'</span>'; }).join(''); accts.hidden=false; }
+    } else if(sum.unk.rows){
+      // No GL break, but some rows were never evaluated. Amber + named, not green:
+      // "clean" would be a claim about rows nobody compared.
+      var uA=sum.unk.accts.length;
+      setBandStatus('corrStatus','amber','No GL break found, but '+uA+' account'+(uA!==1?'s':'')+' could not be evaluated');
+      if(panel) panel.classList.remove('is-clear');
+      if(lede) lede.innerHTML='No account is out of balance in what RapidReconciler could compare &mdash; but '+sum.unk.rows+' row'+(sum.unk.rows!==1?'s':'')+' on the account'+(uA!==1?'s':'')+' below have no prior period to roll forward from, so they were never checked. Treat this as unproven, not clean. It normally resolves once the account has a full period of history; if it persists, ask your IT department to confirm the account&rsquo;s history loaded.';
+      if(accts){ accts.innerHTML=sum.unk.accts.slice(0,24).map(function(x){ return '<span class="rlg-acct">'+esc(x.acct)+'</span>'; }).join(''); accts.hidden=false; }
+    } else {
+      _reloadRequested=false;   // refresh ran and the break cleared — back to clean
+      setBandStatus('corrStatus','green','GL rolled forward cleanly — nothing to reload');
+      if(panel) panel.classList.add('is-clear');
+      if(lede) lede.innerHTML='The GL rolled forward cleanly &mdash; nothing to reload right now. If a repost (R099102) is ever run in JD Edwards, reload here afterward so the corrected balances flow into RapidReconciler.';
+      if(accts){ accts.hidden=true; accts.innerHTML=''; }
+    }
+  }
+
+  // ============ Audit Report (grid) ============
+  function renderGrid(){
+    var head=document.getElementById('rfHead'), body=document.getElementById('rfBody'), cnt=document.getElementById('gridCount');
+    head.innerHTML = '<tr>'+COLS.map(function(c){
+      var act = state.sortKey===c.k ? ' style="color:var(--blue)"' : '';
+      var car = state.sortKey===c.k ? (state.sortDir==='desc'?' &#9660;':' &#9650;') : '';
+      return '<th class="'+(c.num?'num':'')+'" data-k="'+c.k+'"'+act+'>'+esc(c.label)+car+'</th>';
+    }).join('')+'</tr>';
+    var data=rows().filter(byAccount);
+    var total=DATA.filter(rowMatchesCo).length;
+    cnt.textContent = data.length.toLocaleString('en-US')+' row'+(data.length!==1?'s':'')+' of '+total.toLocaleString('en-US');
+    if(_scopeError){
+      body.innerHTML='<tr><td class="empty" colspan="'+COLS.length+'">'
+        +'This link asked for a '+esc(_scopeError.label)+' you do not have access to in this session: &ldquo;'
+        +esc(_scopeError.value)+'&rdquo;. No rows are shown, because showing a different company here '
+        +'would answer a question you did not ask. This page opens for one company at a time and has no company '
+        +'switcher &mdash; go back and open the figure again, or ask your IT department to check your company access.'
+        +'</td></tr>';
+      cnt.textContent='Scope not recognized';
+      _drillReport(0); return;
+    }
+    if(!data.length){ body.innerHTML='<tr><td class="empty" colspan="'+COLS.length+'">No rows match.</td></tr>'; _drillReport(0); return; }
+    body.innerHTML = data.map(function(r){
+      return '<tr class="'+(r.GLOK==='end'?'is-end':'')+'">'+COLS.map(function(c){ return '<td class="'+(c.num?'num':'')+'">'+c.render(r)+'</td>'; }).join('')+'</tr>';
+    }).join('');
+    _drillReport(data.length);
+  }
+  // Drill tie-out — console only, once per landing. Names the scope dimensions the
+  // grid applied and the URL params it read but never turned into a filter, so a
+  // filter that quietly stops applying announces itself.
+  var _drillReported=false;
+  function _drillReport(actual){
+    if(_drillReported || !(window.RRV8 && RRV8.drillReport)) return;
+    var expect=null;
+    try{
+      var e=(new URLSearchParams(window.location.search).get('expect')||'').trim();
+      if(/^\d+$/.test(e)) expect=parseInt(e,10);
+    }catch(_){}
+    // An EMPTY grid with an ?expect= is the mismatch that matters most — the card
+    // counted rows and we rendered none. Only skip the pre-data render when there is
+    // no expectation to tie out against.
+    if(!DATA.length && !_scopeError && expect===null) return;
+    _drillReported=true;
+    var ignored=[];
+    try{
+      var sp=new URLSearchParams(window.location.search);
+      // Ride-alongs from a sibling tab's querystring. `period` is the notable one:
+      // this page shows EVERY period for the company by design, so a period-scoped
+      // figure that links here lands unfocused. `expect` is NOT listed — it is the
+      // tie-out input below, not a scope param we dropped.
+      ['card','groupcode','period'].forEach(function(k){ if(sp.get(k)) ignored.push(k); });
+      // ?account= seeds nothing here — the picker is built from the loaded rows, so an
+      // account handed in on the link is read by nothing and must be named as dropped.
+      if(sp.get('account') && !state.account) ignored.push('account');
+    }catch(_){}
+    // Report EVERY dimension rowMatchesCo + byAccount actually apply, including the
+    // session working-company narrowing (inScopeCo) — a tie-out that omits a live
+    // filter is worse than no tie-out at all.
+    var sc=null; try{ sc=scopedCompanySet(); }catch(_){}
+    RRV8.drillReport({ surface:'account roll-forward',
+      applied:{ company:state.company,
+                account:state.account||'',
+                sessionCompanies: sc ? Object.keys(sc).join('+') : '',
+                scopeRefused: _scopeError ? 'yes' : '' },
+      ignored:ignored, expected:(_scopeError?null:expect), actual:actual });
+  }
+  function renderAll(){ renderBrief(); renderCorrective(); buildAccountPicker(); renderGrid(); }
+
+  // ---- company context (read-only; this page is a drill-down opened FOR one
+  //      company from Home). No switcher — resolve the one company in scope and
+  //      stamp it in the header (mirrors Home's .rh-co). Change it upstream on
+  //      Home + re-navigate. ----
+  // Company# -> name, from the SAME agent as the roll-forward data
+  // (GET /admin/companies -> {companies:[{companyNumber, name}]}, as home.html uses).
+  // Idempotent + best-effort: fetches once, then repaints the header when it lands.
+  function ensureCoNames(){
+    if(_coNames) return;
+    var token; try{ token=localStorage.getItem('rrv8.token'); }catch(_){}
+    var base=(window.RRDB?RRDB.agentBase():null)||(window.RR_CONFIG&&RR_CONFIG.testAgentBase);
+    if(!token||!base) return;
+    fetch(base+'/admin/companies',{headers:{'Authorization':'Bearer '+token,'Accept':'application/json'}})
+      .then(function(r){ return r.ok?r.json():null; })
+      .then(function(d){
+        var m={};
+        ((d&&d.companies)||[]).forEach(function(c){ if(c&&c.companyNumber!=null) m[String(c.companyNumber).trim()]=String(c.name||'').trim(); });
+        _coNames=m; renderCompanyContext();
+      })
+      .catch(function(){});
+  }
+  function renderCompanyContext(){
+    ensureCoNames();
+    var cos=Array.from(new Set(DATA.map(function(r){return String(r.CompanyNumber);}))).filter(inScopeCo)
+      .sort(function(a,b){ return a.localeCompare(b,undefined,{numeric:true}); });
+    ensureSoloCompany(cos);
+    var el=document.getElementById('rfCoContext'); if(!el) return;
+    var nm=(_coNames && state.company) ? (_coNames[String(state.company).trim()]||'') : '';
+    el.textContent = state.company ? ('Company '+state.company+(nm?(' — '+nm):'')) : 'No company in scope';
+  }
+
+  // ---- account picker ----
+  function buildAccountPicker(){
+    var sel=document.getElementById('accountPick'); if(!sel) return;
+    var accts=accountsInView();
+    if(state.account && accts.indexOf(state.account)===-1) state.account='';
+    sel.innerHTML='<option value="">All accounts</option>'+
+      accts.map(function(a){ return '<option value="'+esc(a)+'"'+(a===state.account?' selected':'')+'>'+esc(a)+'</option>'; }).join('');
+  }
+
+  // ---- excel export (all rows in scope view, audit-quality) ----
+  function thinBorder(rgb){ var s={style:'thin',color:{rgb:rgb}}; return {top:s,bottom:s,left:s,right:s}; }
+  // Audit-quality Excel: navy header band, all rows in scope, numbers formatted +
+  // right-aligned, and the break ("No") rows highlighted light-red with the GL OK /
+  // Var OK = no cell bolded red. Needs xlsx-js-style (the community xlsx build can't fill).
+  function exportXlsx(){
+    var data=rows().filter(byAccount);
+    if(!data.length){ toast('Nothing to export'); return; }
+    if(typeof XLSX==='undefined'){ toast('Excel library still loading — try again'); return; }
+    var NUM_FMT='#,##0.00;(#,##0.00)';
+    var ncol=COLS.length;
+    // ----- title band (what · db/company · generated + row count) -----
+    var db=(window.RRDB&&RRDB.name&&RRDB.name())||(document.getElementById('topbarDb')||{}).textContent||'RapidReconciler';
+    var coText='Company '+state.company;   // single-company page — always exactly one
+    var acctText=state.account?('  ·  Account '+state.account):'';
+    var titleLines=[
+      'Account Roll Forward',
+      'Database '+db+'  ·  '+coText+acctText,
+      'Generated '+new Date().toLocaleString('en-US')+'  ·  '+data.length.toLocaleString('en-US')+' account'+(data.length!==1?'s':'')
+    ];
+    var aoa=[];
+    titleLines.forEach(function(t){ var row=new Array(ncol).fill(''); row[0]=t; aoa.push(row); });
+    aoa.push(new Array(ncol).fill(''));                     // spacer
+    var headRowIdx=aoa.length;
+    aoa.push(COLS.map(function(c){return c.label;}));
+    var firstDataIdx=aoa.length;
+    data.forEach(function(r){ aoa.push(COLS.map(function(c){
+      var raw=rawVal(r,c.k);
+      if(c.num){ var n=Number(raw); return isNaN(n)?'':n; }   // real numbers so the format + right-align apply
+      // GL OK / Var OK export the SAME words the chip shows — never the internal
+      // 'unk' token, and never a blank that would read as "fine".
+      if(c.k==='glok'||c.k==='varok') return tokLabel(raw);
+      return raw==null?'':raw;
+    })); });
+    // ----- bold total row (sum the numeric columns) -----
+    var sums={};
+    data.forEach(function(r){ COLS.forEach(function(c){ if(NUMCOL[c.k]){ var n=Number(rawVal(r,c.k)); if(!isNaN(n)) sums[c.k]=(sums[c.k]||0)+n; } }); });
+    var totalRowIdx=aoa.length;
+    aoa.push(COLS.map(function(c,i){
+      if(i===0) return 'TOTAL — '+data.length.toLocaleString('en-US')+' account'+(data.length!==1?'s':'');
+      if(NUMCOL[c.k]) return Math.round((sums[c.k]||0)*100)/100;
+      return '';
+    }));
+    var ws=XLSX.utils.aoa_to_sheet(aoa);
+    var range=XLSX.utils.decode_range(ws['!ref']);
+    // title styling + full-width merges
+    ws['!merges']=ws['!merges']||[];
+    for(var ti=0;ti<titleLines.length;ti++){
+      var tref=XLSX.utils.encode_cell({r:ti,c:0});
+      if(ws[tref]) ws[tref].s={ font:{bold:ti===0,sz:ti===0?14:10,color:{rgb:ti===0?'1F2D4A':'6B7280'}} };
+      ws['!merges'].push({s:{r:ti,c:0},e:{r:ti,c:ncol-1}});
+    }
+    // header band
+    for(var hc=range.s.c;hc<=range.e.c;hc++){
+      var hr=XLSX.utils.encode_cell({r:headRowIdx,c:hc}); if(!ws[hr]) continue;
+      ws[hr].s={ font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{patternType:'solid',fgColor:{rgb:'1F2D4A'}},
+                 alignment:{horizontal:'center',vertical:'center'}, border:thinBorder('D0D0D0') };
+    }
+    // body rows
+    var breaks=0, unevaluated=0;
+    data.forEach(function(r,i){
+      // classify(), not the raw token: an 'end' row's verdict lives in EndGLOK /
+      // EndVarOK, so testing GLOK==='no' here counted a broken open period as clean
+      // in the workbook exactly as the screen once did (UI-57).
+      var rr=firstDataIdx+i, cls=RRV8.rollForward.classify(r);
+      var isBreak=(cls.glok==='no'||cls.varok==='no'); if(isBreak) breaks++;
+      // Unevaluated rows get their own amber band so the workbook can't be read as
+      // "everything not red is fine".
+      var isUnev=(!isBreak && (cls.glok==='unk'||cls.varok==='unk')); if(isUnev) unevaluated++;
+      for(var c=range.s.c;c<=range.e.c;c++){
+        var ref=XLSX.utils.encode_cell({r:rr,c:c}), cell=ws[ref]; if(!cell) continue;
+        var key=COLS[c].k; cell.s=cell.s||{}; cell.s.border=thinBorder('ECECEC');
+        if(NUMCOL[key]){ cell.z=NUM_FMT; cell.s.alignment={horizontal:'right'}; }
+        if(isBreak){ cell.s.fill={patternType:'solid',fgColor:{rgb:'FCE5E1'}}; }
+        else if(isUnev){ cell.s.fill={patternType:'solid',fgColor:{rgb:'FDF1DE'}}; }
+        if((key==='glok'&&cls.glok==='no')||(key==='varok'&&cls.varok==='no')){ cell.s.font={bold:true,color:{rgb:'C0392B'}}; }
+        if((key==='glok'&&cls.glok==='unk')||(key==='varok'&&cls.varok==='unk')){ cell.s.font={bold:true,color:{rgb:'B5651D'}}; }
+      }
+    });
+    // total row styling (bold, light-navy fill)
+    for(var tc=range.s.c;tc<=range.e.c;tc++){
+      var trf=XLSX.utils.encode_cell({r:totalRowIdx,c:tc}), tcell=ws[trf]; if(!tcell) continue;
+      var tkey=COLS[tc].k; tcell.s=tcell.s||{}; tcell.s.border=thinBorder('D0D0D0');
+      tcell.s.font={bold:true,color:{rgb:'1F2D4A'}}; tcell.s.fill={patternType:'solid',fgColor:{rgb:'F1F4F9'}};
+      if(NUMCOL[tkey]){ tcell.z=NUM_FMT; tcell.s.alignment={horizontal:'right'}; }
+    }
+    ws['!cols']=COLS.map(function(c){ return {wch: c.num?13:Math.max(8,c.label.length+3)}; });
+    var wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Roll Forward');
+    if (!RRV8.saveWorkbook(wb, RRV8.exportName({ surface: 'AccountRollForward' }), toast, 'Account Roll Forward')) return;
+    toast('Exported '+data.length+' row'+(data.length!==1?'s':'')
+      +(breaks?(' · '+breaks+' break'+(breaks!==1?'s':'')+' highlighted'):'')
+      +(unevaluated?(' · '+unevaluated+' not evaluated'):'')+' to Excel');
+  }
+
+  // ---- collapse manager (Home-style band heads) ----
+  function wireBand(headId, bodyId, onExpand){
+    var head=document.getElementById(headId), body=document.getElementById(bodyId);
+    if(!head||!body) return;
+    function setOpen(open){ head.setAttribute('aria-expanded', open?'true':'false'); body.classList.toggle('is-collapsed', !open); if(open && onExpand) onExpand(); }
+    function toggle(){ setOpen(head.getAttribute('aria-expanded')==='false'); }
+    head.addEventListener('click',function(e){ if(e.target.closest('a,button,select,input,label,[role="button"]')) return; toggle(); });
+    head.addEventListener('keydown',function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } });
+    var chev=head.querySelector('.band-chev'); if(chev) chev.addEventListener('click',function(e){ e.stopPropagation(); toggle(); });
+    head._setOpen=setOpen;   // exposed so the AI chip can open the band (and trigger AI)
+  }
+
+  // ---- normalize GL OK / Var OK for display ----
+  // Four cases, all distinguishable. The fallback used to be 'yes', which turned
+  // every UNEVALUATED row into a clean pass: GLRollOK / OOBRollOK are nchar(8) NOT
+  // NULL DEFAULT '', and the pipeline only stamps 'yes'/'no' where a prior-period
+  // row exists to compare against (an inner join). An account whose first period in
+  // the data has no predecessor keeps '' — and the page rendered a green "yes" chip,
+  // counted zero breaks, painted the band green, and told the AI brief the
+  // roll-forward was intact. '' now means 'unk' (not evaluated), which is neither a
+  // break nor a pass.
+  // The token rules and the baseline pairing live in RRV8.rollForward (config.js)
+  // so Home's band classifies a row exactly as this page does (UI-71). The
+  // reasoning that earned each rule is written there.
+  function normRow(r){ return RRV8.rollForward.normRow(r); }
+  function ingest(rows){
+    DATA=(Array.isArray(rows)?rows:[]).map(normRow);
+    renderCompanyContext(); renderAll();
+  }
+
+  // ============ AI brief — VALC gateway /api/v1/ai ============
+  // The brief band up top is the analyst's read of this company's roll-forward.
+  // It is AI-only (grounded on the break facts) — there is NO deterministic
+  // fallback: if the model call fails, the band stays empty (owner decision).
+  var _aiMaxLevel='off', _briefKey=null;
+  function aiBase(){ return (window.RR_CONFIG && RR_CONFIG.valcBase) || 'http://localhost:8080'; }
+  // Effective AI tier. In demo/non-prod the global RRAI plan pill (the presenter's
+  // live switcher) is authoritative and drives this page's AI exposure; in prod it
+  // falls back to the purchased plan from ai/health (no behavior change there).
+  // RRAI's 'grounded' maps to this page's 'docs' vocabulary.
+  function effTier(){
+    try {
+      if (window.RR_CONFIG && RR_CONFIG.mode !== 'prod' && window.RRAI) {
+        var g = window.RRAI.get();
+        if (g) return g === 'grounded' ? 'docs' : g;
+      }
+    } catch(_){}
+    return _aiMaxLevel;
+  }
+  function aiTok(){ try{ return localStorage.getItem('rrv8.token'); }catch(_){ return null; } }
+  function aiHealth(){
+    var t=aiTok(); if(!t) return Promise.resolve('off');
+    // `db` is required for the answer to mean anything: with no db,
+    // AiController.health resolves the tier from the caller rather than from the
+    // database's owning client and answers maxLevel:"off", which reads as "AI is
+    // not in your plan" for a client whose plan is full. Same defect measured on
+    // admin-claude-assistant.html 2026-08-25; home.html:5523 has always passed it.
+    // RRDB.name() returns the '_' sentinel when no database is active; sending
+    // that is the same as sending nothing, so drop it rather than ask about a
+    // database that does not exist.
+    var dbq=(window.RRDB&&RRDB.name&&RRDB.name())||'';
+    if (dbq === '_') dbq = '';
+    return fetch(aiBase()+'/api/v1/ai/health'+(dbq?('?db='+encodeURIComponent(dbq)):''),
+                 {headers:{'Authorization':'Bearer '+t,'Accept':'application/json'}})
+      .then(function(r){ return r.ok?r.json():null; })
+      .then(function(j){ return (j&&j.maxLevel)||'off'; })
+      .catch(function(){ return 'off'; });
+  }
+  // ai/explain: send ONLY {system, prompt} — the same shape Home's working
+  // day-brief uses. Sending a `level` field 403s (the gateway rejects it); the
+  // client's entitled tier is enforced server-side from the JWT, not the body.
+  // Server-side grounding still applies; `system` (our roll-forward grounding) is
+  // accepted (verified 200).
+  function aiExplain(system, prompt, ctx){
+    var t=aiTok();
+    // Client-side timeout so a hung gateway/model call rejects rather than spinning.
+    var ctrl=('AbortController' in window)?new AbortController():null;
+    var timer=ctrl?setTimeout(function(){ ctrl.abort(); }, 45000):null;
+    return fetch(aiBase()+'/api/v1/ai/explain'+(ctx?('?ctx='+ctx):''),{method:'POST',
+        headers:{'Authorization':'Bearer '+t,'Content-Type':'application/json','Accept':'application/json'},
+        body:JSON.stringify({system:system, prompt:prompt}),
+        signal:ctrl?ctrl.signal:undefined})
+      .then(function(r){ if(timer) clearTimeout(timer); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(j){ return (j&&j.text)?String(j.text).trim():''; })
+      .catch(function(e){ if(timer) clearTimeout(timer); throw (e&&e.name==='AbortError')?new Error('the assistant timed out'):e; });
+  }
+  function aiScopeKey(){ return effTier()+'|'+state.company+'|'+DATA.filter(rowMatchesCo).length; }
+  // Grounded prompt for the brief — the ONLY facts the model may use are the real
+  // break counts + the affected accounts for THIS one company.
+  function briefPrompt(sum){
+    var co=state.company||'this company';
+    var glN=sum.gl.rows, varN=sum.varc.rows, unkN=sum.unk.rows, unkA=sum.unk.accts.length;
+    // "Intact" is only true when every row in scope was actually evaluated. Rows with
+    // no prior period to roll forward from were never compared — the model must not be
+    // told they carried forward cleanly.
+    if(glN+varN===0 && unkN){
+      return 'You are briefing a JDE inventory-reconciliation analyst on company '+co+'. '
+        + 'These are the ONLY facts you may use (never invent a number, an account, or a step):\n'
+        + 'Nothing RapidReconciler could compare is out of balance. However '+unkN+' row(s) across '+unkA+' account(s) ('
+        + sum.unk.accts.slice(0,12).map(function(x){return x.acct;}).join(', ')
+        + ') have no prior period to roll forward from, so their roll-forward status was never evaluated — this is UNPROVEN, not clean. Do not call the roll-forward intact.\n'
+        + (window.RRV8 && RRV8.dataAccessLine ? RRV8.dataAccessLine(effTier()) + '\n' : '')
+        + 'In 2 short sentences on one line: say nothing is out of balance among the accounts that could be checked, name that the accounts above were not evaluated for lack of prior history, and say it usually resolves once a full period of history exists.\n'
+        + (window.RRV8 && RRV8.AI_REGISTER ? RRV8.AI_REGISTER : '');
+    }
+    if(glN+varN===0){
+      return 'You are briefing a JDE inventory-reconciliation analyst on company '+co+'. '
+        + 'The roll-forward is intact — the GL balance and the reconciliation variance both carried forward cleanly, no breaks.\n'
+        + (window.RRV8 && RRV8.dataAccessLine ? RRV8.dataAccessLine(effTier()) + '\n' : '')
+        + 'In ONE short sentence, confirm there is nothing to correct and what to watch at the next refresh.\n'
+        + (window.RRV8 && RRV8.AI_REGISTER ? RRV8.AI_REGISTER : '');
+    }
+    var glA=sum.gl.accts.slice(0,12).map(function(x){return x.acct;}).join(', ');
+    var vrA=sum.varc.accts.slice(0,12).map(function(x){return x.acct;}).join(', ');
+    var facts=[];
+    if(glN) facts.push('On the account'+(sum.gl.accts.length!==1?'s':'')+' below'+(glA?(' ('+glA+')'):'')+', Account Balances (F0902) don\'t tie to the posted Account Ledger (F0911) — '+glN+' row'+(glN!==1?'s':'')+' across '+sum.gl.accts.length+' account'+(sum.gl.accts.length!==1?'s':'')+' don\'t roll forward. Clear the balance in order: FIRST run Repost Account Balances (R099102) in JD Edwards to rebuild the balances from the posted detail; once those tie, THEN reload the GL on this page so the corrected balances flow into RapidReconciler. State the order plainly as the next step — RapidReconciler does not verify the repost and must not ask the analyst to prove or attest it ran clean.');
+    if(varN) facts.push('On the account'+(sum.varc.accts.length!==1?'s':'')+(vrA?(' ('+vrA+')'):'')+', the reconciliation variance is off — '+varN+' row'+(varN!==1?'s':'')+' across '+sum.varc.accts.length+' account'+(sum.varc.accts.length!==1?'s':'')+'. There is nothing to reload for it: RapidReconciler recomputes the full period timeline on every refresh, so it clears on the next run. If it survives a refresh, escalate to your IT department to investigate — never invent a re-roll or a cardex reload for it.');
+    return 'You are briefing a JDE inventory-reconciliation analyst on company '+co+' at the start of their day.\n'
+      + 'These are the ONLY facts you may use (never invent a number, an account, or a step):\n' + facts.join('\n') + '\n'
+      + (window.RRV8 && RRV8.dataAccessLine ? RRV8.dataAccessLine(effTier()) + '\n' : '')
+      + (glN&&varN ? 'Clear the GL first — the repost followed by a reload usually squares the variance too, so the variance may need no separate attention.\n' : '')
+      + 'At most 3 lines: name what is off, the account(s) involved, and the next step in order.\n'
+      + (window.RRV8 && RRV8.AI_REGISTER ? RRV8.AI_REGISTER : '');
+  }
+  // Render the AI brief band. AI-only, no deterministic fallback: on failure the
+  // band is left empty (owner decision). Guarded so the same scope isn't re-asked.
+  function renderBrief(force){
+    var body=document.getElementById('rfBriefBody'); if(!body||!DATA.length) return;
+    var key=aiScopeKey();
+    if(!force && _briefKey===key) return;
+    _briefKey=key;
+    var sum=breakSummary();
+    body.classList.add('is-thinking'); body.textContent='Reading this company’s roll-forward…';
+    // Grounding = the shared ROLL-FORWARD catalog (config.js); fall back to the
+    // inline copy if config.js didn't load, so the assistant never loses its policy.
+    var sys=(window.RRV8 && RRV8.ROLLFORWARD_GROUNDING)
+      ? RRV8.ROLLFORWARD_GROUNDING
+      : 'You are RapidReconciler’s Account Roll Forward assistant, helping a JDE cost accountant keep the inventory source-of-truth accurate. When Account Balances (F0902) don\'t tie to the posted Account Ledger (F0911), clear the balance in order: FIRST run Repost Account Balances (R099102) in JD Edwards to rebuild the balances from the posted detail, THEN reload the GL on this page so the corrected balances flow into RapidReconciler — state the order as the next step, never as a checkpoint the analyst must prove to RapidReconciler. When the reconciliation variance is off, there is no manual step: RapidReconciler recomputes the full period timeline on every refresh, so it clears on the next run; one that survives a refresh goes to your IT department to investigate, never a re-roll or a cardex reload. When both are off, clear the GL first — the repost and reload usually square the variance too. Be concise (2-4 sentences), plain accounting language, no SQL/endpoint/table jargon beyond standard JDE references.';
+    aiExplain(sys, briefPrompt(sum), (window.RRV8 && RRV8.aiCtx ? RRV8.aiCtx('rollforward', state.company, '') : '')).then(function(text){
+      body.classList.remove('is-thinking');
+      body.textContent=text||'';   // empty reply → empty band (no fallback)
+    }).catch(function(){
+      body.classList.remove('is-thinking');
+      body.textContent='';         // failure → empty band (owner decision; no fallback)
+      _briefKey=null;              // let a tier change / reload retry
+    });
+  }
+
+  // ---- wire grid + bands ----
+  // (Show-all-periods toggle removed — the grid always shows all rows.)
+  document.getElementById('exportBtn').addEventListener('click',exportXlsx);
+  document.getElementById('rfHead').addEventListener('click',function(e){ var th=e.target.closest('th'); if(!th) return; var k=th.getAttribute('data-k');
+    if(state.sortKey===k){ state.sortDir=state.sortDir==='asc'?'desc':'asc'; } else { state.sortKey=k; state.sortDir='asc'; } renderGrid(); });
+  document.getElementById('accountPick').addEventListener('change',function(){ state.account=this.value; renderGrid(); });
+  wireBand('corrHead','corrBody'); wireBand('rptHead','rptBody');
+  // Demo AI-tier pill flipped (global RRAI): re-run the brief at the new exposure
+  // so the pill visibly drives this page's AI the same way it drives Home.
+  window.addEventListener('rrv8:aitierchange', function(){
+    renderBrief(true);   // force a re-ask at the new tier
+  });
+
+  // ============ Reload GL modal (in-page) ============
+  // Opens on THIS page instead of navigating to admin-reload-gl.html (a dead end
+  // from the analyst flow). Reuses that page's endpoints:
+  //   GET  inventory/reload-gl/preview  -> {cutoffDate, affected}  (null = nothing)
+  //   POST inventory/reload-gl {cutoffDate} -> {affected}
+  // Reload GL is analyst-authorized (owner 2026-07-21): this IS the analyst's
+  // page and everyone here holds the data-management grant, so there is NO
+  // permission gate on the client — Go is always available and the server
+  // enforces authorization. RR is a utility, not an enforcement gate — no
+  // attestation checkbox either. Go is disabled ONLY as a data state (nothing to
+  // reload), never as a permission state.
+  var _rlgCutoff=null, _rlgBusy=false;
+  function rlgFetch(area, opts){
+    opts=opts||{};
+    var token; try{ token=localStorage.getItem('rrv8.token'); }catch(_){}
+    var base=(window.RRDB?RRDB.agentBase():null)||(window.RR_CONFIG&&RR_CONFIG.testAgentBase);
+    if(!token||!base) return Promise.reject(new Error('not signed in'));
+    var init={ method:opts.method||'GET', headers:{'Authorization':'Bearer '+token,'Accept':'application/json'} };
+    if(opts.body){ init.headers['Content-Type']='application/json;charset=UTF-8'; init.body=JSON.stringify(opts.body); }
+    return fetch(base+'/'+area, init).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+  }
+  // Full 'Month D, YYYY' date (matches admin-reload-gl.html's fmtDateLong; the
+  // grid's fmtDate abbreviates months, which the modal copy shouldn't).
+  function rlgFmtDate(iso){
+    var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||''));
+    if(!m) return String(iso||'');
+    var d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));
+    return d.toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+  }
+  function rlgEls(){
+    return { back:document.getElementById('rlgModal'), desc:document.getElementById('rlgModalDesc'),
+             reminder:document.getElementById('rlgModalReminder'),
+             go:document.getElementById('rlgModalGo'),
+             cancel:document.getElementById('rlgModalCancel'), x:document.getElementById('rlgModalX') };
+  }
+  function rlgClose(){ var m=rlgEls(); if(m.back) m.back.classList.remove('is-open'); }
+  function rlgOpen(){
+    var m=rlgEls(); if(!m.back) return;
+    _rlgCutoff=null;
+    m.go.disabled=true; m.go.textContent='Go';
+    m.desc.textContent='Checking what will reload…';
+    if(m.reminder) m.reminder.hidden=true;   // hidden until we know there's something to reload
+    m.back.classList.add('is-open');
+    rlgFetch('inventory/reload-gl/preview').then(function(p){
+      var cutoff=p&&p.cutoffDate;
+      if(!cutoff){                     // null cutoff = GL rolled forward clean (data state, not permission)
+        _rlgCutoff=null;
+        m.desc.textContent='The GL rolled forward cleanly — there’s nothing to reload.';
+        if(m.reminder) m.reminder.hidden=true;
+        m.go.disabled=true;
+        return;
+      }
+      _rlgCutoff=cutoff;
+      // A MISSING affected count is not a count of zero. Saying "(0 rows)" next to a
+      // real cutoff date reads as "this will do nothing" — leave the count out
+      // entirely when the number didn't arrive.
+      var nRaw=Number(p.affected);
+      var nTxt=isFinite(nRaw)&&p.affected!=null ? (' ('+nRaw.toLocaleString('en-US')+' row'+(nRaw!==1?'s':'')+')') : '';
+      m.desc.textContent='This clears RapidReconciler’s copy of the general ledger for company '
+        +(state.company||'—')+' from '+rlgFmtDate(cutoff)+' forward'+nTxt
+        +' and re-pulls it from JD Edwards on the next scheduled refresh. Your JD Edwards data is never changed.';
+      if(m.reminder) m.reminder.hidden=false;   // there IS something to reload — show the R099102-first reminder
+      m.go.disabled=false;
+    }).catch(function(e){
+      _rlgCutoff=null;
+      m.desc.textContent='Couldn’t check the GL reload — '+((e&&e.message)||e)+'.';
+      if(m.reminder) m.reminder.hidden=true;
+      m.go.disabled=true;
+    });
+  }
+  function rlgGo(){
+    if(_rlgBusy||!_rlgCutoff) return;
+    var m=rlgEls();
+    _rlgBusy=true; m.go.disabled=true; m.go.textContent='Reloading…';
+    rlgFetch('inventory/reload-gl',{method:'POST',body:{cutoffDate:_rlgCutoff}}).then(function(r){
+      // Same rule as the preview: an absent row count is unknown, not zero. "cleared —
+      // 0 rows" would tell the analyst the reload did nothing when it may have cleared
+      // thousands.
+      var nRaw=Number(r&&r.affected);
+      var known=r&&r.affected!=null&&isFinite(nRaw);
+      // The break is still in the loaded data until the next scheduled refresh —
+      // flag it so the band shows the PENDING state, not amber "out of balance".
+      _reloadRequested=true; renderCorrective();
+      toast(known
+        ? ('GL copy cleared — '+nRaw.toLocaleString('en-US')+' row'+(nRaw!==1?'s':'')+'. It rebuilds on the next scheduled refresh.')
+        : 'GL copy cleared. It rebuilds on the next scheduled refresh.');
+      rlgClose();
+    }).catch(function(e){
+      m.desc.textContent='Reload GL failed — '+((e&&e.message)||e)+'.';
+    }).then(function(){
+      _rlgBusy=false; m.go.textContent='Go';
+    });
+  }
+  (function wireReloadModal(){
+    var btn=document.getElementById('rlgBtn'); if(btn) btn.addEventListener('click',rlgOpen);
+    var m=rlgEls();
+    if(m.x) m.x.addEventListener('click',rlgClose);
+    if(m.cancel) m.cancel.addEventListener('click',rlgClose);
+    if(m.go) m.go.addEventListener('click',rlgGo);
+    if(m.back) m.back.addEventListener('click',function(e){ if(e.target===m.back) rlgClose(); });
+    document.addEventListener('keydown',function(e){ if(e.key==='Escape' && m.back && m.back.classList.contains('is-open')) rlgClose(); });
+  })();
+
+  // ---- agent-first load: v6ui_raccountsummary from the active DB's agent ----
+  function loadFromAgent(){
+    var token; try{ token=localStorage.getItem('rrv8.token'); }catch(_){}
+    if(!token) return Promise.reject(new Error('no token'));
+    var base=(window.RRDB ? window.RRDB.agentBase() : null) || (window.RR_CONFIG && RR_CONFIG.testAgentBase);
+    if(!base) return Promise.reject(new Error('no agent base'));
+    return fetch(base+'/inventory/integrity',{method:'POST',
+        headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json;charset=UTF-8','Accept':'application/json'},
+        body:JSON.stringify({report:'v6ui_raccountsummary'})})
+      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(d){
+        // A 200 whose body isn't the shape we know is an UNANSWERED question, not an
+        // empty answer. Falling through to [] painted a full page of clean green — the
+        // grid said "No rows match", the band said "GL rolled forward cleanly".
+        if(Array.isArray(d)) return d;
+        if(d && Array.isArray(d.data)) return d.data;
+        throw new Error('the data service returned a response this page could not read');
+      });
+  }
+  // topbar db name
+  (function(){ var ctx=_scopeCtx(); var nm=(ctx&&ctx.key)?ctx.key.split('.').slice(-2,-1)[0]:null; var dbEl=document.getElementById('topbarDb'); if(nm&&nm!=='_'&&dbEl) dbEl.textContent=nm; })();
+  // AI plan tier from the client's purchased level — then (re)render the brief
+  // now the real tier is known.
+  aiHealth().then(function(lvl){ _aiMaxLevel=lvl||'off'; renderBrief(); });
+
+  // Agent-first, no static fallback (V8 is production-only): a failed load shows
+  // a clean "sign in / unavailable" rather than foreign snapshot data, which
+  // previously surfaced a stale company list (e.g. "100") that looked like a
+  // scope bug.
+  loadFromAgent()
+    .then(ingest)
+    .catch(function(err){
+      console.error('account-rollforward load/render failed:', err);
+      var bb=document.getElementById('rfBriefBody');
+      if(bb){ bb.classList.remove('is-thinking'); bb.textContent='Roll-forward data isn’t available. Sign in so the page can read it from the data service.'; }
+      document.getElementById('rfBody').innerHTML='<tr><td class="empty" colspan="'+COLS.length+'">No data &mdash; '+esc(err.message)+'</td></tr>';
+      document.getElementById('gridCount').textContent='0 rows';
+    });
+
+  // ============================================================
+  //  System Status — analyzer pipeline (ported from the retired
+  //  inventory-reconciliation.html). POST /system-status → { fileName }
+  //  → GET /download-excel/{id} → ArrayBuffer → rrv8-analyze bridge →
+  //  Tools/analysis-workbook picks up the SystemStatusTemplate and
+  //  produces the analyzed workbook. One click → analyzed workbook.
+  //  Reached via ?statusDownload=1 (the DMAAI "full diagnostic
+  //  pipeline" deep-link). Production-only: hits the active DB agent
+  //  with Bearer auth; no demo synthesis path (this page has none).
+  // ============================================================
+  function ssAgent(){
+    var base=(window.RRDB ? window.RRDB.agentBase() : null) || (window.RR_CONFIG && RR_CONFIG.testAgentBase);
+    var tok; try{ tok=localStorage.getItem('rrv8.token'); }catch(_){}
+    return { base:base, tok:tok };
+  }
+  // Run the analyzer HEADLESSLY in a hidden iframe and hand a workbook
+  // buffer over via the `rrv8-analyze` postMessage handshake. The
+  // analyzer's rrv8AutoAnalyze runs from the iframe context and triggers
+  // its usual download() — the browser surfaces the analyzed file in the
+  // parent window's downloads bar with no visible analyzer tab popping up.
+  // Falls back to a plain download of the raw buffer if the analyzer
+  // fails to acknowledge within the timeout (e.g. schema mismatch).
+  function handOffToAnalyzer(buffer, fallbackName){
+    var iframe=document.createElement('iframe');
+    iframe.src='../Tools/analysis-workbook.html';
+    iframe.setAttribute('aria-hidden','true');
+    iframe.style.cssText='position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;border:0;opacity:0;pointer-events:none;';
+    document.body.appendChild(iframe);
+    var sent=false, done=false;
+    function fallbackDownload(reason){
+      console.warn('Analyzer headless run failed — falling back to direct download:', reason);
+      var blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      var url=URL.createObjectURL(blob), a=document.createElement('a');
+      a.href=url; a.download=fallbackName||'workbook.xlsx';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast('Analyzer unavailable — downloaded the raw workbook');
+    }
+    function cleanup(){
+      window.removeEventListener('message', onMsg);
+      clearInterval(pingTimer); clearTimeout(failTimer);
+      setTimeout(function(){ try{ iframe.remove(); }catch(_){} }, 1500);
+    }
+    function onMsg(ev){
+      if(ev.source!==iframe.contentWindow || ev.origin!==location.origin) return;
+      if(!ev.data) return;
+      if(ev.data.type==='rrv8-analyze-ready' && !sent){
+        sent=true;
+        try{ iframe.contentWindow.postMessage({type:'rrv8-analyze',detail:buffer}, location.origin); }
+        catch(e){ fallbackDownload(e.message); cleanup(); }
+      } else if(ev.data.type==='rrv8-analyze-done'){ done=true; cleanup(); }
+      else if(ev.data.type==='rrv8-analyze-error'){ fallbackDownload(ev.data.message||'analyzer reported error'); cleanup(); }
+    }
+    window.addEventListener('message', onMsg);
+    var pingTimer=setInterval(function(){
+      if(sent){ clearInterval(pingTimer); return; }
+      try{ iframe.contentWindow.postMessage({type:'rrv8-analyze-ping'}, location.origin); }catch(_){}
+    }, 500);
+    var failTimer=setTimeout(function(){ if(!done){ fallbackDownload('timed out'); cleanup(); } }, 30000);
+  }
+  function runSystemStatusAnalysis(){
+    toast('Generating diagnostic Excel…');
+    var a=ssAgent();
+    if(!a.base||!a.tok){ toast('Sign in to run the System Status diagnostic'); return; }
+    fetch(a.base+'/system-status',{method:'POST',
+        headers:{'Authorization':'Bearer '+a.tok,'Content-Type':'application/json;charset=UTF-8','Accept':'application/json'},
+        body:'{}'})
+      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(resp){
+        var fileName=resp&&resp.fileName;
+        if(!fileName) throw new Error('Agent did not return a fileName');
+        return fetch(a.base+'/download-excel/'+encodeURIComponent(fileName),{
+          headers:{'Authorization':'Bearer '+a.tok,'Accept':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}});
+      })
+      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.arrayBuffer(); })
+      .then(function(buffer){ handOffToAnalyzer(buffer, RRV8.exportName({ surface: 'SystemStatus' })); })
+      .catch(function(err){ console.error('System Status analysis failed:', err); toast('Failed to run System Status analysis — '+(err&&err.message?err.message:err)); });
+  }
+  // ?statusDownload=1 — the DMAAI "full diagnostic pipeline" deep-link opens
+  // this page in a new tab to run the System Status diagnostic through the
+  // analyzer. Independent of the roll-forward data load above.
+  (function(){
+    try{ if(new URLSearchParams(window.location.search).get('statusDownload')==='1') runSystemStatusAnalysis(); }catch(_){}
+  })();
+})();
+</script>
+</body>
+</html>
+

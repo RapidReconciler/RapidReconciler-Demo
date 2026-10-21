@@ -1,0 +1,1973 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Start Here &mdash; RR Administrators &mdash; RapidReconciler University</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700;800&family=Source+Sans+3:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy:        #1f2d4a;
+    --navy-deep:   #142037;
+    --navy-soft:   #2c3e63;
+    --blue:        #2b5fb0;
+    --blue-bright: #3d8fd6;
+    --blue-pale:   #d6e6f5;
+    --orange:      #f08a24;
+    --orange-deep: #d97316;
+    --bg:          #ffffff;
+    --bg-soft:     #f6f8fb;
+    --bg-panel:    #eef3f9;
+    --text:        #1f2d4a;
+    --text-soft:   #5a6479;
+    --text-muted:  #8a93a6;
+    --rule:        #e1e7ef;
+    --rule-strong: #c9d3e0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Open Sans', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 40px;
+  }
+
+  /* ============== TOP NAV ============== */
+  header.topnav {
+    background: #fff;
+    border-bottom: 1px solid var(--rule);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 1px 0 rgba(31, 45, 74, 0.04);
+  }
+
+  .topnav-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 0;
+    gap: 32px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    text-decoration: none;
+    color: var(--navy);
+  }
+  .brand img { height: 42px; width: auto; display: block; }
+  .brand-divider { width: 1px; height: 28px; background: var(--rule-strong); }
+  .brand-product { display: flex; flex-direction: column; line-height: 1.1; }
+  .brand-product-name {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700; font-size: 17px; color: var(--navy);
+    letter-spacing: -0.005em;
+  }
+  .brand-product-tag {
+    font-size: 11px; color: var(--text-muted); font-weight: 500;
+    letter-spacing: 0.06em; text-transform: uppercase; margin-top: 2px;
+  }
+
+  nav.section-nav {
+    display: flex; gap: 28px; font-size: 14px; font-weight: 600; margin-left: auto;
+  }
+  nav.section-nav a {
+    color: var(--navy); text-decoration: none; position: relative; padding: 6px 0;
+    transition: color 0.2s;
+  }
+  nav.section-nav a:hover { color: var(--blue); }
+  nav.section-nav a::after {
+    content: ''; position: absolute; left: 0; bottom: 0; width: 0;
+    height: 2px; background: var(--orange); transition: width 0.3s ease;
+  }
+  nav.section-nav a:hover::after { width: 100%; }
+  .nav-cta {
+    background: var(--orange); color: #fff !important; padding: 10px 22px !important;
+    border-radius: 4px; font-weight: 700 !important; font-size: 13px !important;
+    transition: background 0.2s !important;
+  }
+  .nav-cta:hover { background: var(--orange-deep); color: #fff !important; }
+  .nav-cta::after { display: none !important; }
+
+  /* ============== PAGE HEADER (thin) ============== */
+  .page-header {
+    background: linear-gradient(180deg, var(--bg-soft) 0%, #fff 100%);
+    border-bottom: 1px solid var(--rule);
+    padding: 28px 0 24px;
+  }
+  .breadcrumb {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text-soft);
+    margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .breadcrumb a { color: var(--blue); text-decoration: none; font-weight: 600; transition: color 0.2s; }
+  .breadcrumb a:hover { text-decoration: underline; }
+  .breadcrumb .sep { color: var(--rule-strong); }
+  .breadcrumb .current { color: var(--text-soft); font-weight: 500; }
+  .page-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 800; font-size: clamp(28px, 3.6vw, 36px);
+    line-height: 1.15; letter-spacing: -0.02em;
+    color: var(--navy);
+    margin: 0;
+  }
+  .page-title em {
+    color: var(--blue-bright); font-style: normal;
+  }
+
+  /* ============== SPA LAYOUT (sidebar + content) ============== */
+  .spa-wrap {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 48px;
+    padding: 48px 0 80px;
+    align-items: start;
+  }
+
+  aside.sidebar {
+    position: sticky;
+    top: 96px;
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 24px 0;
+    overflow: hidden;
+  }
+  .sidebar-title {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--orange);
+    padding: 0 24px 16px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 12px;
+  }
+  ul.sidebar-nav { list-style: none; }
+  ul.sidebar-nav li {}
+  ul.sidebar-nav li button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    padding: 11px 24px;
+    font-family: 'Open Sans', sans-serif;
+    font-size: 14.5px;
+    color: var(--text);
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: all 0.2s;
+  }
+  ul.sidebar-nav li button:hover {
+    background: #fff;
+    color: var(--blue);
+    border-left-color: var(--blue-bright);
+  }
+  ul.sidebar-nav li.active button {
+    background: #fff;
+    color: var(--navy);
+    font-weight: 700;
+    border-left-color: var(--orange);
+  }
+
+  /* Sidebar section label (for grouping nav items) */
+  .sidebar-section-label {
+    padding: 16px 24px 8px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border-top: 1px solid var(--rule);
+    margin-top: 8px;
+  }
+  .sidebar-section-label:first-of-type { border-top: none; margin-top: 0; }
+
+  /* Glossary list */
+  .view dl.glossary {
+    margin: 18px 0;
+    padding: 0;
+  }
+  .view dl.glossary dt {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    color: var(--navy);
+    font-size: 14.5px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+  }
+  .view dl.glossary dt:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+  .view dl.glossary dd {
+    margin: 4px 0 0 0;
+    font-size: 14px;
+    color: var(--text-soft);
+    line-height: 1.6;
+  }
+  .view dl.glossary dd a {
+    font-weight: 600;
+  }
+
+  /* Checklist card */
+  .view ul.checklist {
+    list-style: none;
+    margin: 16px 0 24px;
+    padding: 0;
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .view ul.checklist .checklist-title {
+    background: var(--navy);
+    color: #fff;
+    padding: 10px 18px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .view ul.checklist li {
+    padding: 12px 18px 12px 46px;
+    position: relative;
+    margin-bottom: 0;
+    border-top: 1px solid var(--rule);
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+  .view ul.checklist li.checklist-title {
+    padding: 10px 18px;
+    border-top: none;
+  }
+  .view ul.checklist li:not(.checklist-title)::before {
+    content: '';
+    position: absolute;
+    left: 18px;
+    top: 16px;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--rule-strong);
+    border-radius: 3px;
+    background: #fff;
+  }
+
+  /* Cross-reference link */
+  .view .xref {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-panel);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--blue-bright);
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 13.5px;
+    color: var(--text);
+    text-decoration: none !important;
+    border-bottom: 1px solid var(--rule) !important;
+    margin: 6px 0;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .view .xref:hover {
+    background: var(--blue-pale);
+    color: var(--navy) !important;
+    border-left-color: var(--blue) !important;
+  }
+  .view .xref::before { content: '\u2197'; color: var(--blue); font-weight: 700; }
+  .view .xref strong { color: var(--navy); font-weight: 700; }
+
+  /* Self-check card stack */
+  .view .self-check-stack {
+    margin: 18px 0 24px;
+    display: grid;
+    gap: 14px;
+  }
+  .view .self-check-card {
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--blue-bright);
+    border-radius: 6px;
+    padding: 16px 20px;
+  }
+  .view .self-check-num {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .view .self-check-card .scenario {
+    font-weight: 600;
+    color: var(--navy);
+    font-size: 15px;
+    line-height: 1.55;
+    margin: 0 0 10px;
+  }
+  .view .self-check-card .prompt {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text);
+    margin: 0 0 12px;
+  }
+  .view .self-check-card .where {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    text-decoration: none !important;
+    border-bottom: none !important;
+    background: var(--bg-panel);
+    border: 1px solid var(--rule);
+    padding: 5px 11px;
+    border-radius: 3px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .view .self-check-card .where::before {
+    content: '\u2937';
+    color: var(--blue);
+    font-weight: 700;
+  }
+  .view .self-check-card .where:hover {
+    background: var(--blue-pale);
+    color: var(--navy) !important;
+  }
+  .view .self-check-card .where strong { color: var(--navy); font-weight: 700; }
+
+  main.content-card {
+    background: #fff;
+    min-width: 0; /* prevent grid blowout */
+  }
+
+  /* SPA view switching */
+  .view { display: none; }
+  .view.active { display: block; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ============== ARTICLE / TYPOGRAPHY ============== */
+  .view h1 {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700; font-size: 36px;
+    color: var(--navy);
+    letter-spacing: -0.02em;
+    margin-bottom: 20px;
+    line-height: 1.1;
+  }
+  .view h2 {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700; font-size: 24px;
+    color: var(--navy);
+    margin-top: 40px; margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--rule);
+    letter-spacing: -0.015em;
+  }
+  .view h3 {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700; font-size: 18px;
+    color: var(--navy);
+    margin-top: 28px; margin-bottom: 12px;
+    letter-spacing: -0.01em;
+  }
+  .view h4 {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 600; font-size: 15px;
+    color: var(--navy-soft);
+    margin-top: 20px; margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .view p {
+    font-size: 15px; line-height: 1.7; margin-bottom: 14px;
+    color: var(--text);
+  }
+  .view p strong { color: var(--navy); font-weight: 700; }
+  .view a {
+    color: var(--blue); text-decoration: none;
+    border-bottom: 1px solid var(--blue-pale);
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .view a:hover { color: var(--orange); border-bottom-color: var(--orange); }
+  .view ul, .view ol { margin: 0 0 18px 22px; font-size: 15px; line-height: 1.7; }
+  .view li { margin-bottom: 6px; }
+  .view li strong { color: var(--navy); font-weight: 700; }
+  .view code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    background: var(--bg-panel);
+    color: var(--navy);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  /* Tables */
+  .view table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0 24px;
+    font-size: 14px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .view thead { background: var(--navy); color: #fff; }
+  .view th {
+    text-align: left; padding: 12px 16px;
+    font-weight: 700; font-size: 12px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .view td {
+    padding: 13px 16px; border-bottom: 1px solid var(--rule);
+    vertical-align: top; line-height: 1.55;
+  }
+  .view tr:last-child td { border-bottom: none; }
+  .view tbody tr:nth-child(even) { background: var(--bg-soft); }
+  .view tbody tr:hover { background: var(--blue-pale); }
+
+  /* Callouts */
+  .view .callout {
+    display: flex; gap: 14px;
+    padding: 16px 20px;
+    border-radius: 6px;
+    margin: 22px 0;
+    border-left: 4px solid;
+  }
+  .view .callout-icon {
+    flex-shrink: 0; width: 24px; height: 24px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-weight: 700; font-size: 13px; color: #fff;
+  }
+  .view .callout p { margin-bottom: 0; font-size: 14.5px; }
+  .view .callout.important { background: #fef5e7; border-color: var(--orange); }
+  .view .callout.important .callout-icon { background: var(--orange); }
+  .view .callout.warning { background: #fef5e7; border-color: var(--orange); }
+  .view .callout.warning .callout-icon { background: var(--orange); }
+  .view .callout.try-now {
+    background: #fff7ec;
+    border-color: var(--orange);
+    border-left: 4px solid var(--orange);
+  }
+  .view .callout.try-now .callout-icon {
+    background: var(--orange);
+    color: #fff;
+    position: relative;
+  }
+  .view .callout.try-now .callout-icon::before {
+    content: "\25B8";
+    font-size: 16px;
+    line-height: 1;
+  }
+  .view .callout.try-now .try-now-label {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--orange-deep, #d97316);
+    margin-bottom: 6px;
+    display: block;
+  }
+  .view .callout.try-now .callout-label {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--orange-deep, #d97316);
+    margin-bottom: 6px;
+  }
+  .view .callout.try-now strong {
+    color: var(--navy);
+  }
+
+  .view .callout.note, .view .callout.tip, .view .callout.info {
+    background: var(--blue-pale); border-color: var(--blue);
+  }
+  .view .callout.note .callout-icon, .view .callout.tip .callout-icon, .view .callout.info .callout-icon {
+    background: var(--blue);
+  }
+  /* Original used callout-label as a heading inside the box */
+  .view .callout-label {
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 4px;
+    font-size: 14.5px;
+  }
+
+  /* Images */
+  .view img, .view .screenshot {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    margin: 14px 0;
+    background: var(--bg-soft);
+  }
+
+  /* Topic footer nav (back to index, prev/next) */
+  .topic-footer-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 48px;
+    padding-top: 28px;
+    border-top: 1px solid var(--rule);
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .back-btn, .next-btn {
+    background: transparent;
+    border: 1px solid var(--rule-strong);
+    color: var(--navy);
+    padding: 10px 18px;
+    border-radius: 4px;
+    font-family: 'Open Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .back-btn:hover, .next-btn:hover {
+    background: var(--navy);
+    color: #fff;
+    border-color: var(--navy);
+  }
+  .next-btn {
+    background: var(--orange);
+    border-color: var(--orange);
+    color: #fff;
+  }
+  .next-btn:hover {
+    background: var(--orange-deep);
+    border-color: var(--orange-deep);
+  }
+
+  /* Email card / video link styling from original */
+  .view .email-card {
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 20px;
+    margin: 18px 0;
+  }
+  .view .email-card .label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .view .email-card .addr {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--navy);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .view .email-compose-btn {
+    display: inline-block;
+    background: var(--orange);
+    color: #fff !important;
+    text-decoration: none !important;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 700;
+    border: none !important;
+  }
+  .view .email-compose-btn:hover { background: var(--orange-deep); }
+
+  .view .video-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--blue-pale);
+    color: var(--blue) !important;
+    padding: 8px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none !important;
+    border: none !important;
+    margin: 6px 0;
+  }
+  .view .video-link:hover { background: var(--blue); color: #fff !important; }
+
+  /* Hide original branding header/yellow bar/sidebar (we replace with GSI nav) */
+  .blue-header, .yellow-bar, aside.sidebar.original { display: none; }
+
+  /* Diamond divider — give it GSI styling */
+  .view .diamond-divider {
+    text-align: center;
+    margin: 28px 0;
+  }
+  .view .diamond {
+    display: inline-block;
+    width: 8px; height: 8px;
+    background: var(--orange);
+    transform: rotate(45deg);
+  }
+
+  /* Figure / figcaption */
+  .view figure {
+    margin: 22px 0;
+  }
+  .view figure.screenshot {
+    border: none;
+    background: transparent;
+    padding: 0;
+  }
+  .view figure.screenshot img,
+  .view figure.screenshot svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    margin: 0 auto;
+    background: var(--bg-soft);
+  }
+  .view figcaption {
+    font-size: 13px;
+    color: var(--text-soft);
+    text-align: center;
+    margin-top: 10px;
+    line-height: 1.55;
+    padding: 0 8px;
+  }
+  .view figcaption strong {
+    display: block;
+    color: var(--navy);
+    font-weight: 700;
+    font-size: 13.5px;
+    margin-bottom: 3px;
+  }
+
+  /* Hero block on Index */
+  .hero-block {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 32px;
+    align-items: center;
+    background: linear-gradient(135deg, var(--bg-soft) 0%, var(--blue-pale) 100%);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 28px 32px;
+    margin-bottom: 28px;
+  }
+  .hero-block .hero-text p { margin-bottom: 10px; }
+  .hero-block .hero-text p:last-child { margin-bottom: 0; }
+  .hero-block svg { display: block; max-width: 100%; height: auto; }
+  @media (max-width: 720px) {
+    .hero-block { grid-template-columns: 1fr; }
+    .hero-block .hero-art { display: none; }
+  }
+
+
+  /* Page meta (last updated, search hint) */
+  .page-meta {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 10px;
+  }
+  .page-meta .meta-item { display: inline-flex; align-items: center; gap: 6px; }
+  .page-meta .meta-item strong { color: var(--text-soft); font-weight: 600; }
+  .page-meta kbd {
+    background: #fff;
+    border: 1px solid var(--rule-strong);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--navy);
+  }
+
+  /* Email preview block */
+  .email-preview {
+    margin-top: 14px;
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .email-preview .ep-header {
+    background: var(--bg-panel);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 12px;
+    color: var(--text-soft);
+  }
+  .email-preview .ep-header strong { color: var(--navy); font-weight: 600; }
+  .email-preview .ep-row {
+    padding: 4px 14px;
+    display: flex;
+    gap: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .email-preview .ep-row:first-child { padding-top: 10px; }
+  .email-preview .ep-row .lbl {
+    color: var(--text-muted);
+    font-weight: 600;
+    min-width: 56px;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    padding-top: 2px;
+  }
+  .email-preview .ep-row .val { color: var(--navy); }
+  .email-preview .ep-body {
+    padding: 14px;
+    border-top: 1px solid var(--rule);
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text);
+    white-space: pre-line;
+    background: var(--bg-soft);
+  }
+
+  /* External link icon for video links */
+  .view .video-link::after {
+    content: '↗';
+    margin-left: 4px;
+    font-size: 13px;
+  }
+
+  /* "Done" / completion button */
+  .next-btn.done-btn {
+    background: #2e7d4f;
+    border-color: #2e7d4f;
+  }
+  .next-btn.done-btn:hover {
+    background: #226338;
+    border-color: #226338;
+  }
+
+  /* ============== FOOTER ============== */
+  /* ============== FOOTER (thin, single line) ============== */
+  footer {
+    background: var(--navy-deep);
+    color: rgba(255,255,255,0.7);
+    padding: 18px 0;
+    font-size: 13px;
+    border-top: 3px solid var(--blue);
+  }
+  .footer-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .footer-line strong { color: #fff; font-weight: 700; }
+  .footer-line a {
+    color: var(--blue-bright);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .footer-line a:hover { color: #fff; }
+  .footer-sep { color: rgba(255,255,255,0.25); margin: 0 6px; }
+
+  /* ============== RESPONSIVE ============== */
+  @media (max-width: 960px) {
+    .spa-wrap { grid-template-columns: 1fr; gap: 28px; }
+    aside.sidebar { position: static; }
+  }
+  @media (max-width: 800px) {
+    .container { padding: 0 22px; }
+    nav.section-nav { display: none; }
+    .footer-line { gap: 12px; font-size: 12px; }
+  }
+
+  /* Embed mode (help-sidebar iframe, ?embed=1): doc-chrome.js adds html.doc-embed
+     and hides the doc-header. Also hide the SPA's own chrome so only the active
+     topic shows in the help drawer. The hash (e.g. #utilities) already deep-links
+     via the DOMContentLoaded handler below. */
+  .doc-embed .page-header,
+  .doc-embed aside.sidebar,
+  .doc-embed footer { display: none; }
+  .doc-embed .spa-wrap { grid-template-columns: 1fr; gap: 0; padding: 8px 0 24px; }
+</style>
+<link rel="stylesheet" href="../Tools/doc-header.css">
+<script defer src="../Tools/doc-chrome.js"></script>
+</head>
+<body data-doc-type="howto">
+
+<!-- ============ TOP NAV ============ -->
+<header class="doc-header" data-doc-chrome>
+  <span class="doc-last-updated">Last updated <time datetime="2026-08-27">August 27, 2026</time></span>
+</header>
+
+<!-- ============ PAGE HEADER ============ -->
+<section class="page-header">
+  <div class="container">
+<h1 class="page-title">Start Here &mdash; RR <em>Administrators</em></h1>
+  </div>
+</section>
+
+<!-- ============ SPA LAYOUT ============ -->
+<div class="container">
+  <div class="spa-wrap">
+    <aside class="sidebar">
+      <div class="sidebar-title">Start Here</div>
+
+      <div class="sidebar-section-label">Getting Oriented</div>
+      <ul class="sidebar-nav" id="sidebar-nav">
+        <li data-target="home"><button onclick="showView('home')">Index</button></li>
+        <li data-target="first-setup"><button onclick="showView('topic-first-setup')">Your First Setup</button></li>
+        <li data-target="pre-launch"><button onclick="showView('topic-pre-launch')">Pre-launch Checklist</button></li>
+      </ul>
+
+      <div class="sidebar-section-label">Your Home Dashboard</div>
+      <ul class="sidebar-nav">
+        <li data-target="admin-home"><button onclick="showView('topic-admin-home')">Your Home Screen</button></li>
+        <li data-target="people-licensing"><button onclick="showView('topic-people-licensing')">People &amp; Licensing</button></li>
+        <li data-target="data"><button onclick="showView('topic-data')">Data &amp; Refresh</button></li>
+        <li data-target="system-health"><button onclick="showView('topic-system-health')">System Health</button></li>
+        <li data-target="ai-assistant"><button onclick="showView('topic-ai-assistant')">AI Assistant &amp; Your Data</button></li>
+        <li data-target="utilities"><button onclick="showView('topic-utilities')">Utilities</button></li>
+        <li data-target="reload-gl"><button onclick="showView('topic-reload-gl')">Reload GL Data</button></li>
+        <li data-target="reload-cardex"><button onclick="showView('topic-reload-cardex')">Reload Cardex Data</button></li>
+        <li data-target="fiscal-period"><button onclick="showView('topic-fiscal-period')">Correct a Period-End Date</button></li>
+      </ul>
+
+      <div class="sidebar-section-label">Procedures (here)</div>
+      <ul class="sidebar-nav">
+        <li data-target="overview"><button onclick="showView('topic-overview')">About Administration</button></li>
+        <li data-target="request-license"><button onclick="showView('topic-request-license')">Request a License</button></li>
+      </ul>
+
+      <div class="sidebar-section-label">Detailed Topics</div>
+      <ul class="sidebar-nav">
+        <li><button onclick="window.location.href='administrator-managing-users.html'">Manage the Team</button></li>
+        <li><button onclick="window.location.href='administrator-managing-companies.html'">Managing Companies</button></li>
+      </ul>
+
+      <div class="sidebar-section-label">Reference</div>
+      <ul class="sidebar-nav">
+        <li data-target="self-check"><button onclick="showView('topic-self-check')">Self-Check</button></li>
+        <li data-target="vocabulary"><button onclick="showView('topic-vocabulary')">Vocabulary</button></li>
+      </ul>
+    </aside>
+
+    <main class="content-card">
+      <section id="home" class="view active">
+        <h1>Start Here &mdash; RR Administrators</h1>
+
+        <div class="hero-block">
+          <div class="hero-text">
+            <p>You are the person who keeps RapidReconciler trustworthy for everyone else &mdash; the right people have access, the data is current, and the service is healthy. This guide walks you through every one of those jobs in plain language.</p>
+            <p>When you sign in, RapidReconciler opens on your <strong>Home</strong> screen. At the top, <strong>Set&nbsp;Context</strong> fixes the database, companies, and period you&rsquo;re working in. Below that, your administrator surface leads with the <strong>RapidReconciler&nbsp;AI</strong> band &mdash; tap a suggested question and RapidReconciler answers from your own instance &mdash; over four cards you act on: <strong>Licensing</strong>, <strong>Team&nbsp;&amp;&nbsp;access</strong>, <strong>Report&nbsp;Engine</strong>, and <strong>Activity&nbsp;log</strong>. A quiet <strong>instance-health</strong> strip underneath carries the background checks. The <em>Your Home Dashboard</em> topics in the sidebar walk through each one, with pictures of exactly what you&rsquo;ll see.</p>
+          </div>
+          <div class="hero-art" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 220" font-family="'Open Sans', 'Source Sans 3', sans-serif">
+              <rect x="0" y="0" width="240" height="220" rx="6" fill="#f5f7fa" stroke="#c9d3e0"/>
+              <text x="14" y="23" font-size="11" font-weight="800" fill="#1f2d4a" letter-spacing="0.5">Home</text>
+              <rect x="168" y="11" width="60" height="15" rx="7.5" fill="#def4e6"/>
+              <circle cx="178" cy="18.5" r="3" fill="#2e8a55"/>
+              <text x="185" y="22" font-size="8" font-weight="700" fill="#1a6b3f">Connected</text>
+              <text x="14" y="38" font-size="8" font-weight="800" fill="#3b4d72" letter-spacing="1">ADMINISTRATOR &#8599;</text>
+
+              <!-- Team & access -->
+              <rect x="12" y="44" width="102" height="74" rx="6" fill="#f1f9f4" stroke="#c5e6d2"/>
+              <rect x="12" y="44" width="3" height="74" rx="1.5" fill="#2e8a55"/>
+              <text x="24" y="62" font-size="9" font-weight="700" fill="#1f2d4a">Team &amp;</text>
+              <text x="24" y="73" font-size="9" font-weight="700" fill="#1f2d4a">access</text>
+              <text x="24" y="98" font-size="7.5" fill="#2e8a55">Team active &amp;</text>
+              <text x="24" y="108" font-size="7.5" fill="#2e8a55">licensed</text>
+
+              <!-- Report Engine -->
+              <rect x="126" y="44" width="102" height="74" rx="6" fill="#f1f9f4" stroke="#c5e6d2"/>
+              <rect x="126" y="44" width="3" height="74" rx="1.5" fill="#2e8a55"/>
+              <text x="138" y="62" font-size="9" font-weight="700" fill="#1f2d4a">Report</text>
+              <text x="138" y="73" font-size="9" font-weight="700" fill="#1f2d4a">Engine</text>
+              <text x="138" y="98" font-size="7.5" fill="#2e8a55">Running normally</text>
+
+              <!-- Activity log -->
+              <rect x="12" y="128" width="102" height="74" rx="6" fill="#f1f9f4" stroke="#c5e6d2"/>
+              <rect x="12" y="128" width="3" height="74" rx="1.5" fill="#2e8a55"/>
+              <text x="24" y="146" font-size="9" font-weight="700" fill="#1f2d4a">Activity</text>
+              <text x="24" y="157" font-size="9" font-weight="700" fill="#1f2d4a">log</text>
+              <text x="24" y="182" font-size="7.5" fill="#2e8a55">Recent events</text>
+
+              <!-- Licensing -->
+              <rect x="126" y="128" width="102" height="74" rx="6" fill="#f1f9f4" stroke="#c5e6d2"/>
+              <rect x="126" y="128" width="3" height="74" rx="1.5" fill="#2e8a55"/>
+              <text x="138" y="146" font-size="9" font-weight="700" fill="#1f2d4a">Licensing</text>
+              <text x="138" y="172" font-size="7.5" fill="#2e8a55">Active &middot;</text>
+              <text x="138" y="182" font-size="7.5" fill="#2e8a55">renewal ok</text>
+            </svg>
+          </div>
+        </div>
+
+        <div class="page-meta">
+          <span class="meta-item"><strong>Last reviewed:</strong>&nbsp;June 2026</span>
+          <span class="meta-item">Press <kbd>Ctrl</kbd>+<kbd>F</kbd> (or <kbd>&#8984;</kbd>+<kbd>F</kbd>) to search within a topic</span>
+        </div>
+
+        <div class="diamond-divider"><span class="diamond"></span></div>
+
+        <h2>Your Responsibilities</h2>
+        <p>Four things are yours to keep true: the right people have the right access, the data is current, capacity and licensing stay ahead of demand, and the engine is healthy. Most of these run on a built-in reminder, and the <strong>RapidReconciler&nbsp;AI</strong> band on Home rolls up whatever is due &mdash; ask <em>What needs my attention right now?</em> &mdash; so this is what you own, not a list you have to keep in your head.</p>
+
+        <table class="doc-table">
+          <thead>
+            <tr><th style="width:30%;">Responsibility</th><th style="width:34%;">Where on Home</th><th>How often</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Keep the data current</strong></td>
+              <td>The <strong>data&nbsp;freshness</strong> pill in the workbar at the bottom of Home &mdash; it reads &ldquo;Data as of&rdquo; and the date, and turns red if the last refresh failed. It is on screen for everyone, not just administrators, because everyone is reconciling against that copy. Open the <strong>Data refresh</strong> page to pull a refresh during close.</td>
+              <td>Daily glance / at close</td>
+            </tr>
+            <tr>
+              <td><strong>Keep the team current</strong></td>
+              <td>Team &amp; access &mdash; review users, roles, and access; sign off the list.</td>
+              <td>Reminder: 30 / 60 / 90 days</td>
+            </tr>
+            <tr>
+              <td><strong>Confirm the refresh schedule</strong></td>
+              <td>Review Job Schedule page &mdash; confirm the nightly time, or send a change request to your DBA.</td>
+              <td>Reminder: 30 / 60 days</td>
+            </tr>
+            <tr>
+              <td><strong>Review the security settings</strong></td>
+              <td>Team &amp; access &rarr; Complex passwords, plus the AI plan and the Activity&nbsp;log.</td>
+              <td>Reminders: 3&ndash;6 mo / 30&ndash;60 days / 7&ndash;30 days</td>
+            </tr>
+            <tr>
+              <td><strong>Stay ahead of capacity &amp; licensing</strong></td>
+              <td>The Purge Old Data page (disk) and the Licensing card (companies in use &amp; renewal).</td>
+              <td>As space tightens / before renewal</td>
+            </tr>
+            <tr>
+              <td><strong>Repair a stubborn difference</strong></td>
+              <td>Reload GL, Reload Cardex, and Correct a Period-End Date &mdash; each its own page; none touch JD&nbsp;Edwards.</td>
+              <td>Rare &mdash; when normal steps don&rsquo;t clear it</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout note">
+          <div class="callout-icon">i</div>
+          <div><span class="callout-label">You don&rsquo;t have to track these by hand</span><p>Each reminder turns its Home status dot amber when it&rsquo;s due and green once you&rsquo;ve acknowledged it &mdash; and that acknowledgement is recorded in the Activity Log, so there&rsquo;s an audit trail of who reviewed what and when. Clearing the amber dots on Home <em>is</em> the job.</p></div>
+        </div>
+
+        <div class="diamond-divider"><span class="diamond"></span></div>
+
+        <h2>If You Are New to the Role</h2>
+
+        <p>Read the two Getting Oriented topics in order before working through the procedures. They cover the recommended sequence for an initial deployment, so the procedural topics make sense as steps in a flow rather than a list of features.</p>
+
+        <table class="doc-table">
+          <thead>
+            <tr><th>Read in this order</th><th>What it covers</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a href="javascript:void(0)" onclick="showView('topic-first-setup')">Your First Setup</a></td>
+              <td>The recommended order to configure things in for a first deployment, with links into the procedural topics.</td>
+            </tr>
+            <tr>
+              <td><a href="javascript:void(0)" onclick="showView('topic-pre-launch')">Pre-launch Checklist</a></td>
+              <td>What must be configured and verified before users can productively work in the application.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>Your Home Dashboard</h2>
+        <p>These topics walk through the Home screen exactly as you see it &mdash; what each area is for, how to use it, and what &ldquo;good&rdquo; looks like. Start with <em>Your Home Screen</em> for the lay of the land, then work across each area.</p>
+        <table class="doc-table">
+          <thead><tr><th>Topic</th><th>What it covers</th></tr></thead>
+          <tbody>
+            <tr><td><a href="javascript:void(0)" onclick="showView('topic-admin-home')">Your Home Screen</a></td><td>Your command center at a glance &mdash; the panels you look after, and how to read the colored status dots.</td></tr>
+            <tr><td><a href="javascript:void(0)" onclick="showView('topic-people-licensing')">People &amp; Licensing</a></td><td>Add your team, set what each person can do, and see how many company seats you&rsquo;re licensed for.</td></tr>
+            <tr><td><a href="javascript:void(0)" onclick="showView('topic-data')">Data &amp; Refresh</a></td><td>How the nightly refresh works, how to pull today&rsquo;s changes during close, and how to free up space by purging very old data.</td></tr>
+            <tr><td><a href="javascript:void(0)" onclick="showView('topic-system-health')">System Health</a></td><td>The three at-a-glance tools &mdash; Report Engine, AI Assistant, and Activity Log &mdash; that show the engine is healthy and let you act if it isn&rsquo;t.</td></tr>
+            <tr><td><a href="javascript:void(0)" onclick="showView('topic-ai-assistant')">AI Assistant &amp; Your Data</a></td><td>The optional, opt-in AI help &mdash; exactly what is sent at each level, where it goes, and Anthropic&rsquo;s data commitments. Read this before turning anything on.</td></tr>
+            <tr><td><a href="javascript:void(0)" onclick="showView('topic-utilities')">Utilities</a></td><td>The admin repair &amp; maintenance tools &mdash; Reload GL, Reload Cardex, Correct a Period-End Date, and Purge Old Data &mdash; for the rare times normal steps don&rsquo;t resolve a difference.</td></tr>
+            <tr><td><a href="javascript:void(0)" onclick="showView('topic-reload-gl')">Reload GL Data</a></td><td>Clears RapidReconciler&rsquo;s copy of the general ledger from the earliest broken period forward when a roll-forward break won&rsquo;t clear by posting the open batches; the next refresh re-pulls it clean.</td></tr>
+            <tr><td><a href="javascript:void(0)" onclick="showView('topic-reload-cardex')">Reload Cardex Data</a></td><td>Clears RapidReconciler&rsquo;s copy of the perpetual cardex from a date you choose when an item&rsquo;s cardex won&rsquo;t tie to its transactions; the next refresh re-pulls it clean.</td></tr>
+            <tr><td><a href="javascript:void(0)" onclick="showView('topic-fiscal-period')">Correct a Period-End Date</a></td><td>The guarded three-step tool &mdash; Check, Preview, Apply &mdash; for after a fiscal-calendar change moves a period-ending date, so the reporting tables carry the corrected date for every company.</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Procedural Topics</h2>
+        <p>The full procedural reference. Self-contained &mdash; each topic includes step-by-step navigation, field references, and links to related video tutorials where available.</p>
+
+        <table class="doc-table">
+          <thead>
+            <tr><th>Section</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a href="javascript:void(0)" onclick="showView('topic-overview')">About Administration</a></td>
+              <td>Orientation for the administrator role &mdash; how it&rsquo;s assigned and seeded at go-live.</td>
+            </tr>
+            <tr>
+              <td><a href="administrator-managing-companies.html">Company Management</a></td>
+              <td>Configure licensed companies, fiscal start dates, currencies, AAI documents, and thresholds.</td>
+            </tr>
+            <tr>
+              <td><a href="javascript:void(0)" onclick="showView('topic-request-license')">Request a License</a></td>
+              <td>How to request an additional company or user license from GSI Sales, and what to include in the email.</td>
+            </tr>
+            <tr>
+              <td><a href="administrator-managing-users.html">Manage the Team</a></td>
+              <td>Invite, edit, and remove users. Assign each person a role plus their database and company access.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>Reference</h2>
+        <p>Use these on demand. Self-Check is a useful read-through after the Getting Oriented topics; Vocabulary is a lookup utility.</p>
+
+        <table class="doc-table">
+          <thead>
+            <tr><th>Section</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a href="javascript:void(0)" onclick="showView('topic-self-check')">Self-Check</a></td>
+              <td>Six scenario questions to test whether the doc landed. Not graded.</td>
+            </tr>
+            <tr>
+              <td><a href="javascript:void(0)" onclick="showView('topic-vocabulary')">Vocabulary</a></td>
+              <td>RapidReconciler-specific terms relevant to the administrator role.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout tip">
+          <div class="callout-label">Looking up a specific task?</div>
+          <p>Jump straight to the relevant topic from the sidebar. The Getting Oriented topics are most useful on initial deployment; experienced admins can skip them.</p>
+        </div>
+      </section>
+      <section id="topic-first-setup" class="view">
+        <h1>Your First Setup</h1>
+        <p>The recommended order to configure RapidReconciler for a first deployment. Each step links into the procedural topic that explains how to do it. Following the order matters &mdash; some steps depend on earlier ones.</p>
+
+        <div class="diamond-divider"><span class="diamond"></span></div>
+
+        <h2>Recommended Sequence</h2>
+
+        <table class="doc-table">
+          <thead>
+            <tr><th style="width:6%;">#</th><th style="width:30%;">Action</th><th>Why This Order</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1</strong></td>
+              <td><strong>Read <a href="javascript:void(0)" onclick="showView('topic-overview')">About Administration</a>.</strong></td>
+              <td>Confirms how the administrator role is assigned and gives you the vocabulary for the rest of the setup.</td>
+            </tr>
+            <tr>
+              <td><strong>2</strong></td>
+              <td><strong>Configure each licensed company.</strong> See <a href="administrator-managing-companies.html">Company Management</a>.</td>
+              <td>Fiscal year start, base currency, AAI document types, tolerance thresholds. Everything downstream filters by company, so getting this right first prevents rework later.</td>
+            </tr>
+            <tr>
+              <td><strong>3</strong></td>
+              <td><strong>Add users and assign access.</strong> See <a href="administrator-managing-users.html">Manage the Team</a>.</td>
+              <td>Users are added after companies because per-module company access depends on companies being configured first. Adding users earlier means revisiting them after company setup.</td>
+            </tr>
+            <tr>
+              <td><strong>4</strong></td>
+              <td><strong>Walk the <a href="javascript:void(0)" onclick="showView('topic-pre-launch')">Pre-launch Checklist</a> before announcing availability to end-users.</strong></td>
+              <td>Confirms each area is set up correctly and that a representative end-user can productively work in the application before broader rollout.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>If You Are Adding a Company After Initial Deployment</h2>
+
+        <p>The sequence above describes a first deployment. Once RapidReconciler is live and you need to add a newly-licensed JDE company:</p>
+
+        <ol>
+          <li>Submit the company licensing request to GSI support &mdash; see <a href="administrator-managing-companies.html#adding">Adding a Company License</a>.</li>
+          <li>Once GSI confirms the license is in place, configure the new company per <a href="administrator-managing-companies.html">Company Management</a>.</li>
+          <li>Update existing users so they can see the new company &mdash; users set to <strong>All licensed companies</strong> pick it up automatically; users on a specific company list must be edited to include it.</li>
+        </ol>
+
+        <h2>If You Are Inheriting an Existing Deployment</h2>
+
+        <p>If you are taking over administration of a RapidReconciler instance that someone else configured:</p>
+
+        <ul>
+          <li>Walk the Pre-launch Checklist as a sanity check &mdash; treat it as a configuration audit rather than a setup procedure.</li>
+          <li>Pay particular attention to user access lists. Stale users (departed staff still configured) are the most common finding when an administrator changes hands.</li>
+        </ul>
+
+        <a class="xref" href="javascript:void(0)" onclick="showView('topic-pre-launch')">
+          When you&rsquo;re done with the sequence, walk the <strong>Pre-launch Checklist</strong> to confirm the deployment is ready for end-users.
+        </a>
+
+        <div class="callout try-now">
+          <div class="callout-label">Try this now</div>
+          <p><strong>For new deployments:</strong> identify which step from the recommended sequence you&rsquo;re currently on and what&rsquo;s blocking the next one. The most common blockers are waiting for company licensing from GSI or waiting for end-user lists from the customer&rsquo;s HR or operations team. Knowing where you&rsquo;re stuck is the first step to unstuck.</p>
+          <p><strong>For inherited deployments:</strong> walk the Pre-launch Checklist now &mdash; not as a setup procedure but as a configuration audit. Most inherited deployments have at least one finding (usually stale users). Catching them on a quiet day is far better than discovering them at period close.</p>
+        </div>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-pre-launch')">Next: Pre-launch Checklist &rarr;</button>
+        </div>
+      </section>
+      <section id="topic-pre-launch" class="view">
+        <h1>Pre-launch Checklist</h1>
+        <p>What must be configured and verified before users can productively work in the application. Use this for first deployment, as a configuration audit when inheriting an instance, and as a periodic review at major milestones (new fiscal year, new licensed company, organizational changes).</p>
+
+        <div class="diamond-divider"><span class="diamond"></span></div>
+
+        <h2>Companies</h2>
+
+        <ul class="checklist">
+          <li class="checklist-title">Each licensed company is configured</li>
+          <li>The fiscal year start date matches the company&rsquo;s fiscal calendar in JDE.</li>
+          <li>The base currency is correct.</li>
+          <li>AAI document types are populated and match the document types actually in use in JDE.</li>
+          <li>Tolerance thresholds are set to your organization&rsquo;s materiality standard (or to the GSI default if you have not yet established one).</li>
+          <li>The company appears in the period selector with reasonable historical periods available.</li>
+        </ul>
+
+        <h2>Users</h2>
+
+        <ul class="checklist">
+          <li class="checklist-title">User access is appropriate</li>
+          <li>Every user who needs access has an account.</li>
+          <li>Departed staff have been removed.</li>
+          <li>Each user&rsquo;s <strong>role</strong> matches their job (inventory accountants get a reconciliation role; A/P clerks get the A/P Clerk role; only your administrator gets RR Administrator).</li>
+          <li>Per-module company access is set correctly for each user.</li>
+          <li>At least one administrator other than yourself exists, so the system isn&rsquo;t single-administrator-dependent.</li>
+        </ul>
+
+        <h2>Operational Readiness</h2>
+
+        <ul class="checklist">
+          <li class="checklist-title">The application is ready for end-users</li>
+          <li>The nightly JDE-to-RapidReconciler import has run successfully at least once.</li>
+          <li>Both status lights on the Reconciliation page are green for the periods end-users will work with.</li>
+          <li>A representative end-user from each role family (inventory, A/P) has logged in, completed their <a href="start-here-inventory.html">Start Here</a> or <a href="start-here-ap.html">Start Here</a> orientation, and confirmed they can see what they need to see.</li>
+          <li>End-users know how to contact you (or the support inbox) when something doesn&rsquo;t look right.</li>
+        </ul>
+
+        <h2>What to Do When the Checklist Surfaces a Problem</h2>
+
+        <div class="callout tip">
+          <div class="callout-label">If a company is missing or misconfigured</div>
+          <p>Resolve through <a href="administrator-managing-companies.html">Company Management</a> (for already-licensed companies) or <a href="administrator-managing-companies.html#adding">Adding a Company License</a> (if the company is not yet licensed).</p>
+        </div>
+
+        <div class="callout tip">
+          <div class="callout-label">If user access is wrong</div>
+          <p>Edit the affected user(s) in <a href="administrator-managing-users.html">Manage the Team</a>. For departed staff, deactivate or remove rather than just clearing module access &mdash; this keeps the active user list clean.</p>
+        </div>
+
+        <div class="callout tip">
+          <div class="callout-label">If the nightly import has not run or produced errors</div>
+          <p>This is operational rather than configuration. Contact the team that runs the import jobs (typically IT or the JDE administration team). RapidReconciler administrators do not own the import schedule itself.</p>
+        </div>
+
+        <div class="callout try-now">
+          <div class="callout-label">Try this now</div>
+          <p>The single highest-value pre-launch action is to log in as a representative end-user (or have one of your end-users log in on a call with you) and verify that they can see what they should see.</p>
+          <p>Specifically: do their account filters show the companies and business units they need? Do they see the modules they need (Inventory, In Transit, PO Receipts) and not the ones they don&rsquo;t? If they look at a closed period, do the GL Balance values match what JDE shows for the same accounts?</p>
+          <p>Most pre-launch surprises surface in the first five minutes of a real end-user logging in. Better to find them now than at period close.</p>
+        </div>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-admin-home')">Next: Your Home Screen &rarr;</button>
+        </div>
+      </section>
+
+
+      <!-- ============================================================
+           YOUR HOME DASHBOARD — the V8 command-center walkthroughs
+           ============================================================ -->
+
+      <section id="topic-admin-home" class="view">
+        <h1>Your Home Screen</h1>
+        <p>When you sign in as an administrator, RapidReconciler opens on <strong>Home</strong> &mdash; your command center. Your administrator surface leads with the <strong>RapidReconciler AI</strong> band &mdash; suggested questions it answers from your own instance &mdash; over four cards you act on: <strong>Licensing</strong>, <strong>Team &amp; access</strong>, <strong>Report Engine</strong>, and <strong>Activity log</strong>. A quiet <strong>instance-health</strong> strip sits underneath. Above all of it sits <strong>Set Context</strong> (which database, companies, and period you&rsquo;re working in); the AI band&rsquo;s first question, <em>What needs my attention right now?</em>, gives you the day&rsquo;s read in a click. You glance at Home, see what needs doing, and click in.</p>
+
+        <figure class="screenshot">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 400" font-family="'Open Sans','Source Sans 3',sans-serif">
+            <rect x="0" y="0" width="820" height="400" rx="8" fill="#eef1f6" stroke="#c9d3e0"/>
+            <!-- top bar -->
+            <rect x="0" y="0" width="820" height="40" rx="8" fill="#ffffff" stroke="#e1e7ef"/>
+            <text x="20" y="25" font-size="13" font-weight="800" fill="#1f2d4a">RapidReconciler</text>
+            <rect x="636" y="12" width="74" height="16" rx="8" fill="#def4e6"/><circle cx="648" cy="20" r="3" fill="#2e8a55"/><text x="656" y="24" font-size="9" font-weight="700" fill="#1a6b3f">Connected</text>
+            <rect x="720" y="11" width="80" height="18" rx="5" fill="#1f2d4a"/><text x="732" y="24" font-size="10" font-weight="700" fill="#fff">&#8962; Home</text>
+
+            <!-- Set Context bar (collapsed) -->
+            <rect x="16" y="52" width="788" height="32" rx="7" fill="#f6f8fb" stroke="#c9d3e0"/>
+            <rect x="16" y="52" width="4" height="32" rx="2" fill="#1f2d4a"/>
+            <rect x="30" y="60" width="96" height="18" rx="9" fill="#1f2d4a"/><text x="40" y="73" font-size="9" font-weight="700" fill="#fff" letter-spacing="0.5">SET CONTEXT</text>
+            <text x="138" y="72" font-size="10" fill="#5a6479">RapidReconciler_Prod &#183; 3 companies &#183; Period 06 / 2026</text>
+            <text x="788" y="72" font-size="12" fill="#8a93a6" text-anchor="end">&#9662;</text>
+
+            <!-- RapidReconciler AI band (dark) — brand + AI-plan entry, then the six
+                 suggested-question pills. Replaces the retired Today's To Do list. -->
+            <rect x="16" y="92" width="788" height="98" rx="10" fill="#17233d"/>
+            <path d="M34 106 L36 112 L42 114 L36 116 L34 122 L32 116 L26 114 L32 112 Z" fill="#9ec2ff"/>
+            <text x="48" y="118" font-size="13" font-weight="800" fill="#ffffff">RapidReconciler <tspan fill="#9ec2ff">AI</tspan></text>
+            <text x="788" y="118" font-size="10.5" font-weight="600" fill="#9ec2ff" text-anchor="end">AI plan &#183; Full &#183; Manage &#8594;</text>
+            <g font-size="9">
+              <rect x="30" y="128" width="238" height="22" rx="11" fill="#9ec2ff"/><text x="149" y="142" text-anchor="middle" fill="#17233d" font-weight="700">What needs my attention?</text>
+              <rect x="288" y="128" width="238" height="22" rx="11" fill="#24314f" stroke="#3a4d70"/><text x="407" y="142" text-anchor="middle" fill="#dbe6f5">When does our license expire?</text>
+              <rect x="546" y="128" width="238" height="22" rx="11" fill="#24314f" stroke="#3a4d70"/><text x="665" y="142" text-anchor="middle" fill="#dbe6f5">Who hasn&#8217;t signed in lately?</text>
+              <rect x="30" y="154" width="238" height="22" rx="11" fill="#24314f" stroke="#3a4d70"/><text x="149" y="168" text-anchor="middle" fill="#dbe6f5">How do I add a team member?</text>
+              <rect x="288" y="154" width="238" height="22" rx="11" fill="#24314f" stroke="#3a4d70"/><text x="407" y="168" text-anchor="middle" fill="#dbe6f5">Is the instance healthy?</text>
+              <rect x="546" y="154" width="238" height="22" rx="11" fill="#24314f" stroke="#3a4d70"/><text x="665" y="168" text-anchor="middle" fill="#dbe6f5">What does the activity log say?</text>
+            </g>
+
+            <!-- Four equal cards: Licensing | Team & access / Report Engine | Activity log -->
+            <!-- Licensing -->
+            <g>
+              <rect x="16" y="200" width="384" height="80" rx="10" fill="#f1f9f4" stroke="#c5e6d2"/>
+              <rect x="16" y="200" width="5" height="80" rx="2" fill="#2e8a55"/>
+              <circle cx="40" cy="222" r="4" fill="#2e8a55"/>
+              <text x="52" y="226" font-size="12.5" font-weight="700" fill="#1f2d4a">Licensing</text>
+              <text x="34" y="250" font-size="17" font-weight="800" fill="#1a6b3f">Active</text>
+              <text x="34" y="265" font-size="9.5" fill="#5a6479">Renewal due Aug 31, 2026</text>
+              <text x="34" y="277" font-size="9.5" fill="#5a6479">Unlimited companies &#183; 14 in use</text>
+              <text x="386" y="277" font-size="10" font-weight="700" fill="#2b5fb0" text-anchor="end">Manage &#8594;</text>
+            </g>
+            <!-- Team & access -->
+            <g>
+              <rect x="420" y="200" width="384" height="80" rx="10" fill="#f1f9f4" stroke="#c5e6d2"/>
+              <rect x="420" y="200" width="5" height="80" rx="2" fill="#2e8a55"/>
+              <circle cx="444" cy="222" r="4" fill="#2e8a55"/>
+              <text x="456" y="226" font-size="12.5" font-weight="700" fill="#1f2d4a">Team &amp; access</text>
+              <g font-size="9.5" fill="#5a6479">
+                <circle cx="444" cy="245" r="3" fill="#2e8a55"/><text x="456" y="248">Users &amp; roles &#183; all active</text>
+                <circle cx="444" cy="260" r="3" fill="#2e8a55"/><text x="456" y="263">Access review &#183; up to date</text>
+                <circle cx="444" cy="275" r="3" fill="#2e8a55"/><text x="456" y="278">Complex passwords &#183; on</text>
+              </g>
+            </g>
+            <!-- Report Engine -->
+            <g>
+              <rect x="16" y="288" width="384" height="80" rx="10" fill="#f1f9f4" stroke="#c5e6d2"/>
+              <rect x="16" y="288" width="5" height="80" rx="2" fill="#2e8a55"/>
+              <circle cx="40" cy="310" r="4" fill="#2e8a55"/>
+              <text x="52" y="314" font-size="12.5" font-weight="700" fill="#1f2d4a">Report Engine</text>
+              <text x="34" y="336" font-size="11" fill="#1a6b3f">Running normally</text>
+              <rect x="34" y="344" width="240" height="7" rx="3.5" fill="#e4efe8" stroke="#cfe4d6"/>
+              <rect x="34" y="344" width="96" height="7" rx="3.5" fill="#2e8a55"/>
+              <text x="386" y="356" font-size="10" font-weight="700" fill="#2b5fb0" text-anchor="end">Restart</text>
+            </g>
+            <!-- Activity log -->
+            <g>
+              <rect x="420" y="288" width="384" height="80" rx="10" fill="#f1f9f4" stroke="#c5e6d2"/>
+              <rect x="420" y="288" width="5" height="80" rx="2" fill="#2e8a55"/>
+              <circle cx="444" cy="310" r="4" fill="#9aa3b2"/>
+              <text x="456" y="314" font-size="12.5" font-weight="700" fill="#1f2d4a">Activity log</text>
+              <g font-size="9.5" fill="#5a6479">
+                <text x="456" y="335">Report Engine restarted &#183; 2h ago</text>
+                <text x="456" y="350">JDE data refresh &#183; overnight</text>
+              </g>
+              <text x="790" y="360" font-size="10" font-weight="700" fill="#2b5fb0" text-anchor="end">See full log &#8594;</text>
+            </g>
+
+            <!-- Instance-health strip — attention-only; nothing to show when healthy -->
+            <text x="24" y="390" font-size="9" fill="#8a93a6">Instance health &#8212; quiet; chips appear here only when storage or the fiscal calendar needs attention.</text>
+          </svg>
+          <figcaption><strong>The administrator Home screen</strong>Set Context (top) fixes the database, companies, and period everything below works against. The <strong>RapidReconciler&nbsp;AI</strong> band leads &mdash; six suggested questions it answers from your own instance, with <em>AI&nbsp;plan &middot; Manage</em> at the right &mdash; over the four cards you own: Licensing, Team&nbsp;&amp;&nbsp;access, Report&nbsp;Engine, and Activity&nbsp;log (a green left edge means all clear). The quiet instance-health strip sits below and stays hidden until something needs attention.</figcaption>
+        </figure>
+
+        <h2>How to Read the Status Dots</h2>
+        <p>Most rows have a small colored dot. You can triage the whole screen in one glance:</p>
+        <table class="doc-table">
+          <thead><tr><th>Dot</th><th>Means</th><th>Do</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Green</strong></td><td>All good &mdash; nothing needed.</td><td>Nothing.</td></tr>
+            <tr><td><strong>Amber / orange</strong></td><td>Needs your attention &mdash; e.g. a periodic review is due, or the service is under strain.</td><td>Click in and read the message.</td></tr>
+            <tr><td><strong>Grey</strong></td><td>Not checked yet, or information only.</td><td>Open it when you have a moment.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout note">
+          <div class="callout-icon">i</div>
+          <div><span class="callout-label">Good morning routine</span><p>Open Home, scan for any amber dots, and clear them. On a normal day everything is green and you move on. The topics that follow explain each area in order.</p></div>
+        </div>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-people-licensing')">Next: People &amp; Licensing &rarr;</button>
+        </div>
+      </section>
+
+
+      <section id="topic-people-licensing" class="view">
+        <h1>People &amp; Licensing</h1>
+        <p>Two things sit near the top of your admin surface: <strong>who can use RapidReconciler</strong> (the Team &amp; access card) and <strong>the state of your license</strong> (the Licensing card). Both come down to your agreement with GSI and your team.</p>
+
+        <h2>RR Team &mdash; Your People</h2>
+        <p>Open <strong>RR Team</strong> to see everyone who can sign in. For each person you decide what they can do &mdash; which areas they see, and which companies&rsquo; numbers they&rsquo;re allowed to look at. A reviewer in one division never sees another division&rsquo;s figures unless you grant it.</p>
+        <p>The step-by-step for adding people, setting roles, and removing access lives in <a href="administrator-managing-users.html">Manage the Team</a>.</p>
+
+        <h2>Licensing &mdash; Your Company Seats</h2>
+        <p>Your agreement with GSI sets how many <strong>company books</strong> you can reconcile &mdash; a fixed number of company seats on most licenses, or unlimited companies on others. The Licensing card leads with your license status and renewal date, then shows where you stand at a glance:</p>
+
+        <figure class="screenshot" style="max-width:420px;margin-left:auto;margin-right:auto;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" font-family="'Open Sans','Source Sans 3',sans-serif">
+            <rect x="0" y="0" width="420" height="120" rx="7" fill="#fff" stroke="#c9d3e0"/>
+            <circle cx="24" cy="30" r="4" fill="#3b4d72"/><text x="36" y="34" font-size="13" font-weight="700" fill="#1f2d4a">Licensing</text>
+            <rect x="320" y="18" width="80" height="22" rx="5" fill="#eef3f9"/><text x="338" y="33" font-size="11" font-weight="700" fill="#2b5fb0">Open</text>
+            <text x="24" y="66" font-size="26" font-weight="800" fill="#1f2d4a">2</text>
+            <text x="50" y="66" font-size="14" fill="#5a6479">of 3 company seats in use</text>
+            <rect x="24" y="82" width="372" height="10" rx="5" fill="#eef3f9" stroke="#e1e7ef"/>
+            <rect x="24" y="82" width="248" height="10" rx="5" fill="#2b5fb0"/>
+            <text x="24" y="108" font-size="10" fill="#8a93a6">1 seat still available</text>
+          </svg>
+          <figcaption><strong>Licensing at a glance</strong>&ldquo;2 of 3&rdquo; means two of your three licensed company seats are in use; an unlimited license reads &ldquo;Unlimited companies &middot; N in use&rdquo; instead. Numbers are shown for awareness; they don&rsquo;t block your work.</figcaption>
+        </figure>
+
+        <p>The full company setup &mdash; fiscal start dates, currencies, thresholds &mdash; is in <a href="administrator-managing-companies.html">Managing Companies</a>. If you need to reconcile <em>more</em> companies than your seats allow, that&rsquo;s a quick request to GSI: see <a href="javascript:void(0)" onclick="showView('topic-request-license')">Request a License</a>.</p>
+
+        <div class="callout note">
+          <div class="callout-icon">i</div>
+          <div><span class="callout-label">What good looks like</span><p>Everyone who needs RapidReconciler can sign in and sees exactly the companies they should &mdash; no more, no less &mdash; and your seats-in-use is at or below what you&rsquo;re licensed for.</p></div>
+        </div>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-data')">Next: Data &amp; Refresh &rarr;</button>
+        </div>
+      </section>
+
+
+      <section id="topic-data" class="view">
+        <h1>Data &amp; Refresh</h1>
+        <p>RapidReconciler works from a copy of your JD&nbsp;Edwards figures. Keeping that copy current &mdash; and freeing up space when the history gets long &mdash; runs from the Data refresh and Purge pages. How old that copy is shows in the <strong>data&nbsp;freshness</strong> pill in the Home workbar, for every role; storage surfaces as a chip on the quiet instance-health strip.</p>
+
+        <h2>The Nightly Refresh</h2>
+        <p>Every night, RapidReconciler pulls the day&rsquo;s changes from JD&nbsp;Edwards automatically. You don&rsquo;t schedule it or babysit it &mdash; the <strong>data&nbsp;freshness</strong> pill simply tells you when it last ran, and says so plainly if it did not finish.</p>
+
+        <h2>Reviewing the Job Schedule</h2>
+        <p>The nightly refresh time is set by your <strong>on-site DBA</strong>, not by GSI &mdash; they change it at your request. The <strong>Review Job Schedule</strong> page shows the current nightly time, when it last ran, and when it runs next, so you can confirm it&rsquo;s still right. There&rsquo;s nothing to edit on the page; if the timing needs to move, click <strong>Request a change</strong> to draft an email you address to your DBA.</p>
+        <p>Set a <strong>30- or 60-day reminder</strong> (or turn reminders off with <strong>Never</strong>) to keep that confirmation current. The reminder turns amber when a review is due and green once you&rsquo;ve confirmed &mdash; the same gentle nudge as the Complex Passwords review, with nothing to attest to.</p>
+
+        <h2>&ldquo;Refresh now&rdquo; During Close</h2>
+        <p>At period close you often can&rsquo;t wait for tonight. Click <strong>Refresh now</strong> to pull today&rsquo;s changes immediately, so what you&rsquo;re reconciling matches what was just posted in JD&nbsp;Edwards.</p>
+
+        <h2>Purging Old Data</h2>
+        <p>Over years, the saved history grows and takes up space. <strong>Purge old data</strong> moves the <em>start date</em> of the data forward: everything before that date is dropped on the next refresh, and the database gets smaller. You&rsquo;re not deleting anything in JD&nbsp;Edwards &mdash; only RapidReconciler&rsquo;s working copy of the old periods.</p>
+
+        <figure class="screenshot" style="max-width:520px;margin-left:auto;margin-right:auto;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 230" font-family="'Open Sans','Source Sans 3',sans-serif">
+            <rect x="0" y="0" width="520" height="230" rx="8" fill="#fff" stroke="#c9d3e0"/>
+            <text x="24" y="34" font-size="14" font-weight="800" fill="#1f2d4a">Purge old data</text>
+            <text x="24" y="56" font-size="11" fill="#5a6479">Move the data start date forward to free up space.</text>
+            <line x1="24" y1="70" x2="496" y2="70" stroke="#e6eaf0"/>
+            <text x="24" y="96" font-size="10" font-weight="700" fill="#8a93a6">CURRENT START DATE</text><text x="320" y="96" font-size="11" font-weight="700" fill="#1f2d4a">Jan 1, 2018</text>
+            <text x="24" y="122" font-size="10" font-weight="700" fill="#8a93a6">DATABASE SIZE</text><text x="320" y="122" font-size="11" font-weight="700" fill="#1f2d4a">42.6 GB</text>
+            <text x="24" y="152" font-size="10" font-weight="700" fill="#8a93a6">NEW START DATE</text>
+            <rect x="320" y="138" width="160" height="22" rx="5" fill="#f6f8fb" stroke="#c9d3e0"/><text x="332" y="153" font-size="11" fill="#1f2d4a">Jan 1, 2023 &#128197;</text>
+            <rect x="24" y="178" width="300" height="34" rx="6" fill="#fbe7ce" stroke="#f0d2a8"/><text x="36" y="199" font-size="9.5" fill="#d97316">Reversible until the next refresh runs.</text>
+            <rect x="360" y="180" width="120" height="30" rx="6" fill="#f08a24"/><text x="384" y="200" font-size="11" font-weight="700" fill="#fff">Set cutoff</text>
+          </svg>
+          <figcaption><strong>The Purge dialog</strong>It shows today&rsquo;s start date and database size, and lets you pick a new, later start date. After you set it, it&rsquo;s reversible right up until the next refresh actually removes the old periods.</figcaption>
+        </figure>
+
+        <div class="callout warning">
+          <div class="callout-icon">!</div>
+          <div><span class="callout-label">Pick the date deliberately</span><p>Choose a start date you&rsquo;re sure you&rsquo;ll never need to reconcile back to &mdash; closed and audited years are the usual choice. Once the next refresh runs, the periods before the new start date are gone from RapidReconciler (still in JD&nbsp;Edwards). If unsure, set it back a comfortable margin.</p></div>
+        </div>
+
+        <h2>Knowing When to Purge</h2>
+        <p>You don&rsquo;t have to guess at timing. The Purge page shows a <strong>recommendation</strong> based on how much free disk space the server has, how fast the database is growing, and how much history you&rsquo;re keeping:</p>
+        <ul>
+          <li><strong>Green</strong> &mdash; nothing to do; there&rsquo;s comfortable runway.</li>
+          <li><strong>Amber</strong> &mdash; worth planning a purge before long (for example, only a few months of disk space left at the current growth rate, or you&rsquo;re holding far more history than a reconciliation normally needs).</li>
+          <li><strong>Red</strong> &mdash; recommended now, because the server is genuinely low on free disk space.</li>
+        </ul>
+        <p>It&rsquo;s only a suggestion &mdash; you decide whether and when. If now isn&rsquo;t the time, use <strong>Remind me in 1, 3, or 6 months</strong> and the recommendation steps aside until that date.</p>
+
+        <h2>A Record of Every Change</h2>
+        <p>Every start-date change is kept under <strong>Purge history</strong>: who made it, the old and new start dates, when it was made, and &mdash; importantly &mdash; <em>when the purge actually ran</em>. Because moving the start date forward only takes effect on the next refresh, a change reads <strong>Pending next refresh</strong> until then; a backward move reads <strong>Restore</strong> (nothing is deleted). It&rsquo;s a clear audit trail of what was dropped and when.</p>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-system-health')">Next: System Health &rarr;</button>
+        </div>
+      </section>
+
+
+      <section id="topic-system-health" class="view">
+        <h1>System Health</h1>
+        <p>Three of your Home surfaces tell you the engine is healthy: the <strong>Report Engine</strong> card, the <strong>Activity log</strong> card, and the AI assistant. Each carries a status you can read at a glance, so a glance tells you whether anything needs attention. On a normal day they sit green and you won&rsquo;t touch them.</p>
+
+        <figure class="screenshot" style="max-width:480px;margin-left:auto;margin-right:auto;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 196" font-family="'Open Sans','Source Sans 3',sans-serif">
+            <rect x="0" y="0" width="480" height="196" rx="8" fill="#fff" stroke="#c9d3e0"/>
+            <text x="24" y="30" font-size="13" font-weight="700" fill="#1f2d4a">System Health</text>
+            <circle cx="26" cy="64" r="4" fill="#2e8a55"/><text x="40" y="60" font-size="11" font-weight="700" fill="#1f2d4a">Report Engine</text><text x="40" y="74" font-size="9" fill="#5a6479">Running normally &#8212; builds your reports &amp; exports</text>
+            <circle cx="26" cy="106" r="4" fill="#2e8a55"/><text x="40" y="102" font-size="11" font-weight="700" fill="#1f2d4a">AI Assistant</text><text x="40" y="116" font-size="9" fill="#5a6479">Optional, opt-in help &mdash; off until you turn it on</text>
+            <circle cx="26" cy="148" r="4" fill="#2e8a55"/><text x="40" y="144" font-size="11" font-weight="700" fill="#1f2d4a">Activity log</text><text x="40" y="158" font-size="9" fill="#5a6479">Recent restarts, reloads &amp; refreshes</text>
+            <rect x="372" y="52" width="84" height="22" rx="6" fill="#fff" stroke="#c9d3e0"/><text x="414" y="67" font-size="10" font-weight="700" fill="#2b5fb0" text-anchor="middle">Restart</text>
+            <rect x="372" y="94" width="84" height="22" rx="6" fill="#fff" stroke="#c9d3e0"/><text x="414" y="109" font-size="10" font-weight="700" fill="#2b5fb0" text-anchor="middle">Manage</text>
+            <rect x="372" y="136" width="84" height="22" rx="6" fill="#fff" stroke="#c9d3e0"/><text x="414" y="151" font-size="10" font-weight="700" fill="#2b5fb0" text-anchor="middle">See log</text>
+          </svg>
+          <figcaption><strong>Health at a glance</strong>The Report Engine and Activity log cards, plus the AI assistant, each carry a status dot &mdash; and its own action (Restart, Manage, See&nbsp;log). Green across the board means there&rsquo;s nothing to do.</figcaption>
+        </figure>
+
+        <h2 id="sh-data-service">Report Engine</h2>
+        <p>Behind RapidReconciler is a small <strong>data service</strong> &mdash; the engine that builds your reports and exports. The Report Engine card shows status, a memory bar, and a <strong>Restart</strong> button for the rare occasion when reports feel slow or won&rsquo;t finish.</p>
+        <table class="doc-table">
+          <thead><tr><th>You see</th><th>It means</th><th>Do</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Green dot, short bar</strong></td><td>Healthy, with plenty of memory headroom.</td><td>Nothing.</td></tr>
+            <tr><td><strong>Amber, longer bar</strong></td><td>Memory has been climbing under load for a little while &mdash; it may slow down.</td><td>Finish what&rsquo;s running, then Restart when convenient.</td></tr>
+            <tr><td><strong>Reports stuck / failing</strong></td><td>The engine may be wedged.</td><td>Click <strong>Restart</strong>.</td></tr>
+          </tbody>
+        </table>
+        <p>Restarting is safe: the engine stops and comes back in a few seconds, nothing is lost, and your data is untouched &mdash; the &ldquo;turn it off and on again&rdquo; of RapidReconciler. A brief amber that clears on its own is normal under load; the card only flags it after the pressure has held for a couple of minutes, so it won&rsquo;t chase you with false alarms.</p>
+
+        <h2 id="sh-ai-assistant">AI Assistant</h2>
+        <p>Optional AI help, powered by Claude. It is <strong>off by default</strong>, and you decide &mdash; per feature &mdash; how much it may use, from public help docs only up to your actual data. Nothing is sent until you turn a feature on, and your purchased plan caps how far the options go.</p>
+        <div class="callout important">
+          <div class="callout-icon">!</div>
+          <div><span class="callout-label">Read this before you opt in</span><p>Because the higher levels can send reconciliation data to Anthropic&rsquo;s AI service, the full picture &mdash; exactly what leaves your server at each level, where it goes, and Anthropic&rsquo;s data commitments &mdash; is on its own page: <a href="javascript:void(0)" onclick="showView('topic-ai-assistant')"><strong>AI Assistant &amp; Your Data</strong></a>.</p></div>
+        </div>
+
+        <h2 id="sh-activity-log">Activity Log</h2>
+        <p>A running record of recent system events &mdash; service restarts, data reloads, and scheduled refreshes &mdash; so you can see what happened and when. Set a review reminder (7, 14, or 30 days) to keep the row&rsquo;s dot green; an amber dot just means a review is due, not that anything is wrong.</p>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-ai-assistant')">Next: AI Assistant &amp; Your Data &rarr;</button>
+        </div>
+      </section>
+
+
+      <section id="topic-ai-assistant" class="view">
+        <h1>AI Assistant &amp; Your Data</h1>
+        <p>The AI Assistant is an <strong>optional</strong> feature that uses Claude, the AI model from Anthropic, to explain reconciliation findings and answer how-to questions in plain English.</p>
+
+        <div class="callout important">
+          <div class="callout-icon">!</div>
+          <div><span class="callout-label">Nothing is sent until you turn it on</span><p>Every feature starts at <strong>Off</strong>. No reconciliation data leaves your server unless an administrator chooses a level above Off for a specific feature and saves it. Your purchased plan sets the highest level available.</p></div>
+        </div>
+
+        <h2 id="ai-where">Where your data goes</h2>
+        <p style="text-align:center;color:#5a6479;font-size:13px;font-weight:600;">Your browser &rarr; GSI service (holds the key) &rarr; Anthropic API (Claude) &rarr; answer back</p>
+        <p>The AI key lives on <strong>GSI&rsquo;s server, never in your browser</strong>. When a feature is on, RapidReconciler hands the request to GSI&rsquo;s service, which relays it to Anthropic&rsquo;s commercial API over an encrypted connection and returns the answer. GSI does not keep your prompts beyond the moment it takes to pass them along.</p>
+
+        <h2 id="ai-levels">What each level sends</h2>
+        <table class="doc-table">
+          <thead><tr><th>Level</th><th>What leaves your server</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Off</strong></td><td>Nothing. The feature is hidden.</td></tr>
+            <tr><td><strong>Docs-grounded</strong></td><td>Only your typed question. None of your data &mdash; answers come from the public RapidReconciler help library.</td></tr>
+            <tr><td><strong>Scrubbed analysis</strong></td><td>The numbers and the pattern, with identifiers (account, company, document numbers, names) <strong>removed before anything is sent</strong>.</td></tr>
+            <tr><td><strong>Full data</strong></td><td>The actual rows, so the answer is specific. The strongest disclosure &mdash; review with GSI before enabling.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="ai-anthropic">Anthropic&rsquo;s data commitments</h2>
+        <p>When a request reaches Anthropic&rsquo;s commercial API, these terms apply. Confirm the current details at the official links below.</p>
+        <ul>
+          <li><strong>Not used to train models.</strong> By default, Anthropic does not use commercial API inputs or outputs to train its models. (RapidReconciler never sends &ldquo;feedback&rdquo; on answers, so the feedback-based training exception does not apply.)</li>
+          <li><strong>Short retention.</strong> Anthropic deletes API inputs and outputs within roughly <strong>30 days</strong> by default. Content flagged for a policy violation may be kept longer (up to two years, and safety scores up to seven) &mdash; ordinary reconciliation questions are not flagged.</li>
+          <li><strong>Zero-Data-Retention is available.</strong> An organization can request a Zero-Data-Retention arrangement, under which inputs and outputs are not stored at all except where the law requires. If your policies need this, <strong>ask GSI</strong>.</li>
+          <li><strong>Security &amp; processing.</strong> Anthropic processes data in the United States and publishes its certifications and Data Processing terms in its Trust Center (linked below).</li>
+        </ul>
+
+        <h2 id="ai-gsi">What GSI adds on top</h2>
+        <ul>
+          <li><strong>Off by default, per feature.</strong> You opt each feature in deliberately; nothing is implicit.</li>
+          <li><strong>The key never reaches your browser.</strong> Requests are relayed server-to-server, so the AI credential is never exposed on an end-user&rsquo;s machine.</li>
+          <li><strong>Scrubbing happens before data leaves.</strong> At the Scrubbed level, identifiers are stripped on your side first &mdash; the AI service only ever sees redacted figures.</li>
+          <li><strong>Your plan caps the ceiling.</strong> The highest level you can choose is set by your purchased entitlement.</li>
+        </ul>
+
+        <div class="callout note">
+          <div class="callout-icon">i</div>
+          <div><span class="callout-label">A sensible way to start</span><p>Many teams begin with <strong>Docs-grounded</strong> help (none of your data is sent) and <strong>Scrubbed</strong> analysis, and reserve <strong>Full data</strong> for a deliberate decision made after reviewing these terms with GSI and their own security team.</p></div>
+        </div>
+
+        <h2 id="ai-sources">Verify it yourself</h2>
+        <p>These are Anthropic&rsquo;s own pages &mdash; current as you read them:</p>
+        <ul>
+          <li>Is my data used for training? &mdash; <a href="https://privacy.claude.com/en/articles/7996868-is-my-data-used-for-model-training" target="_blank" rel="noopener">privacy.claude.com</a></li>
+          <li>How long is data stored? &mdash; <a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-personal-data" target="_blank" rel="noopener">privacy.claude.com</a></li>
+          <li>Zero-Data-Retention &mdash; <a href="https://privacy.claude.com/en/articles/8956058-i-have-a-commercial-account-or-api-account-how-long-do-you-store-my-data" target="_blank" rel="noopener">privacy.claude.com</a></li>
+          <li>Security &amp; compliance (Trust Center) &mdash; <a href="https://trust.anthropic.com" target="_blank" rel="noopener">trust.anthropic.com</a></li>
+        </ul>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-utilities')">Next: Utilities &rarr;</button>
+        </div>
+      </section>
+
+
+      <section id="topic-utilities" class="view">
+        <h1>Utilities</h1>
+        <p>The administrator has a small set of repair and maintenance tools for the rare times a reconciliation difference <strong>won&rsquo;t clear by the normal steps</strong> &mdash; plus one for housekeeping. Each opens its own page: <strong>Reload GL Data</strong>, <strong>Reload Cardex Data</strong>, <strong>Correct a Period-End Date</strong>, and <strong>Purge Old Data</strong>. None of them touch JD&nbsp;Edwards, and you&rsquo;ll go whole months without needing any of them.</p>
+
+        <div class="callout important">
+          <div class="callout-icon">!</div>
+          <div><span class="callout-label">Your JD Edwards data is never changed</span><p>Neither tool writes to JD&nbsp;Edwards, and neither pulls from it on the spot. Each one clears RapidReconciler&rsquo;s working copy from the date you pick; the data comes back on the <strong>next scheduled refresh</strong>. Because a refresh loads the JDE system, refreshes only run on the schedule.</p></div>
+        </div>
+
+        <figure class="screenshot" style="max-width:460px;margin-left:auto;margin-right:auto;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 280" font-family="'Open Sans','Source Sans 3',sans-serif">
+            <rect x="0" y="0" width="460" height="280" rx="8" fill="#fff" stroke="#c9d3e0"/>
+            <circle cx="24" cy="28" r="4" fill="#3b4d72"/><text x="36" y="32" font-size="12.5" font-weight="700" fill="#1f2d4a">Admin maintenance tools</text>
+            <rect x="16" y="48" width="428" height="48" rx="6" fill="#f6f8fb" stroke="#e1e7ef"/>
+            <circle cx="34" cy="72" r="4" fill="#9aa3b2"/><text x="46" y="68" font-size="11" font-weight="700" fill="#1f2d4a">Reload GL Data</text><text x="46" y="84" font-size="9" fill="#5a6479">Clear the GL copy; it rebuilds on the next refresh</text>
+            <rect x="360" y="60" width="68" height="24" rx="6" fill="#fff" stroke="#c9d3e0"/><text x="378" y="76" font-size="10.5" font-weight="700" fill="#d97316">Reload</text>
+            <rect x="16" y="104" width="428" height="48" rx="6" fill="#f6f8fb" stroke="#e1e7ef"/>
+            <circle cx="34" cy="128" r="4" fill="#9aa3b2"/><text x="46" y="124" font-size="11" font-weight="700" fill="#1f2d4a">Reload Cardex Data</text><text x="46" y="140" font-size="9" fill="#5a6479">Clear the cardex copy from a date you choose</text>
+            <rect x="360" y="116" width="68" height="24" rx="6" fill="#fff" stroke="#c9d3e0"/><text x="378" y="132" font-size="10.5" font-weight="700" fill="#d97316">Reload</text>
+            <rect x="16" y="160" width="428" height="48" rx="6" fill="#f6f8fb" stroke="#e1e7ef"/>
+            <circle cx="34" cy="184" r="4" fill="#9aa3b2"/><text x="46" y="180" font-size="11" font-weight="700" fill="#1f2d4a">Correct a Period-End Date</text><text x="46" y="196" font-size="9" fill="#5a6479">Remap a moved period-ending date, all companies</text>
+            <rect x="360" y="172" width="68" height="24" rx="6" fill="#fff" stroke="#c9d3e0"/><text x="384" y="188" font-size="10.5" font-weight="700" fill="#2b5fb0">Open</text>
+            <rect x="16" y="216" width="428" height="48" rx="6" fill="#f6f8fb" stroke="#e1e7ef"/>
+            <circle cx="34" cy="240" r="4" fill="#9aa3b2"/><text x="46" y="236" font-size="11" font-weight="700" fill="#1f2d4a">Purge Old Data</text><text x="46" y="252" font-size="9" fill="#5a6479">Drop very old history to free up space</text>
+            <rect x="360" y="228" width="68" height="24" rx="6" fill="#fff" stroke="#c9d3e0"/><text x="380" y="244" font-size="10.5" font-weight="700" fill="#d97316">Purge</text>
+          </svg>
+          <figcaption><strong>The admin maintenance tools</strong>Four tools, none of which touch JD&nbsp;Edwards. Each opens its own page from your Home dashboard.</figcaption>
+        </figure>
+
+        <h2>Reload GL Data</h2>
+        <p>Clears RapidReconciler&rsquo;s copy of the GL from the earliest broken period forward when a <strong>roll-forward break won&rsquo;t clear by posting the open batches</strong>; the next refresh re-pulls it clean. It has its own page, so it gets its own topic: see <a href="javascript:void(0)" onclick="showView('topic-reload-gl')">Reload GL Data</a>.</p>
+
+        <h2>Reload Cardex Data</h2>
+        <p>Clears RapidReconciler&rsquo;s copy of the perpetual cardex from a date you choose when an <strong>item&rsquo;s cardex won&rsquo;t tie to its transactions</strong>; the next refresh re-pulls it clean. It has its own page, so it gets its own topic: see <a href="javascript:void(0)" onclick="showView('topic-reload-cardex')">Reload Cardex Data</a>.</p>
+
+        <h2>Correct a Period-End Date</h2>
+        <p>A rare one &mdash; for after a <strong>fiscal-calendar change moves a period-ending date</strong>. It has its own guarded Check &rarr; Preview &rarr; Apply flow, so it gets its own topic: see <a href="javascript:void(0)" onclick="showView('topic-fiscal-period')">Correct a Period-End Date</a>.</p>
+
+        <h2>Purge Old Data</h2>
+        <p>Housekeeping, not a repair. Over the years the saved history grows and takes up space. <strong>Purge Old Data</strong> (its own page) moves the <em>start date</em> of RapidReconciler&rsquo;s data forward: everything before that date is dropped on the next refresh, and the database gets smaller. You&rsquo;re not deleting anything in JD&nbsp;Edwards &mdash; only RapidReconciler&rsquo;s working copy of the old periods. There&rsquo;s a fuller walkthrough under <a href="javascript:void(0)" onclick="showView('topic-data')">The Nightly Refresh</a>.</p>
+
+        <div class="callout warning">
+          <div class="callout-icon">!</div>
+          <div><span class="callout-label">When to reach for these</span><p>These are last-resort repairs, not routine steps. Try the normal fix first &mdash; post the unposted GL batches, finish the day&rsquo;s end-of-day run. If the difference still won&rsquo;t clear, a reload gives RapidReconciler a clean copy to rebuild from. If you&rsquo;re unsure which date to choose, contact RR Support before reloading.</p></div>
+        </div>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-reload-gl')">Next: Reload GL Data &rarr;</button>
+        </div>
+      </section>
+
+      <section id="topic-reload-gl" class="view">
+        <h1>Reload GL Data</h1>
+        <p>One of the admin repair tools &mdash; you reach for it only when a <strong>general-ledger roll-forward break won&rsquo;t clear by posting the open batches</strong>. It has its own page, so it lives in its own topic here rather than under <a href="javascript:void(0)" onclick="showView('topic-utilities')">Utilities</a>.</p>
+
+        <div class="diamond-divider"><span class="diamond"></span></div>
+
+        <h2>What It Does</h2>
+        <p>Reload GL clears RapidReconciler&rsquo;s copy of the general ledger from the earliest broken period forward. It only ever touches RapidReconciler&rsquo;s working copy &mdash; the data comes back clean on the next scheduled refresh, and your JD&nbsp;Edwards data is never changed.</p>
+
+        <div class="callout important">
+          <div class="callout-icon">!</div>
+          <div><span class="callout-label">Your JD Edwards data is never changed</span><p>Reload GL clears RapidReconciler&rsquo;s working copy only. Nothing is written to JD&nbsp;Edwards, and nothing is pulled from it on the spot &mdash; the GL re-pulls on the next scheduled refresh.</p></div>
+        </div>
+
+        <h2>When to Use It</h2>
+        <ul>
+          <li>Reach for it <strong>only when the account doesn&rsquo;t tie out and the usual fix has already been done</strong> &mdash; that is, you&rsquo;ve posted the unposted GL batches and the roll-forward break still won&rsquo;t clear.</li>
+          <li>This is a last-resort repair, not a routine step. On a normal day you never need it.</li>
+          <li>If you&rsquo;re unsure which date it would reload from, contact RR Support before you run it.</li>
+        </ul>
+
+        <h2>How It Works</h2>
+        <p>The status dot on the row tells you whether there&rsquo;s anything to do:</p>
+        <ul>
+          <li><strong>Green</strong> &mdash; nothing to reload; the GL roll-forward is clean.</li>
+          <li><strong>Amber</strong> &mdash; a break exists that a reload can clear. The row names the date it would reload from and how many rows are affected.</li>
+        </ul>
+        <p>Click <strong>Reload&hellip;</strong>, review the date and row count, tick the confirmation, and click <strong>Reload GL</strong>. The copy is cleared and rebuilds on the next refresh.</p>
+
+        <h2>Guardrails</h2>
+        <ul>
+          <li><strong>Try the normal fix first.</strong> Post the unposted GL batches; only reach for a reload if the break still won&rsquo;t clear.</li>
+          <li><strong>JD&nbsp;Edwards is never touched</strong> &mdash; as with every admin repair tool, only RapidReconciler&rsquo;s working copy changes.</li>
+          <li>The GL doesn&rsquo;t come back until the <strong>next scheduled refresh</strong> runs, because a refresh loads the JD&nbsp;Edwards system and only runs on the schedule.</li>
+          <li>If you&rsquo;re unsure, contact RR Support before you reload.</li>
+        </ul>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-reload-cardex')">Next: Reload Cardex Data &rarr;</button>
+        </div>
+      </section>
+
+      <section id="topic-reload-cardex" class="view">
+        <h1>Reload Cardex Data</h1>
+        <p>One of the admin repair tools &mdash; you reach for it only when an <strong>item&rsquo;s perpetual cardex (F4111) won&rsquo;t tie to its transactions</strong> and the variance won&rsquo;t clear. It has its own page, so it lives in its own topic here rather than under <a href="javascript:void(0)" onclick="showView('topic-utilities')">Utilities</a>.</p>
+
+        <div class="diamond-divider"><span class="diamond"></span></div>
+
+        <h2>What It Does</h2>
+        <p>Reload Cardex clears RapidReconciler&rsquo;s copy of the perpetual cardex and its transaction detail from a date you choose forward &mdash; the same job as the older V7 &ldquo;cardex deletions&rdquo; utility. It only ever touches RapidReconciler&rsquo;s working copy; the data comes back on the next scheduled refresh, and your JD&nbsp;Edwards data is never changed.</p>
+
+        <div class="callout important">
+          <div class="callout-icon">!</div>
+          <div><span class="callout-label">Your JD Edwards data is never changed</span><p>Reload Cardex clears RapidReconciler&rsquo;s working copy only. Nothing is written to JD&nbsp;Edwards, and nothing is pulled from it on the spot &mdash; the cardex re-pulls on the next scheduled refresh.</p></div>
+        </div>
+
+        <h2>When to Use It</h2>
+        <ul>
+          <li>Reach for it <strong>only when an item&rsquo;s cardex won&rsquo;t tie to its transactions and the variance won&rsquo;t clear</strong> by the normal steps.</li>
+          <li>This is a last-resort repair, not a routine step. You&rsquo;ll go whole months without needing it.</li>
+          <li>The reload date is <strong>your call</strong> &mdash; it isn&rsquo;t calculated for you &mdash; so if you&rsquo;re unsure which date to roll back to, contact RR Support before you run it.</li>
+        </ul>
+
+        <h2>How It Works</h2>
+        <p>Click <strong>Reload&hellip;</strong>, then pick the cardex date to roll back to. The dialog shows how many cardex rows will reload. Tick the confirmation and click <strong>Reload cardex</strong>. As with the GL, JD&nbsp;Edwards is untouched and the cardex returns on the next scheduled refresh.</p>
+
+        <h2>Guardrails</h2>
+        <ul>
+          <li><strong>Choose the date deliberately.</strong> The reload rolls the cardex back to the date you pick, so choose the earliest date the variance reaches and no further.</li>
+          <li><strong>JD&nbsp;Edwards is never touched</strong> &mdash; as with every admin repair tool, only RapidReconciler&rsquo;s working copy changes.</li>
+          <li>The cardex doesn&rsquo;t come back until the <strong>next scheduled refresh</strong> runs, because a refresh loads the JD&nbsp;Edwards system and only runs on the schedule.</li>
+          <li>If you&rsquo;re unsure which date to choose, contact RR Support before you reload.</li>
+        </ul>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-fiscal-period')">Next: Correct a Period-End Date &rarr;</button>
+        </div>
+      </section>
+
+      <section id="topic-fiscal-period" class="view">
+        <h1>Correct a Period-End Date</h1>
+        <p>One of the admin repair tools, and the rarest &mdash; you reach for it only after a <strong>fiscal-calendar change moves a period-ending date</strong>. It has its own guarded three-step flow, so it lives in its own topic here rather than under <a href="javascript:void(0)" onclick="showView('topic-utilities')">Utilities</a>.</p>
+
+        <div class="diamond-divider"><span class="diamond"></span></div>
+
+        <h2>What It Does</h2>
+        <p>When a fiscal-calendar change re-bases a period boundary, JD&nbsp;Edwards picks up the new period-ending date &mdash; but RapidReconciler&rsquo;s reporting tables keep the <em>old</em> date until you correct it. This tool replaces the old period-ending date with the corrected one everywhere it&rsquo;s stored, for <strong>all companies at once</strong>. It only ever touches RapidReconciler&rsquo;s working copy; your JD&nbsp;Edwards data is never changed.</p>
+
+        <div class="callout important">
+          <div class="callout-icon">!</div>
+          <div><span class="callout-label">Your JD Edwards data is never changed</span><p>The correction rewrites the stored period-ending date inside RapidReconciler only. Nothing is written to JD&nbsp;Edwards, and nothing is pulled from it on the spot.</p></div>
+        </div>
+
+        <h2>When to Use It</h2>
+        <ul>
+          <li>Run it <strong>only after a confirmed fiscal-calendar change</strong> &mdash; for example, an acquisition that re-bases a period boundary and moves an ending date.</li>
+          <li><strong>Load the corrected calendar first.</strong> The Check step compares against the current fiscal calendar, so the corrected date has to be in place before you run it.</li>
+          <li>This is not a routine step and not a repair for an ordinary out-of-balance. If a period simply won&rsquo;t tie out, use <a href="javascript:void(0)" onclick="showView('topic-utilities')">Reload GL or Reload Cardex</a> instead &mdash; this tool is <em>only</em> for a period-ending date that genuinely moved.</li>
+        </ul>
+
+        <h2>The Three Steps</h2>
+        <ul>
+          <li><strong>Check for a mismatch.</strong> Compares the latest stored period-ending date against the fiscal calendar. If one no longer matches, it fills in both the old and the corrected dates for you and unlocks the correction. Until Check finds a mismatch, there&rsquo;s nothing to do &mdash; the correction stays locked.</li>
+          <li><strong>Preview.</strong> Shows how many records would move, by area, <em>before</em> anything changes. Read this to confirm the swap looks right.</li>
+          <li><strong>Apply.</strong> Makes the swap in a single pass &mdash; every stored copy of the old date becomes the corrected one, across all companies.</li>
+        </ul>
+
+        <h2>Guardrails</h2>
+        <ul>
+          <li><strong>Always Preview before you Apply.</strong> The Preview counts are your check that the correction targets the right date and a sensible number of records.</li>
+          <li>The correction is <strong>locked until Check finds a mismatch</strong>, so you can&rsquo;t apply a swap the calendar doesn&rsquo;t call for.</li>
+          <li><strong>JD&nbsp;Edwards is never touched</strong> &mdash; as with every admin repair tool, only RapidReconciler&rsquo;s working copy changes.</li>
+          <li>If you&rsquo;re unsure whether a date really moved, contact RR Support before you Apply.</li>
+        </ul>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-overview')">Next: About Administration &rarr;</button>
+        </div>
+      </section>
+
+
+      <section id="topic-overview" class="view">
+<h1>About Administration</h1>
+      <p>Orientation for the administrator role within RapidReconciler &mdash; what it is, how it&rsquo;s assigned, and how your first administrator is set up at go-live.</p>
+
+      <div class="diamond-divider"><span class="diamond"></span></div>
+
+      <h2>Overview</h2>
+      <p>Administrator access comes from a user&rsquo;s <strong>role</strong>. Assign someone the <strong>RR Administrator</strong> role and the <strong>Administration</strong> area appears on their Home page; users with any other role never see it. You change who is an administrator by changing their role on the <a href="administrator-managing-users.html">RR Team</a> page.</p>
+      <p>At go-live, GSI seeds your first <strong>RR Administrator</strong> for you &mdash; that person receives a secure link to set their own password. From there, your RR Administrator maintains the RapidReconciler configuration and invites the rest of your team.</p>
+
+      <div class="callout tip">
+        <div class="callout-label">Where to begin</div>
+        <p>If you are new to the role, work through the sections in order. If you are looking up a specific task, jump directly to the relevant section from the sidebar.</p>
+      </div>
+
+      <div class="topic-footer-nav">
+        <button class="back-btn" onclick="goHome()">← Back to Index</button>
+        <button class="next-btn" onclick="window.location.href='administrator-managing-companies.html'">Next: Company Management →</button>
+      </div>
+      </section>
+
+
+
+
+
+
+      <section id="topic-request-license" class="view">
+        <h1>Request a License</h1>
+        <p>RapidReconciler is licensed <strong>per JD Edwards company number</strong>. When the customer needs to add a new JDE company to their RapidReconciler instance, the request goes to <strong>GSI Sales</strong>. License changes are not handled by RR Support &mdash; Sales owns the entitlement, RR Support owns the running application.</p>
+        <p>RapidReconciler does not license per user seat &mdash; adding or removing users is handled directly by the administrator and does not require a license change.</p>
+
+        <h2>What to Include in Your Email</h2>
+        <p>Send a short email to <code>gsisales@getgsi.com</code> with the items below. Sales will reply to confirm the change is in place and to coordinate any billing follow-up.</p>
+        <ul>
+          <li><strong>Customer / instance name</strong> &mdash; so Sales can match the request to your account.</li>
+          <li><strong>JDE company number(s) to add</strong> &mdash; e.g., &ldquo;license for JDE company <code>00050</code>&rdquo; or &ldquo;companies <code>00050</code> and <code>00060</code>&rdquo;.</li>
+          <li><strong>When you need it by</strong> &mdash; especially if there&rsquo;s a go-live, audit, or period-close deadline.</li>
+          <li><strong>Who to copy on the response</strong> &mdash; procurement, project lead, or IT.</li>
+        </ul>
+
+        <div class="callout tip">
+          <div class="callout-label">Quick mailto</div>
+          <p><a href="mailto:gsisales@getgsi.com?subject=GSI%20RR%20-%20Additional%20License%20Request">Email gsisales@getgsi.com</a> with the four items above.</p>
+        </div>
+
+        <h2>After Sales Confirms</h2>
+        <p>Once Sales replies that the new company license is in place:</p>
+        <ul>
+          <li>Follow <a href="javascript:void(0)" onclick="showView('topic-first-setup')">Your First Setup &rarr; If You Are Adding a Company After Initial Deployment</a> to configure the new company in RapidReconciler.</li>
+          <li>Once the company is configured, the administrator can grant existing or new users access to it via <a href="administrator-managing-users.html">Manage the Team</a>.</li>
+        </ul>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">&larr; Back to Index</button>
+        </div>
+      </section>
+
+
+      <section id="topic-self-check" class="view">
+        <h1>Self-Check</h1>
+        <p>Seven scenarios to test your reading. Read each one, decide what you&rsquo;d do, and click <strong>Where to find this</strong> to confirm. If a scenario surprises you or you&rsquo;d guess wrong, that&rsquo;s the topic to re-read &mdash; not a failure. Administrator decisions tend to be infrequent and high-consequence; the value of these scenarios is in surfacing the judgment patterns rather than memorizing facts.</p>
+
+        <div class="diamond-divider"><span class="diamond"></span></div>
+
+        <div class="self-check-stack">
+
+          <div class="self-check-card">
+            <div class="self-check-num">Scenario 1</div>
+            <p class="scenario">A new RapidReconciler deployment. You&rsquo;ve been given admin access. The customer has three licensed JDE companies and you need to onboard ten end-users (six inventory accountants, four AP clerks).</p>
+            <p class="prompt">What order do you configure things in &mdash; companies first, users first, settings first? Why?</p>
+            <a class="where" href="javascript:void(0)" onclick="showView('topic-first-setup')">Where to find this: <strong>Your First Setup &rarr; Recommended Sequence</strong></a>
+          </div>
+
+          <div class="self-check-card">
+            <div class="self-check-num">Scenario 2</div>
+            <p class="scenario">You&rsquo;re inheriting an existing RapidReconciler instance from a previous admin. The instance has been running for two years.</p>
+            <p class="prompt">What&rsquo;s the most common configuration finding in a handoff like this, and what tool does this doc give you to surface it?</p>
+            <a class="where" href="javascript:void(0)" onclick="showView('topic-first-setup')">Where to find this: <strong>Your First Setup &rarr; If You Are Inheriting an Existing Deployment</strong></a>
+          </div>
+
+          <div class="self-check-card">
+            <div class="self-check-num">Scenario 3</div>
+            <p class="scenario">A GL roll-forward break for one account won&rsquo;t clear even after you&rsquo;ve posted all the open GL batches.</p>
+            <p class="prompt">Which tool clears it, and what happens to your JD&nbsp;Edwards data when you use it?</p>
+            <a class="where" href="javascript:void(0)" onclick="showView('topic-utilities')">Where to find this: <strong>Utilities &rarr; Reload GL Data</strong></a>
+          </div>
+
+          <div class="self-check-card">
+            <div class="self-check-num">Scenario 4</div>
+            <p class="scenario">An end-user opens a support ticket: &ldquo;The Reconciliation page shows totally wrong numbers for company 00100 today &mdash; way off from what JDE shows.&rdquo;</p>
+            <p class="prompt">Is this likely a configuration issue you own, an operational issue someone else owns, or a user error? What do you check first to decide?</p>
+            <a class="where" href="javascript:void(0)" onclick="showView('topic-pre-launch')">Where to find this: <strong>Pre-launch Checklist &rarr; What to do when the checklist surfaces a problem</strong></a>
+          </div>
+
+          <div class="self-check-card">
+            <div class="self-check-num">Scenario 5</div>
+            <p class="scenario">The customer just licensed a new JDE company through GSI. You see the license is in place. End-users are asking when they can start using it.</p>
+            <p class="prompt">What four things do you do (in order) before announcing the new company is available?</p>
+            <a class="where" href="javascript:void(0)" onclick="showView('topic-first-setup')">Where to find this: <strong>Your First Setup &rarr; If You Are Adding a Company After Initial Deployment</strong></a>
+          </div>
+
+          <div class="self-check-card">
+            <div class="self-check-num">Scenario 6</div>
+            <p class="scenario">A user complains that they can see the Inventory module but not the In Transit module &mdash; they need both for their role.</p>
+            <p class="prompt">Where in the configuration is this controlled, and what specific setting do you change?</p>
+            <a class="where" href="javascript:void(0)" onclick="showView('topic-people-licensing')">Where to find this: <strong>People &amp; Licensing &rarr; RR Team</strong></a>
+          </div>
+
+          <div class="self-check-card">
+            <div class="self-check-num">Scenario 7</div>
+            <p class="scenario">An accountant says their export has been &ldquo;spinning&rdquo; for ten minutes and won&rsquo;t finish. Nothing in JD&nbsp;Edwards looks wrong.</p>
+            <p class="prompt">Which Home area do you check, what would tell you the engine is struggling, and what&rsquo;s the safe first action?</p>
+            <a class="where" href="javascript:void(0)" onclick="showView('topic-system-health')">Where to find this: <strong>System Health &rarr; Report Engine</strong></a>
+          </div>
+
+        </div>
+
+        <div class="callout tip">
+          <div class="callout-label">How to use this</div>
+          <p>The questions don&rsquo;t have a score. They&rsquo;re a self-test for whether the doc landed. If three or more felt uncertain, the doc didn&rsquo;t land and is worth a re-read &mdash; ideally with the specific topic each scenario points to. If they all felt obvious, you&rsquo;re ready to walk the Pre-launch Checklist for your specific deployment.</p>
+        </div>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">← Back to Index</button>
+          <button class="next-btn" onclick="showView('topic-vocabulary')">Next: Vocabulary →</button>
+        </div>
+      </section>
+
+      <section id="topic-vocabulary" class="view">
+        <h1>Vocabulary</h1>
+        <p>RapidReconciler-specific terms relevant to the administrator role. Each entry is a one-line definition plus a link to the topic that explains it in depth. Skim once for awareness; come back when a term comes up in a configuration screen and you want to remember what it meant.</p>
+
+        <div class="diamond-divider"><span class="diamond"></span></div>
+
+        <dl class="glossary">
+
+          <dt>AAI document type</dt>
+          <dd>Per-company configuration that tells RapidReconciler which JDE document types apply to inventory transactions for that company. Drives the AAI-based account derivation in the Variance Calculation. <a href="administrator-managing-companies.html">Company Management</a>.</dd>
+
+          <dt>Database &amp; company access</dt>
+          <dd>The databases a user may sign in to and, within each, the companies they can see &mdash; <strong>All licensed companies</strong> or a chosen list. Set per user on the <a href="administrator-managing-users.html">RR Team</a> page, on top of their role.</dd>
+
+          <dt>Role</dt>
+          <dd>A reusable, named bundle of access (e.g. <strong>RR Administrator</strong>, <strong>Reconciliation Analyst</strong>, <strong>A/P Clerk</strong>) that decides which modules a user can use. Each user has one role; it replaces the old per-user function/tab check-boxes. <a href="administrator-managing-users.html">Manage the Team</a>.</dd>
+
+          <dt>Company license</dt>
+          <dd>The mechanism that grants RapidReconciler access to a JDE company&rsquo;s data. Licensed at the GSI level; configured at the customer level. Adding a previously-unlicensed company requires a request to GSI support. <a href="administrator-managing-companies.html#adding">Adding a Company License</a>.</dd>
+
+          <dt>Company seat</dt>
+          <dd>One of the company books your agreement with GSI lets you reconcile. The Licensing row on Home shows how many of your seats are in use, e.g. &ldquo;2 of 3&rdquo;. <a href="javascript:void(0)" onclick="showView('topic-people-licensing')">People &amp; Licensing</a>.</dd>
+
+          <dt>Data cutoff (purge)</dt>
+          <dd>The start date of the data RapidReconciler keeps. Moving it forward (&ldquo;purging&rdquo;) drops the older periods from RapidReconciler&rsquo;s working copy on the next refresh to free up space &mdash; nothing is removed from JD&nbsp;Edwards. <a href="javascript:void(0)" onclick="showView('topic-data')">Data &amp; Refresh</a>.</dd>
+
+          <dt>Report engine</dt>
+          <dd>The engine behind RapidReconciler that builds your reports and exports. Its health (and a Restart button) lives on Home under <a href="javascript:void(0)" onclick="showView('topic-system-health')">System Health</a>.</dd>
+
+          <dt>Fiscal year start date</dt>
+          <dd>Per-company configuration that tells RapidReconciler when each company&rsquo;s fiscal year begins. Drives period boundaries throughout the application. Must match what JDE has for the same company.</dd>
+
+          <dt>Per-module company access</dt>
+          <dd>The list of companies a user can see inside a specific module (Inventory, In Transit, PO Receipts). A user can have access to different sets of companies in different modules. Configured per-user in <a href="administrator-managing-users.html">Manage the Team</a>.</dd>
+
+          <dt>Tolerance threshold</dt>
+          <dd>Per-company materiality threshold used to filter the Transactions page so end-users see only meaningful variances rather than sub-unit rounding noise. Differences below the threshold are excluded by default but still roll up into the Transactions line of the headline variance.</dd>
+
+        </dl>
+
+        <a class="xref" href="javascript:void(0)" onclick="showView('home')">
+          Back to <strong>Index</strong> for the full topic table.
+        </a>
+
+        <div class="topic-footer-nav">
+          <button class="back-btn" onclick="goHome()">← Back to Index</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============ FOOTER ============ -->
+<section class="doc-feedback" aria-label="Documentation feedback">
+  <div class="doc-feedback-inner">
+    <div class="doc-feedback-icon" aria-hidden="true">i</div>
+    <div class="doc-feedback-text">
+      <strong>Help us improve.</strong>
+      Found an error, a gap, or something unclear in this document?
+      Email <a href="mailto:rrsupport@getgsi.com?subject=GSI+RR+-+Doc+Feedback+(administrator-start-here.html)">rrsupport@getgsi.com</a> &mdash;
+      corrections and suggestions are all welcome.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-line">
+      <span><strong>RapidReconciler University</strong> <span class="footer-sep">&middot;</span> a GSI knowledge base for JD Edwards reconciliation</span>
+      <span>&copy; 2026 GSI <span class="footer-sep">&middot;</span> <a href="mailto:rrsupport@getgsi.com">rrsupport@getgsi.com</a> <span class="footer-sep">&middot;</span> <a href="https://www.getgsi.com" target="_blank" rel="noopener">getgsi.com</a></span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  function showView(id) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    const target = document.getElementById(id);
+    if (target) {
+      target.classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'instant' });
+
+      const slug = id === 'home' ? 'home' : id.replace('topic-', '');
+      document.querySelectorAll('.sidebar-nav li[data-target]').forEach(li => {
+        li.classList.toggle('active', li.dataset.target === slug);
+      });
+
+      // Sync document title with active topic
+      const baseTitle = 'Administrator Walkthrough — RapidReconciler University';
+      const heading = target.querySelector('h1');
+      if (heading) {
+        document.title = (slug === 'home')
+          ? baseTitle
+          : heading.textContent.trim() + ' — ' + baseTitle;
+      }
+
+      try {
+        if (window.location.protocol !== 'about:') {
+          history.replaceState(null, '', slug === 'home' ? ' ' : '#' + slug);
+        }
+      } catch (e) { /* sandboxed context */ }
+    }
+  }
+
+  function goHome() { showView('home'); }
+
+  document.querySelectorAll('#sidebar-nav li[data-target="home"]').forEach(li => li.classList.add('active'));
+
+  window.addEventListener('DOMContentLoaded', () => {
+    try {
+      const hash = window.location.hash.replace('#', '');
+      if (hash && hash !== 'home') showView('topic-' + hash);
+    } catch (e) { /* ignore */ }
+  });
+
+  window.addEventListener('popstate', () => {
+    try {
+      const hash = window.location.hash.replace('#', '');
+      showView(hash && hash !== 'home' ? 'topic-' + hash : 'home');
+    } catch (e) { /* ignore */ }
+  });
+</script>
+
+</body>
+</html>

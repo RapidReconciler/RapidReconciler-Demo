@@ -1,0 +1,75 @@
+/* =============================================================================
+   admin-chrome.css - shared RRV8 admin-page chrome
+   =============================================================================
+   The one copy of the "admin-page standard" chrome that every standardized
+   admin-*.html page links. Pull this in AFTER fonts/fonts.css and BEFORE the
+   page's own inline <style> block so page-specific rules still win by source
+   order (inline is linked last, so it overrides anything here).
+
+   Scope = shared chrome only: the color palette, base reset/typography, the
+   command-center background wash, the floating Home button (corner-chrome), the
+   page shell (.main/.page/.page-header/.page-title/.page-lede), and the card
+   primitives (.card/.card-head/.card-title/.card-body).
+
+   Anything page-specific - content styles, page-unique components, and
+   intentional overrides (e.g. a wider .page, a flex .page-header, or a flex
+   .card-head) - stays in that page's inline <style>, which wins because it is
+   sourced after this file.
+
+   The only chrome on an admin page is the floating Home button plus the help
+   "?" circle injected by help-sidebar.js. There is no header or footer bar.
+   ============================================================================= */
+
+:root {
+  --navy:#1f2d4a; --navy-deep:#16223b; --blue:#2f6fb0; --blue-bright:#3d8fd6; --blue-pale:#e8f0f8;
+  --orange:#f08a24; --orange-deep:#d9740f; --orange-pale:#fdf0e0; --green:#2e8a55; --green-pale:#e7f3ec;
+  --red:#c0392b; --red-pale:#fae9e7; --amber:#b7791f; --amber-pale:#fdf4e3;
+  --bg:#e3e8f1; --bg-soft:#f5f7fa; --bg-card:#ffffff;
+  --text:#243049; --text-soft:#4a5468; --text-muted:#6b7689; --rule:#e4e8ef; --rule-strong:#d2d8e2;
+  --shadow-sm:0 1px 3px rgba(20,32,55,.08); --shadow-md:0 8px 24px -10px rgba(20,32,55,.22);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+/* Command-center wash - the layered navy/blue glow home.html uses, so a sub-page
+   shares the product's backdrop instead of a flat fill. */
+body {
+  font-family:'Open Sans',-apple-system,sans-serif;
+  background:
+    radial-gradient(1100px 380px at 50% -150px, rgba(47,111,176,.13), transparent 72%),
+    linear-gradient(180deg, #e6ebf4 0%, var(--bg) 340px);
+  background-attachment:fixed;
+  color:var(--text);
+  font-size:14px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4 { font-family:'Source Sans 3',sans-serif; font-weight:700; }
+a { color:inherit; text-decoration:none; }
+
+/* Single full-height content area. The only chrome is the floating Home button
+   plus the help "?" (help-sidebar.js). */
+.app { min-height:100vh; }
+
+/* Floating chrome cluster, top-right. The Home button carries the .topbar-home
+   hook class so help-sidebar.js injects its "?" circle right beside it. */
+.corner-chrome { position:fixed; top:16px; right:22px; z-index:60; display:flex; align-items:center; }
+/* Scoped to .corner-chrome (0,2,0) so it beats sidebar.css's single-class
+   .topbar-home (0,1,0) hook regardless of stylesheet load order — the button
+   carries both classes, and sidebar.css loads after this file. */
+.corner-chrome .home-fab { display:inline-flex; align-items:center; gap:7px; padding:8px 15px; border-radius:100px; background:linear-gradient(180deg,var(--navy) 0%,var(--navy-deep) 100%); color:#fff; font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:13.5px; box-shadow:var(--shadow-md); transition:filter .15s ease; }
+.corner-chrome .home-fab svg { width:16px; height:16px; }
+.corner-chrome .home-fab:hover { filter:brightness(1.14); }
+
+/* Page shell. Top padding clears the fixed corner-chrome / "?" cluster. */
+.main { padding:64px 32px 56px; overflow-y:auto; }
+.page { max-width:880px; margin:0 auto; }
+.page-header { margin-bottom:18px; }
+.page-title { font-size:26px; color:var(--navy); font-weight:800; }
+.page-lede { color:var(--text-soft); margin-top:8px; max-width:64ch; }
+
+/* Card primitives. */
+.card { background:var(--bg-card); border:1px solid var(--rule); border-radius:10px; box-shadow:var(--shadow-sm); margin-bottom:18px; overflow:hidden; }
+.card-head { padding:14px 18px; border-bottom:1px solid var(--rule); background:var(--bg-soft); }
+.card-title { font-family:'Source Sans 3',sans-serif; font-weight:800; font-size:18px; color:var(--navy); letter-spacing:.01em; }
+.card-body { padding:18px; }

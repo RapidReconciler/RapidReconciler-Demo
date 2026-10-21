@@ -1,0 +1,9 @@
+{
+  "_meta": "Demo-mode stand-in for GET /admin/companies (F0010 company names). Prod decodes the real per-DB response. Fictional generics only — no real customer names.",
+  "companies": [
+    { "companyNumber": "00010", "name": "Acme Inc", "startDate": "2015-01-01", "currencyCode": "USD", "aaiDoc": "JE", "threshold": 10 },
+    { "companyNumber": "00050", "name": "Acme Ltd", "startDate": "2015-01-01", "currencyCode": "GBP", "aaiDoc": "JE", "threshold": 10 }
+  ],
+  "unlicensed": null,
+  "companyConstantsCount": 2
+}

@@ -1,0 +1,386 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Administrator > Utilities — Reload GL data
+  =============================================================================
+  Self-service fix for a persistent GL roll-forward break. The page previews
+  on load (GET inventory/reload-gl/preview derives the cutoff = earliest broken
+  period's begin date + counts the F0911 rows); after the operator attests,
+  POST inventory/reload-gl clears RapidReconciler's GL COPY from that date.
+  JDE is never touched — the GL comes back on the next scheduled refresh.
+  Both endpoints are gated on the data-management (analyst) permission
+  server-side; the client gate here is UX.
+
+  Standard admin-page chrome: floating Home button (corner-chrome) + the help "?"
+  circle (help-sidebar.js, from body data-help-src -> administrator-start-here#reload-gl).
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reload GL Data &mdash; RapidReconciler Admin</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="sidebar.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<style>
+  /* Shared admin-page chrome (palette, wash, Home button, page shell, cards)
+     lives in admin-chrome.css, linked above. Only page-specific rules below. */
+  .note { display:flex; gap:12px; padding:13px 16px; border-radius:9px; background:var(--orange-pale); border:1px solid #f0d2a8; color:var(--text); margin-bottom:18px; }
+  /* #js-job-guard is a .note, and `g.hidden = !running` could not collapse a flex box,
+     so the amber "a job is running" warning was on screen permanently — whether or not
+     a job was running. Same defect, same line, on admin-reload-cardex.html. UI-159. */
+  .note[hidden] { display:none; }
+  .note svg { width:18px; height:18px; flex-shrink:0; color:var(--orange-deep); margin-top:2px; }
+  .note b { color:var(--navy); }
+
+  /* Status facts */
+  .facts { display:flex; flex-wrap:wrap; gap:14px 40px; }
+  .fact-k { font-family:'Source Sans 3',sans-serif; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--text-soft); }
+  .fact-v { font-size:20px; font-weight:800; color:var(--navy); font-variant-numeric:tabular-nums; margin-top:2px; }
+
+  .clean-state { display:none; margin-top:6px; padding:11px 14px; border-radius:8px; background:var(--green-pale); border:1px solid #bfe6cd; color:var(--text); font-size:13.5px; }
+  .clean-state.is-visible { display:block; }
+  .clean-state b { color:var(--navy); }
+
+  .attest { display:flex; gap:10px; align-items:flex-start; margin:16px 0 4px; font-size:13.5px; color:var(--text-soft); cursor:pointer; }
+  .attest input { margin-top:3px; flex-shrink:0; }
+  .attest[hidden] { display:none; }
+
+  .btn { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:13.5px; border-radius:6px; padding:9px 18px; cursor:pointer; border:1px solid transparent; }
+  .btn-warn { color:#fff; background:var(--orange); border-color:var(--orange); }
+  .btn-warn:hover:not(:disabled) { filter:brightness(1.06); }
+  .btn-ghost { color:var(--text-soft); background:var(--bg-card); border-color:var(--rule-strong); }
+  .btn-ghost:hover { color:var(--navy); border-color:var(--text-muted); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; filter:none; }
+  .actions { margin-top:18px; display:flex; gap:10px; align-items:center; }
+
+  .fetch-error { display:none; background:var(--red-pale); border:1px solid var(--red); color:var(--red); padding:10px 14px; border-radius:6px; margin-bottom:16px; font-size:13px; font-weight:600; }
+  .fetch-error.is-visible { display:block; }
+  .fetch-error code { font-family:'JetBrains Mono',monospace; font-size:12px; }
+
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--navy); color:#fff; padding:10px 18px; border-radius:6px; font-family:'Source Sans 3',sans-serif; font-weight:600; font-size:13px; opacity:0; pointer-events:none; transition:opacity .2s ease,transform .2s ease; z-index:100; }
+  .toast.is-visible { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  .gate-notice { display:none; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); }
+  .gate-notice svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .gate-notice.is-visible { display:flex; }
+  .gate-notice.halt-notice { background:var(--red-pale); border-color:var(--red); }
+  .gate-notice.halt-notice svg { color:var(--red); }
+  body.is-gated #js-tool { display:none; }
+</style>
+</head>
+<body data-help-src="../RRUniversity/administrator-start-here.html#reload-gl" data-help-title="Reload GL data">
+
+<div class="app">
+
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <div class="toast" id="js-toast" role="status" aria-live="polite"></div>
+
+  <main class="main">
+    <div class="page">
+
+      <header class="page-header">
+        <h1 class="page-title">Reload GL Data</h1>
+        <p class="page-lede">When the account roll-forward shows a GL break that posting batches won&rsquo;t clear, this clears RapidReconciler&rsquo;s copy of the general ledger from the earliest broken period forward. JDE re-pulls it on the next scheduled refresh.</p>
+      </header>
+
+      <!-- Non-admin gate -->
+      <div class="note gate-notice" id="js-gate" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div>This needs the data-management (analyst) permission. <b>Contact your administrator</b> if you need access.</div>
+      </div>
+
+      <!-- Halt states. Neither one is a permission answer: the first means a
+           required part of the page never loaded, the second means the sign-in
+           carried no answer about this user's access either way. Both close the
+           page instead of rendering the admin surface on a guess. -->
+      <div class="note gate-notice halt-notice" id="js-halt-asset" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Part of this page didn&rsquo;t load, so RapidReconciler can&rsquo;t tell what you&rsquo;re allowed to see here &mdash; nothing was loaded. Reload the page. If it happens again, <b>contact your IT department</b>.</div>
+      </div>
+
+      <div class="note gate-notice halt-notice" id="js-halt-claim" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Your sign-in didn&rsquo;t say what you&rsquo;re allowed to do here, so nothing was loaded. Reload the page. If it happens again, ask your <b>IT department</b> to check your RapidReconciler account.</div>
+      </div>
+
+      <div id="js-tool">
+
+        <div class="fetch-error" id="js-fetch-error" role="alert">Couldn&rsquo;t reach the data service &mdash; <span id="js-fetch-error-msg"></span></div>
+
+        <!-- Job guard: a reload mid-refresh would race the load that is rebuilding
+             the same tables. Shown + the action disabled while a data refresh is
+             running; re-enables automatically when it finishes (polled). -->
+        <div class="note" id="js-job-guard" role="status" hidden style="background:var(--orange-pale); border-color:#f0d2a8;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 7v5l3 2"/></svg>
+          <span><b>A data refresh is running.</b> Reloading now would collide with the load that&rsquo;s rebuilding these tables, so it&rsquo;s paused until the refresh finishes. This re-enables on its own.</span>
+        </div>
+
+        <div class="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 8v5M12 16h.01"/></svg>
+          <span><b>Your JDE data is never changed, and this does not pull from JDE now.</b> It clears RapidReconciler&rsquo;s working copy; the GL comes back on the next scheduled refresh. Refreshes load the JDE system, so they only run on the schedule &mdash; that period stays incomplete until then.</span>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="card-title">What will reload</span></div>
+          <div class="card-body">
+            <div class="facts">
+              <div><div class="fact-k">Reload from</div><div class="fact-v" id="js-cutoff">&hellip;</div></div>
+              <div><div class="fact-k">GL rows to reload</div><div class="fact-v" id="js-affected">&hellip;</div></div>
+            </div>
+
+            <div class="clean-state" id="js-clean"><b>No GL break to reload.</b> The roll-forward is intact &mdash; nothing posts or re-pulls.</div>
+
+            <label class="attest" id="js-attest-row">
+              <input type="checkbox" id="js-attest">
+              <span>I understand this clears RapidReconciler&rsquo;s GL copy from the date above, and it rebuilds on the next scheduled refresh.</span>
+            </label>
+
+            <div class="actions">
+              <button class="btn btn-warn" id="js-confirm" type="button" disabled>Reload GL</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- rrFetch (mirrors admin-users.html / admin-fiscal-period.html) ----------
+  const RR_CONFIG = window.RR_CONFIG || {};
+  const URL_MODE  = new URLSearchParams(window.location.search).get('mode');
+  const MODE      = URL_MODE || RR_CONFIG.mode || 'demo';
+  const IS_DEMO   = (MODE === 'demo');
+  const _testAgentAreas    = new Set(window.RR_TEST_AGENT_AREAS || []);
+  const _testAgentPrefixes = window.RR_TEST_AGENT_PREFIXES || [];
+  const _valcPrefixes      = window.RR_VALC_PREFIXES || [];
+  function _routesToTestAgent(area) {
+    if (_testAgentAreas.has(area)) return true;
+    for (let i = 0; i < _testAgentPrefixes.length; i++) if (area.startsWith(_testAgentPrefixes[i])) return true;
+    return false;
+  }
+  function _routesToValc(area) {
+    for (let i = 0; i < _valcPrefixes.length; i++) if (area.startsWith(_valcPrefixes[i])) return true;
+    return false;
+  }
+  function prodHeaders(contentType) {
+    const h = { 'Accept': 'application/json' };
+    try { const t = localStorage.getItem('rrv8.token'); if (t) h['Authorization'] = 'Bearer ' + t; } catch (_) {}
+    if (contentType) h['Content-Type'] = contentType;
+    return h;
+  }
+  function rrFetch(area, opts) {
+    opts = opts || {};
+    let base;
+    if (_routesToValc(area)) {
+      base = RR_CONFIG.valcBase || 'http://localhost:8080';
+    } else if (_routesToTestAgent(area)) {
+      base = window.RRDB.agentBase();   // canonical active-DB agent resolver (config.js RRDB)
+    } else {
+      const sess = window.RR_SESSION;
+      const db = sess && sess.dbs && sess.dbs[sess.activeDbIndex || 0];
+      if (!db || !db.ip) return Promise.reject(new Error('No active database. Sign in first.'));
+      base = (/^(?:localhost|127\.0\.0\.1)\b/i.test(db.ip) ? 'http://' : 'https://') + db.ip;
+    }
+    const url = base + '/' + area + (opts.query ? '?' + new URLSearchParams(opts.query) : '');
+    const init = {
+      method:  opts.method || 'GET',
+      headers: prodHeaders(opts.body ? 'application/json;charset=UTF-8' : null),
+      body:    opts.body ? JSON.stringify(opts.body) : undefined
+    };
+    return fetch(url, init).then(async r => {
+      if (!r.ok) {
+        let detail = 'HTTP ' + r.status;
+        try { const j = await r.json(); if (j && (j.message || j.error)) detail = j.message || j.error; } catch (_) {}
+        const e = new Error(detail); e.status = r.status; throw e;
+      }
+      return r.json().catch(err => err instanceof SyntaxError ? null : Promise.reject(err));
+    });
+  }
+
+  // ---------- helpers ----------
+  function $(id) { return document.getElementById(id); }
+  function toast(msg) { const el = $('js-toast'); if (!el) return; el.textContent = msg; el.classList.add('is-visible'); setTimeout(() => el.classList.remove('is-visible'), 2800); }
+  function nf(n) { const x = parseInt(n, 10); return isNaN(x) ? '—' : x.toLocaleString('en-US'); }
+  function fmtDateLong(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    if (!m) return String(iso || '—');
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  }
+  // ONE producer for the sentence: RRV8.fetchErrorMessage (sidebar.js) branches
+  // on the HTTP status so the remedy matches the failure — a 403 is an
+  // unauthenticated session, not a missing endpoint. See
+  // docs/plans/shared-state-registry.md. Falls back to the raw message only if
+  // sidebar.js is unavailable.
+  function fetchErrText(area, err) {
+    return (window.RRV8 && window.RRV8.fetchErrorMessage)
+      ? window.RRV8.fetchErrorMessage(area, err)
+      : ((err && err.message) || String(err));
+  }
+  function showFetchError(msg) { const b = $('js-fetch-error'); $('js-fetch-error-msg').textContent = msg; b.classList.add('is-visible'); }
+  function clearFetchError() { $('js-fetch-error').classList.remove('is-visible'); }
+  function activeDb() { const s = window.RR_SESSION || {}; const d = Array.isArray(s.dbs) ? s.dbs : []; return d[s.activeDbIndex || 0] || d[0] || null; }
+  // Analyst-authorized when the role's data-management grant isn't explicitly
+  // off (perms.dm !== false, fail-open) — mirrors home.html canAnalyst() and the
+  // server's requireAnalyst(). No superuser (su) flag exists in the client token,
+  // so we gate solely on perms.dm, matching every other analyst surface.
+  function canReload() { const a = activeDb(); if (!a) return false; const perms = a.perms || {}; return perms.dm !== false; }
+  // Close the page loudly. `id` names one of the halt notices in the markup.
+  // Used when we can't read the session at all -- distinct from canReload()
+  // returning false, which is an actual answer about the user's permission.
+  function haltPage(id) { document.body.classList.add('is-gated'); const el = $(id); if (el) el.classList.add('is-visible'); }
+
+  // ---------- Reload GL ----------
+  // GET preview derives the cutoff (earliest broken period's begin date) + counts
+  // the F0911 rows. The cutoff is server-DERIVED, shown read-only, and posted back
+  // verbatim on execute (no re-derive, so preview and confirm never drift).
+  let _cutoff = null, _busy = false, _jobRunning = false;
+
+  // The reload can run only when there's a break, the attest box is checked,
+  // nothing's in flight, AND no data refresh is running (a reload mid-refresh
+  // would race the load rebuilding the same tables).
+  function syncConfirm() {
+    $('js-confirm').disabled = !(_cutoff && $('js-attest').checked && !_busy && !_jobRunning);
+  }
+  function applyJobGuard(running) {
+    _jobRunning = running;
+    const g = $('js-job-guard'); if (g) g.hidden = !running;
+    const at = $('js-attest'); if (at) at.disabled = running;
+    syncConfirm();
+  }
+  // Poll the data-refresh job state (GET /poll, same source as Home). "in
+  // progress" => guard on; anything else => guard off. Re-checks on a timer so
+  // the page re-enables itself when the refresh finishes.
+  function checkJob() {
+    rrFetch('poll').then(function (payload) {
+      const job = (payload && (payload.currentJob || payload)) || {};
+      applyJobGuard(/^in progress/i.test(String(job.jobStatus || '').trim()));
+    }).catch(function () {
+      // Fail safe to "not running". A poll error must NOT leave the "data refresh
+      // is running" banner latched: once shown, a failing poll can never report
+      // not-in-progress, so the stale banner would stick forever (and block the
+      // reload) even though nothing is running. The reload endpoint is analyst-gated
+      // server-side — the client banner is a UX hint, not the real collision guard.
+      applyJobGuard(false);
+    });
+  }
+
+  function loadPreview() {
+    clearFetchError();
+    rrFetch('inventory/reload-gl/preview').then(function (p) {
+      // A reply with no readable answer is NOT "the roll-forward is intact". rrFetch
+      // resolves to null on an empty 2xx body, and the clean state below is a
+      // definite claim the admin acts on — so require the reply to actually carry a
+      // cutoffDate key (null value = a real "no break") before making it.
+      if (!p || typeof p !== 'object' || !('cutoffDate' in p)) {
+        _cutoff = null;
+        $('js-cutoff').textContent = '—'; $('js-affected').textContent = '—';
+        $('js-clean').classList.remove('is-visible');
+        $('js-attest-row').hidden = true;
+        $('js-confirm').disabled = true;
+        console.error('[reload GL] preview returned no usable answer:', p);
+        showFetchError('the GL check didn’t come back with an answer, so this isn’t a clean result. Reopen this page in a moment; if it keeps happening, ask your IT department to confirm RapidReconciler’s data service is running.');
+        return;
+      }
+      const cutoff = p.cutoffDate;
+      if (!cutoff) {   // cutoffDate present but null = no GL-roll break -> nothing to reload
+        _cutoff = null;
+        $('js-cutoff').textContent = '—'; $('js-affected').textContent = '0';
+        $('js-clean').classList.add('is-visible');
+        $('js-attest-row').hidden = true;
+        $('js-confirm').disabled = true;
+        return;
+      }
+      _cutoff = cutoff;
+      $('js-cutoff').textContent = fmtDateLong(cutoff);
+      $('js-affected').textContent = nf(p.affected);
+      $('js-clean').classList.remove('is-visible');
+      $('js-attest-row').hidden = false;
+      syncConfirm();
+    }).catch(function (e) {
+      $('js-cutoff').textContent = '—'; $('js-affected').textContent = '—';
+      showFetchError('Could not check GL reload. ' +
+        fetchErrText('inventory/reload-gl/preview', e));
+    });
+  }
+
+  function confirmReload() {
+    if (_busy || !_cutoff || !$('js-attest').checked || _jobRunning) return;
+    _busy = true; $('js-confirm').disabled = true; $('js-confirm').textContent = 'Reloading…';
+    rrFetch('inventory/reload-gl', { method: 'POST', body: { cutoffDate: _cutoff } })
+      .then(function (r) {
+        toast('GL copy cleared — ' + nf(r && r.affected) + ' rows removed. It rebuilds on the next scheduled refresh.');
+        if (window.RRV8 && RRV8.logActivity) RRV8.logActivity('GL reload requested', 'GL copy cleared from ' + _cutoff + ' — rebuilds on the next scheduled refresh (' + nf(r && r.affected) + ' rows removed)');
+        loadPreview();   // re-read: stays "available" until the refresh re-rolls clean
+        $('js-attest').checked = false;
+      })
+      .catch(function (e) { showFetchError('Reload GL failed. ' + fetchErrText('inventory/reload-gl', e)); })
+      .then(function () { _busy = false; $('js-confirm').textContent = 'Reload GL'; syncConfirm(); });
+  }
+
+  // ---------- boot ----------
+  function startBoot() {
+    const a = activeDb();
+    // Topbar/footer chrome retired (admin-page standard); these elements no longer
+    // exist, so guard before touching them.
+    const dbEl = $('js-topbar-db');
+    if (dbEl && a && a.n) dbEl.textContent = a.n;
+    const ver = $('js-app-ver');
+    if (ver) ver.textContent = (RR_CONFIG.release || 'v8') + (RR_CONFIG.buildStamp ? ' · ' + RR_CONFIG.buildStamp : '');
+
+    // Client gate (UX only — the endpoints are analyst-gated server-side too).
+    // No active database in the session means nothing told us what this user
+    // may do -- not a permission answer. Halt rather than run, or claim they
+    // lack a permission we never actually read.
+    if (!activeDb()) { haltPage('js-halt-claim'); return; }
+    if (!canReload()) {
+      document.body.classList.add('is-gated');
+      $('js-gate').classList.add('is-visible');
+      return;
+    }
+
+    $('js-attest').addEventListener('change', syncConfirm);
+    $('js-confirm').addEventListener('click', confirmReload);
+
+    if (IS_DEMO) { $('js-cutoff').textContent = '—'; $('js-affected').textContent = '—'; return; }
+    loadPreview();
+    checkJob();
+    setInterval(checkJob, 12000);
+  }
+
+  // Hydrate the session FIRST (this minimal-topbar page doesn't mount the
+  // workbar that would auto-hydrate), so activeDb() resolves and loadPreview()/
+  // checkJob() reach the right database instead of racing an empty session.
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.RRV8 && typeof window.RRV8.hydrateSession === 'function') {
+      window.RRV8.hydrateSession().then(startBoot).catch(startBoot);
+    } else {
+      // sidebar.js owns session hydration. If it did not load there is no session
+      // to read, so close the page and say so -- never render admin controls on a
+      // blind guess. (This branch used to boot the page wide open.)
+      haltPage('js-halt-asset');
+    }
+  });
+})();
+</script>
+</body>
+</html>
+

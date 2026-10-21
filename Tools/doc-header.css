@@ -1,0 +1,209 @@
+/* ============================================================
+   Shared customer-document chrome.
+
+   Linked from every customer-facing doc in HelpDesk/, RRUniversity/,
+   Scenarios/ so the banner + feedback-band styles stay DRY. The
+   doc-type theme (How-to guide / Reference document / Runbook) is
+   driven by a `data-doc-type="howto|reference|runbook"` attribute
+   on <body>; CSS keys off that attribute to recolor the accent
+   strip, pill, and wordmark accent.
+
+   The banner is intentionally NOT a navigation surface — these docs
+   are emailed to customers as standalone URLs and shouldn't link
+   back into the Help Desk. The wordmark is plain text, not a link.
+
+   The GSI logo here points at /Images/gsi-logo.png (the live file in
+   the repo). If a doc has the old base64-embedded GSI logo in its
+   markup, the migration also strips it and uses the file reference,
+   so a single replace of the PNG updates every doc.
+============================================================ */
+
+:root {
+  --doc-navy:        #1f2d4a;
+  --doc-navy-deep:   #142037;
+  --doc-blue:        #2b5fb0;
+  --doc-blue-bright: #3d8fd6;
+  --doc-blue-pale:   #d6e6f5;
+  --doc-orange:      #f08a24;
+  --doc-orange-deep: #d97316;
+  --doc-orange-pale: #fbe7ce;
+  --doc-bg-soft:     #f6f8fb;
+  --doc-rule:        #e1e7ef;
+  --doc-rule-strong: #c9d3e0;
+  --doc-text:        #1f2d4a;
+  --doc-text-soft:   #5a6479;
+  --doc-text-muted:  #8a93a6;
+}
+
+/* ===== Customer-doc header banner ===== */
+.doc-header {
+  background: #fff;
+  border-bottom: 1px solid var(--doc-rule);
+  position: relative;
+}
+.doc-header::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--doc-blue);
+}
+body[data-doc-type="howto"]     .doc-header::before { background: var(--doc-blue); }
+body[data-doc-type="reference"] .doc-header::before { background: var(--doc-navy); }
+body[data-doc-type="runbook"]   .doc-header::before { background: var(--doc-orange); }
+
+.doc-header-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 22px 40px 18px;
+}
+.doc-header-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 18px;
+}
+.doc-header-middle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  justify-self: center;
+}
+.doc-logo {
+  height: 38px;
+  width: auto;
+  display: block;
+  justify-self: start;
+}
+/* Print + GSI share the right cell so the 3-column grid stays balanced
+   (logo | middle | right) instead of the GSI logo wrapping to a 2nd row. */
+.doc-header-right {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  justify-self: end;
+}
+
+.doc-kind-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Source Sans 3', sans-serif;
+  font-weight: 700;
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 100px;
+  background: var(--doc-blue-pale);
+  color: var(--doc-blue);
+  border: 1px solid rgba(43, 95, 176, 0.18);
+}
+body[data-doc-type="howto"] .doc-kind-pill {
+  background: var(--doc-blue-pale);
+  color: var(--doc-blue);
+  border-color: rgba(43, 95, 176, 0.20);
+}
+body[data-doc-type="reference"] .doc-kind-pill {
+  background: #e7ecf3;
+  color: var(--doc-navy);
+  border-color: rgba(31, 45, 74, 0.18);
+}
+body[data-doc-type="runbook"] .doc-kind-pill {
+  background: var(--doc-orange-pale);
+  color: var(--doc-orange-deep);
+  border-color: rgba(240, 138, 36, 0.24);
+}
+.doc-kind-pill svg {
+  width: 13px;
+  height: 13px;
+}
+
+.doc-gsi {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+.doc-gsi:hover { opacity: 0.78; }
+.doc-gsi img { height: 40px; width: auto; display: block; }
+
+.doc-last-updated {
+  color: var(--doc-text-soft);
+  font-size: 13px;
+  font-family: 'Source Sans 3', sans-serif;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.doc-last-updated time {
+  font-weight: 700;
+  color: var(--doc-navy);
+}
+
+/* ===== Help-us-improve feedback band ===== */
+.doc-feedback {
+  background: var(--doc-bg-soft);
+  border-top: 1px solid var(--doc-rule);
+  border-bottom: 1px solid var(--doc-rule);
+  padding: 22px 0;
+}
+.doc-feedback-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  text-align: center;
+}
+.doc-feedback-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid var(--doc-rule-strong);
+  background: #ffffff;
+  color: var(--doc-text-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+  font-family: 'Source Sans 3', sans-serif;
+}
+.doc-feedback-text {
+  font-family: 'Open Sans', sans-serif;
+  font-size: 14px;
+  color: var(--doc-text);
+  line-height: 1.6;
+  max-width: 760px;
+}
+.doc-feedback-text strong { color: var(--doc-navy); font-weight: 700; }
+.doc-feedback-text a {
+  color: var(--doc-orange);
+  text-decoration: none;
+  font-weight: 600;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s, color 0.15s;
+}
+.doc-feedback-text a:hover {
+  color: var(--doc-orange-deep);
+  border-bottom-color: var(--doc-orange);
+}
+
+@media (max-width: 720px) {
+  .doc-header-inner { padding: 18px 22px 14px; }
+  /* Stack the three zones centered when there isn't room for a 3-up row. */
+  .doc-header-row { grid-template-columns: 1fr; justify-items: center; gap: 12px; }
+  .doc-logo, .doc-header-middle, .doc-header-right { justify-self: center; }
+  .doc-header-middle { flex-wrap: wrap; justify-content: center; }
+  .doc-logo { height: 36px; }
+  .doc-gsi img { height: 34px; }
+  .doc-last-updated { font-size: 12.5px; }
+  .doc-feedback { padding: 18px 0; }
+  .doc-feedback-inner { gap: 10px; padding: 0 22px; }
+  .doc-feedback-text { font-size: 13px; }
+}

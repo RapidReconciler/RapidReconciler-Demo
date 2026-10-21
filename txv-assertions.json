@@ -1,0 +1,393 @@
+{
+  "_comment": "GENERATED from usp8_txv_*.sql @asserts lines in RapidReconciler-DB. Do not hand-edit. Regenerate with Tools/gen_txv_assertions.py in that repo.",
+  "assertions": {
+    "ACCT.netswithin": {
+      "statement": "the document's variance sums to within the company Threshold at (document, document type, company, batch, period) grain",
+      "proc": "usp8_txv_account_mismatch"
+    },
+    "ACCT.offsetnamed": {
+      "statement": "the Comment names another account carrying the same document, batch and period",
+      "proc": "usp8_txv_account_mismatch"
+    },
+    "ACCT.samebatch": {
+      "statement": "Batch is part of that grain, so every offsetting row is in one batch",
+      "proc": "usp8_txv_account_mismatch"
+    },
+    "ACCT.sameperiod": {
+      "statement": "PeriodEnds is part of that grain, so every offsetting row is in one period and a cut-off cannot explain it",
+      "proc": "usp8_txv_account_mismatch"
+    },
+    "ACCT.ungrouped": {
+      "statement": "the row is ungrouped (GroupCode = '') and still unclaimed, so it is a single-document case rather than a linked group",
+      "proc": "usp8_txv_account_mismatch"
+    },
+    "CNJ.batchstamped": {
+      "statement": "Batch > 0 on the item-ledger row, so a manufacturing accounting run processed it",
+      "proc": "usp8_txv_flags"
+    },
+    "CNJ.cardexonly": {
+      "statement": "LedgerAmount = 0 and CardexAmount <> 0, so the GL correlation found nothing for the row",
+      "proc": "usp8_txv_flags"
+    },
+    "CNJ.issuespresent": {
+      "statement": "F0911 holds at least one IM row for this company and work-order subledger",
+      "proc": "usp8_txv_flags"
+    },
+    "CNJ.mfgic": {
+      "statement": "Type is 'Mfg' and DocType is 'IC', a work-order completion",
+      "proc": "usp8_txv_flags"
+    },
+    "CNJ.nocompletion": {
+      "statement": "F0911 holds no IC row for this company and work-order subledger",
+      "proc": "usp8_txv_flags"
+    },
+    "CNJ.searchscope": {
+      "statement": "the search covers document types IC and IM only, on the document's own company, and only rows whose subledger casts to a number above zero",
+      "proc": "usp8_txv_flags"
+    },
+    "CNJ.unpostedwouldsuppress": {
+      "statement": "the aggregate has no posted filter, so an unposted GL completion would suppress the claim rather than trigger it",
+      "proc": "usp8_txv_flags"
+    },
+    "DS.directshiptype": {
+      "statement": "the order carries the JDE direct-ship transaction type",
+      "proc": "usp8_txv_build"
+    },
+    "DS.notnetted": {
+      "statement": "neither the group-code netting pass nor the direct-ship leg pass cleared the pair within the company threshold",
+      "proc": "usp8_txv_group"
+    },
+    "DUP.integrityflag": {
+      "statement": "RDuplicateSales holds a row for this company, order, order type and period",
+      "proc": "usp8_txv_flags"
+    },
+    "DUP.ordergrain": {
+      "statement": "the claim matches on company, order, order type and period only, so every residual row of that order in that period is stamped and no amount is compared",
+      "proc": "usp8_txv_flags"
+    },
+    "DUP.repeatedlineid": {
+      "statement": "RDuplicateSales groups item, order, order type, line ID and explanation and keeps only count > 1 with a non-zero net quantity, so the line ID repeated rather than incrementing",
+      "proc": "usp8_txv_flags"
+    },
+    "IAC.aaipaircancels": {
+      "statement": "for every GL class the document carries, AAI 4134 (the inventory leg) and AAI 4136 (the expense leg) resolve to one account for this company, order type and document type, each side folding to exactly one flex-normalised account; a routing missing either side never enters the comparison and so never counts as a cancel",
+      "proc": "usp8_txv_flags"
+    },
+    "IAC.cardexvalue": {
+      "statement": "CardexAmount <> 0 and abs(LedgerAmount) <= 0.005, a tolerance rather than ROUND() on a float",
+      "proc": "usp8_txv_flags"
+    },
+    "IAC.docscope": {
+      "statement": "the F0911 lookup is keyed on document number and document type only, with no company predicate",
+      "proc": "usp8_txv_flags"
+    },
+    "IAC.everyclasscancels": {
+      "statement": "the document is claimed only when every class it carries cancels, so a document mixing a cancelling class with a working one stays unclaimed",
+      "proc": "usp8_txv_flags"
+    },
+    "IAC.glcancelsoninventory": {
+      "statement": "F0911 holds two or more rows for this document number and document type, they sum to within 0.005 of zero, and every one of them is on the account the item-ledger row used",
+      "proc": "usp8_txv_flags"
+    },
+    "IAC.inventory": {
+      "statement": "Type is 'Inventory'",
+      "proc": "usp8_txv_flags"
+    },
+    "IAC.resolvedrouting": {
+      "statement": "the routing is read from dbo.RAccountInstr and dbo.RAccountInstrExp, the resolved and expanded tables, never from the filtered F4095 extract, and a segment leaves both comparison keys only where the inventory side flexes it, a blank subsidiary participating in the key as a blank",
+      "proc": "usp8_txv_flags"
+    },
+    "ICO.groupmaybeempty": {
+      "statement": "a row whose order has no RIntercoXref entry keeps this card with NO group, so the counterpart leg may not be in this database at all",
+      "proc": "usp8_txv_build"
+    },
+    "ICO.interco": {
+      "statement": "the order carries the JDE intercompany transaction type, or the order type is SI or SK on the sales side or OK on the purchasing side",
+      "proc": "usp8_txv_build"
+    },
+    "ICO.notnetted": {
+      "statement": "the group-code netting pass ran and the group did not sum to within the company threshold, so the two companies' legs have not offset",
+      "proc": "usp8_txv_group"
+    },
+    "MCM.amountdiffers": {
+      "statement": "block G ran first and claimed every row that tied within 0.01, so this row's amount differs from the GL total",
+      "proc": "usp8_txv_flags"
+    },
+    "MCM.batchstamped": {
+      "statement": "Batch > 0 on the item-ledger row",
+      "proc": "usp8_txv_flags"
+    },
+    "MCM.glcompletionsameaccount": {
+      "statement": "F0911 holds at least one IC row for this company, work order and account, in any batch or period",
+      "proc": "usp8_txv_flags"
+    },
+    "MCM.glsideaggregated": {
+      "statement": "the GL side is summed across every batch and period; the cardex side is this single row, not the same aggregate",
+      "proc": "usp8_txv_flags"
+    },
+    "MCM.iconly": {
+      "statement": "only document type IC is summed on the GL side, so material issues are never netted against completions",
+      "proc": "usp8_txv_flags"
+    },
+    "MCM.mfgic": {
+      "statement": "Type is 'Mfg' and DocType is 'IC', a work-order completion",
+      "proc": "usp8_txv_flags"
+    },
+    "MTO.groupkeyedonwo": {
+      "statement": "the group is keyed on company, sales order and work order, so the issue and completion legs stay together across accounts and periods",
+      "proc": "usp8_txv_build"
+    },
+    "MTO.mfg": {
+      "statement": "Type is 'Mfg'",
+      "proc": "usp8_txv_build"
+    },
+    "MTO.notnetted": {
+      "statement": "the group-code netting pass ran and the group did not sum to within the company threshold, so the legs are still open",
+      "proc": "usp8_txv_group"
+    },
+    "MTO.salesorderlink": {
+      "statement": "the work order is named as the related order on a sales-order line, with a related order type of WO, W1 or WR",
+      "proc": "usp8_txv_build"
+    },
+    "NCL.everylinenonstock": {
+      "statement": "every line on the order resolves to an F40205 inventory interface of 'N', and at least one line does, so no item-ledger row was due",
+      "proc": "usp8_txv_flags"
+    },
+    "NCL.glonly": {
+      "statement": "CardexAmount = 0 and LedgerAmount <> 0, so the item-ledger side is empty",
+      "proc": "usp8_txv_flags"
+    },
+    "NCL.ordernumberonly": {
+      "statement": "the order-line lookups are keyed on order number alone, with no company predicate",
+      "proc": "usp8_txv_flags"
+    },
+    "NCL.sales": {
+      "statement": "Type is 'Sales'",
+      "proc": "usp8_txv_flags"
+    },
+    "NSL.costtiesvariance": {
+      "statement": "the non-stock extended cost equals the row's absolute variance, or the order's total absolute variance, within 0.01",
+      "proc": "usp8_txv_flags"
+    },
+    "NSL.nonstockline": {
+      "statement": "the order carries at least one line whose F40205 inventory interface is 'N', and those lines' extended cost is not zero",
+      "proc": "usp8_txv_flags"
+    },
+    "NSL.ordernumberonly": {
+      "statement": "the order-line lookup is keyed on order number alone, with no company predicate",
+      "proc": "usp8_txv_flags"
+    },
+    "NSL.sales": {
+      "statement": "Type is 'Sales'",
+      "proc": "usp8_txv_flags"
+    },
+    "OFF.cardexonly": {
+      "statement": "LedgerAmount = 0 and CardexAmount <> 0, so the GL correlation found nothing for the row",
+      "proc": "usp8_txv_flags"
+    },
+    "OFF.docscope": {
+      "statement": "the F0911 lookups are keyed on document number and document type only, with no company predicate",
+      "proc": "usp8_txv_flags"
+    },
+    "OFF.legsnetzero": {
+      "statement": "those rows sum to within 0.01 of zero",
+      "proc": "usp8_txv_flags"
+    },
+    "OFF.noneoninvaccount": {
+      "statement": "none of those rows is on the account the item-ledger row used",
+      "proc": "usp8_txv_flags"
+    },
+    "OFF.twolegs": {
+      "statement": "F0911 holds two or more rows for this document number and document type",
+      "proc": "usp8_txv_flags"
+    },
+    "PER.acrossperiods": {
+      "statement": "the Comment names another period carrying the same document, account and batch",
+      "proc": "usp8_txv_period_mismatch"
+    },
+    "PER.netswithin": {
+      "statement": "the document's variance sums to within the company Threshold at (document, document type, company, batch, account) grain",
+      "proc": "usp8_txv_period_mismatch"
+    },
+    "PER.sameaccount": {
+      "statement": "ShortAccount is part of that grain, so the offsetting rows sit on one account",
+      "proc": "usp8_txv_period_mismatch"
+    },
+    "PER.ungrouped": {
+      "statement": "the row is ungrouped (GroupCode = '') and still unclaimed, so it is a single-document case rather than a linked group",
+      "proc": "usp8_txv_period_mismatch"
+    },
+    "POP.inventoryaccount": {
+      "statement": "every row's (company, account) is present in RInvAccountList, so the account is an inventory account by construction -- verified 0 off-list rows on both demos",
+      "proc": "usp8_txv_build"
+    },
+    "POP.overthreshold": {
+      "statement": "v6_008_reconcile emits only rows whose absolute cardex-minus-ledger difference exceeds the company threshold",
+      "proc": "usp8_txv_build"
+    },
+    "POP.residual": {
+      "statement": "recstatus = 1 is the analyst's population; recstatus = 2 is already resolved and never reaches a card",
+      "proc": "usp8_txv_build"
+    },
+    "POP.shapemixed": {
+      "statement": "a terminal card holds rows in any cardex/GL shape -- both sides, cardex only or GL only -- because nothing about the shape is what put them here",
+      "proc": "usp8_txv_terminal"
+    },
+    "SAC.aaipaircancels": {
+      "statement": "for every GL class the document carries, AAI 4220 and AAI 4240 resolve to one account for this company and order type, exact class first then the '****' wildcard",
+      "proc": "usp8_txv_flags"
+    },
+    "SAC.cardexrelief": {
+      "statement": "CardexAmount <> 0 and abs(LedgerAmount) <= 0.005, a tolerance rather than ROUND() on a float",
+      "proc": "usp8_txv_flags"
+    },
+    "SAC.everyclasscancels": {
+      "statement": "the document is claimed only when every class it carries cancels, so a document mixing a cancelling class with a working one stays unclaimed",
+      "proc": "usp8_txv_flags"
+    },
+    "SAC.missingaainotclaimed": {
+      "statement": "where either route is absent the comparison is NULL and the class never counts as a cancel, so a missing AAI is not claimed as one",
+      "proc": "usp8_txv_flags"
+    },
+    "SAC.noglforowndoctype": {
+      "statement": "F0911 holds no row for this document number under the document's own type, on any company",
+      "proc": "usp8_txv_flags"
+    },
+    "SAC.ordertypeinmldct": {
+      "statement": "the 42xx sales AAIs are read with the order type in mldct, not the mldcto column the 31xx manufacturing AAIs use",
+      "proc": "usp8_txv_flags"
+    },
+    "SAC.sales": {
+      "statement": "Type is 'Sales'",
+      "proc": "usp8_txv_flags"
+    },
+    "T-INV.notmismatch": {
+      "statement": "the account and period mismatch claims ran in Phase 2 and did not match",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-INV.nottransferclaim": {
+      "statement": "both transfer claims ran and did not match, and both only ever look at document type 'IT' with a zero ledger amount and a non-zero cardex amount",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-INV.unclaimed": {
+      "statement": "recstatus = 1, no SubType, and Type is 'Inventory' or a type no other terminal card names",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-MFG.notcompletiongap": {
+      "statement": "the completion-gap claim ran and did not match, which means one of three things and NOT that the completion is present -- the GL holds a completion for the work order, or it holds no material issues for it either, or the item-ledger row carries no batch",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-MFG.notcostclaim": {
+      "statement": "the cross-batch and cost-mismatch claims ran and did not match, so no GL completion was found for this work order on this account",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-MFG.notmismatch": {
+      "statement": "the account and period mismatch claims ran in Phase 2 and did not match",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-MFG.notmto": {
+      "statement": "the make-to-order pass ran in Phase 0 and did not stamp this row, so no sales order names this work order",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-MFG.unclaimed": {
+      "statement": "recstatus = 1, no SubType, and Type resolved to 'Mfg' from batch type, so every claim in Phases 0 to 2 ran and none matched",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-PURCH.notlinked": {
+      "statement": "the transfer, direct-ship and intercompany passes ran in Phase 0 and did not stamp this row",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-PURCH.notmismatch": {
+      "statement": "the account and period mismatch claims ran in Phase 2 and did not match",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-PURCH.notvoucher": {
+      "statement": "BatchType is not 'V', so the voucher claim did not match",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-PURCH.unclaimed": {
+      "statement": "recstatus = 1, no SubType, and Type resolved to 'Purchasing', so every claim in Phases 0 to 2 ran and none matched",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-SALES.notaaicancel": {
+      "statement": "the sales AAI cancel claim ran and did not match, so either the GL holds a row for the document or the 4220/4240 pair does not resolve to one account for every class",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-SALES.notflagged": {
+      "statement": "the duplicate-sales and voucher claims ran and did not match this row",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-SALES.notlinked": {
+      "statement": "the transfer, direct-ship and intercompany passes ran in Phase 0 and did not stamp this row, so it is not a linked multi-document order",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-SALES.notmismatch": {
+      "statement": "the account and period mismatch claims ran in Phase 2 and did not match, so the variance does not offset across accounts or periods",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-SALES.notnonstock": {
+      "statement": "both non-stock claims ran and did not match: the non-stock cost does not tie to the variance, and not every line on the order is non-stock",
+      "proc": "usp8_txv_terminal"
+    },
+    "T-SALES.unclaimed": {
+      "statement": "recstatus = 1, no SubType, and Type resolved to 'Sales', so every claim in Phases 0 to 2 ran and none matched",
+      "proc": "usp8_txv_terminal"
+    },
+    "TLM.cardexonly": {
+      "statement": "LedgerAmount = 0 and CardexAmount <> 0, so the GL correlation found nothing for the row",
+      "proc": "usp8_txv_flags"
+    },
+    "TLM.doctypeit": {
+      "statement": "DocType is 'IT', an inventory transfer",
+      "proc": "usp8_txv_flags"
+    },
+    "TLM.oneleg": {
+      "statement": "F4111 holds exactly ONE row with document type 'IT' for this company and document number, and JDE writes a transfer as a line-ID pair",
+      "proc": "usp8_txv_flags"
+    },
+    "TRF.notnetted": {
+      "statement": "the group-code netting pass ran and the group did not sum to within the company threshold, so the shipping and receiving legs have not met",
+      "proc": "usp8_txv_group"
+    },
+    "TRF.transfertype": {
+      "statement": "the order carries the JDE transfer transaction type",
+      "proc": "usp8_txv_build"
+    },
+    "TXI.cardexonly": {
+      "statement": "LedgerAmount = 0 and CardexAmount <> 0, so the GL correlation found nothing for the row",
+      "proc": "usp8_txv_flags"
+    },
+    "TXI.doctypeit": {
+      "statement": "DocType is 'IT', an inventory transfer",
+      "proc": "usp8_txv_flags"
+    },
+    "TXI.notoneleg": {
+      "statement": "section C1 ran first and did not claim the row, so F4111 holds a number of 'IT' legs for this document other than one",
+      "proc": "usp8_txv_flags"
+    },
+    "VCHR.batchtypev": {
+      "statement": "BatchType = 'V', so the batch was written by A/P voucher processing",
+      "proc": "usp8_txv_flags"
+    },
+    "XBC.amounttiesrow": {
+      "statement": "the sum of those IC rows equals this item-ledger row's cardex amount within 0.01",
+      "proc": "usp8_txv_flags"
+    },
+    "XBC.batchstamped": {
+      "statement": "Batch > 0 on the item-ledger row",
+      "proc": "usp8_txv_flags"
+    },
+    "XBC.glcompletionsameaccount": {
+      "statement": "F0911 holds at least one IC row for this company, work order and account, in any batch or period",
+      "proc": "usp8_txv_flags"
+    },
+    "XBC.glsideaggregated": {
+      "statement": "the GL side is summed across every batch and period; the cardex side is this single row, not the same aggregate",
+      "proc": "usp8_txv_flags"
+    },
+    "XBC.mfgic": {
+      "statement": "Type is 'Mfg' and DocType is 'IC', a work-order completion",
+      "proc": "usp8_txv_flags"
+    }
+  }
+}

@@ -1,0 +1,171 @@
+/* =============================================================================
+   help-sidebar.css — the standardized Administrator help affordance: a dark
+   "?" circle in the page header (next to the Home button) that opens a
+   right-docked slide-in panel live-embedding an admin doc section. The page
+   stays visible behind a light scrim, so the user reads the guidance while
+   looking at — and working on — the page it describes (never a covering modal).
+
+   The standard trigger (preferred, one per page): declare the doc target on
+   <body>; help-sidebar.js injects the "?" circle next to .topbar-home.
+     <body data-help-src="../RRUniversity/doc.html#topic" data-help-title="...">
+
+   Legacy trigger (still wired, being migrated to the circle page-by-page):
+     <button class="help-pill" data-help-src="..." data-help-title="...">
+       <span class="help-pill-ico"><svg .../></span>
+       How this works <span class="help-pill-sub">subtitle</span>
+     </button>
+
+   help-sidebar.js builds the shared scrim + drawer and wires both triggers.
+   The embedded doc renders content-only via ?embed=1 (doc-chrome.js honors it).
+
+   Per-page accent (pill only): set --help-accent (+ --help-accent-pale).
+   ============================================================================= */
+
+/* Standardized header trigger — a dark "?" circle that sits next to the
+   topbar Home button on every admin page (injected from <body data-help-src>).
+   Uses the page's --navy brand var. Opens the same right-docked drawer. */
+.topbar-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--navy, #1f2d4a);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(20, 32, 55, .18);
+  transition: filter .12s ease, transform .12s ease;
+}
+.topbar-help:hover { filter: brightness(1.14); transform: translateY(-1px); }
+.topbar-help:focus-visible { outline: 2px solid var(--navy, #1f2d4a); outline-offset: 2px; }
+.topbar-help svg { width: 18px; height: 18px; }
+.help-pill {
+  --help-accent: #2b5fb0;
+  --help-accent-pale: #e6efff;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border: 1px solid #e6eaf0;
+  border-left: 3px solid var(--help-accent);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  font-family: 'Source Sans 3', sans-serif;
+  font-weight: 700;
+  font-size: 13.5px;
+  color: #1f2d4a;
+  box-shadow: 0 1px 2px rgba(20, 32, 55, .04);
+}
+.help-pill:hover { border-color: var(--help-accent); }
+.help-pill:focus-visible { outline: 2px solid var(--help-accent); outline-offset: 2px; }
+.help-pill-ico {
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  background: var(--help-accent-pale);
+  color: var(--help-accent);
+  display: grid; place-items: center;
+  flex-shrink: 0;
+}
+.help-pill-ico svg { width: 14px; height: 14px; }
+.help-pill-sub {
+  font-weight: 600;
+  color: #828a9a;
+  font-size: 12px;
+  font-family: 'Open Sans', sans-serif;
+}
+
+/* Companion model — opening the panel reserves space on the right so the work
+   page reflows beside it (like a docked devtools pane) rather than being
+   covered. The page stays fully interactive: no scrim, no focus trap. Close
+   with the × button, Escape, or by clicking the "?" trigger again. */
+:root { --help-panel-w: 400px; }
+body { transition: padding-right .22s ease; }
+html.help-open body { padding-right: var(--help-panel-w); }
+
+/* Page modals (the admin .modal-backdrop overlay pattern) center within the
+   reduced work area while the companion panel is open — not behind it. The
+   backdrop is fixed inset:0; pulling its right edge in by the panel width
+   re-centers the dialog in the visible work area. */
+html.help-open .modal-backdrop { right: var(--help-panel-w); }
+
+.help-drawer {
+  position: fixed;
+  top: 0; right: 0;
+  height: 100%;
+  width: var(--help-panel-w);
+  max-width: 100vw;
+  background: #fff;
+  border-left: 1px solid #dfe4ec;
+  box-shadow: -8px 0 28px -12px rgba(20, 32, 55, .22);
+  transform: translateX(100%);
+  transition: transform .22s ease;
+  z-index: 2001;
+  display: flex;
+  flex-direction: column;
+}
+.help-drawer.is-open { transform: translateX(0); }
+.help-drawer-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e6eaf0;
+  flex-shrink: 0;
+}
+.help-drawer-title {
+  font-family: 'Source Sans 3', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  color: #1f2d4a;
+}
+.help-drawer-close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  color: #5a6479;
+  display: grid; place-items: center;
+}
+.help-drawer-close:hover { background: #f0f3f8; color: #1f2d4a; }
+.help-drawer-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  border: 0;
+}
+
+/* Narrow viewports: no room to reflow beside the panel, so it overlays and
+   widens; drop the body padding to avoid an unreachable gutter. */
+@media (max-width: 900px) {
+  html.help-open body { padding-right: 0; }
+  html.help-open .modal-backdrop { right: 0; }
+}
+@media (max-width: 640px) {
+  :root { --help-panel-w: 100vw; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .help-drawer, body { transition: none; }
+}
+
+/* Glossary view — the shared RRV8.GLOSSARY rendered in the panel. Same string the
+   analyst AI reads, so the reader and the model can never be told different things. */
+.help-drawer-gloss { flex: 1 1 auto; overflow: auto; padding: 18px 20px; }
+.help-drawer-gloss[hidden] { display: none; }
+.help-gloss-lede { margin: 0 0 16px; font-size: 13px; line-height: 1.6; color: #5a6479; }
+.help-gloss dl { margin: 0; }
+.help-gloss dt { font-family: 'Source Sans 3', sans-serif; font-weight: 800; font-size: 13.5px; color: #1f2d4a; margin: 14px 0 4px; }
+.help-gloss dt:first-child { margin-top: 0; }
+.help-gloss dd { margin: 0; font-size: 13px; line-height: 1.62; color: #384252; }
+.help-gloss-empty { padding: 18px 20px; font-size: 13px; color: #5a6479; }
+.help-drawer-terms {
+  margin-left: auto; margin-right: 8px; background: none; border: 1px solid rgba(255,255,255,.35);
+  color: inherit; font: inherit; font-size: 12px; font-weight: 700; letter-spacing: .02em;
+  padding: 3px 10px; border-radius: 999px; cursor: pointer;
+}
+.help-drawer-terms:hover { background: rgba(255,255,255,.12); }

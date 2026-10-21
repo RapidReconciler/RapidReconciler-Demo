@@ -1,0 +1,609 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Administrator > Fiscal Period — period-end date correction
+  =============================================================================
+  Rare-event admin utility. When a fiscal-calendar change re-bases a
+  period-ending date, the persistent reporting tables keep the OLD
+  (denormalized) date until it's remapped. This page does a guarded
+  from-date -> to-date replacement across all of them, for all companies.
+
+  Three-step: Check (detect the stale date) -> Preview (read-only per-area
+  counts) -> Apply (transactional swap). Backed by the data-services agent:
+    GET  /inventory/fiscal-period-end-detect                       -> mismatch + suggested dates
+    POST /inventory/fiscal-period-end-preview { fromDate, toDate }
+    POST /inventory/fiscal-period-end-apply   { fromDate, toDate }
+  all admin-gated server-side (FiscalPeriodEndController). Preview/Apply wrap
+  dbo.usp8_maint_update_periodends; Check is a read-only probe: the latest
+  stored period-end (MAX RTransactions.PeriodEnds) that no longer exists in
+  RFiscalCalendar is the stale one, and the calendar's latest period end is
+  the corrected value. The correction is locked until Check finds a mismatch,
+  then prefills both (editable) dates. Safe because clients never rewrite
+  history, so the stale date only lives in the current open period.
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fiscal Period &mdash; RapidReconciler Admin</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="sidebar.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<style>
+  /* Shared admin-page chrome (palette, wash, Home button, page shell, cards)
+     lives in admin-chrome.css, linked above. Only page-specific rules below. */
+
+  /* When-to-use note */
+  .note {
+    display: flex; gap: 12px; padding: 13px 16px; border-radius: 9px;
+    background: var(--orange-pale); border: 1px solid #f0d2a8; color: var(--text); margin-bottom: 18px;
+  }
+  .note svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--orange-deep); margin-top: 2px; }
+  .note b { color: var(--navy); }
+
+  .date-row { display: flex; flex-wrap: wrap; gap: 16px 22px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 5px; min-width: 220px; }
+  .field-label { font-family: 'Source Sans 3', sans-serif; font-size: 11px; font-weight: 700; color: var(--text-soft); letter-spacing: 0.04em; text-transform: uppercase; }
+  .field-hint { font-weight: 600; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
+  .field input {
+    font-family: inherit; font-size: 14px; color: var(--navy); padding: 9px 11px;
+    border: 1px solid var(--rule-strong); border-radius: 6px; background: var(--bg-card);
+  }
+  .field input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-pale); }
+  .field-arrow { color: var(--text-muted); padding-bottom: 9px; font-size: 18px; }
+
+  .btn {
+    font-family: 'Source Sans 3', sans-serif; font-weight: 700; font-size: 13.5px;
+    border-radius: 6px; padding: 9px 18px; cursor: pointer; border: 1px solid transparent;
+  }
+  .btn-primary { color: #fff; background: var(--blue); border-color: var(--blue); }
+  .btn-primary:hover { filter: brightness(1.07); }
+  .btn-warn { color: #fff; background: var(--orange); border-color: var(--orange); }
+  .btn-warn:hover { filter: brightness(1.06); }
+  .btn-ghost { color: var(--text-soft); background: var(--bg-card); border-color: var(--rule-strong); }
+  .btn-ghost:hover { color: var(--navy); border-color: var(--text-muted); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
+  .actions { margin-top: 18px; display: flex; gap: 10px; align-items: center; }
+
+  /* Step 1 — mismatch check */
+  .check-lede { color: var(--text-soft); margin-bottom: 4px; max-width: 64ch; }
+  .spinner {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid var(--rule-strong); border-top-color: var(--blue);
+    animation: spin 0.7s linear infinite; flex-shrink: 0;
+  }
+  .spinner[hidden] { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
+  .check-result { margin-top: 14px; padding: 11px 14px; border-radius: 8px; font-size: 13.5px; line-height: 1.5; }
+  .check-result[hidden] { display: none; }
+  .check-result.is-found { background: var(--orange-pale); border: 1px solid #f0d2a8; color: var(--text); }
+  .check-result.is-clean { background: var(--green-pale); border: 1px solid #bfe6cd; color: var(--text); }
+  .check-result b { color: var(--navy); font-variant-numeric: tabular-nums; }
+
+  /* Step 2 locks until the check finds a mismatch */
+  .card.is-locked { opacity: 0.5; }
+  .card.is-locked .card-body { pointer-events: none; }
+  .step-tag {
+    font-family: 'Source Sans 3', sans-serif; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-right: 8px;
+  }
+
+  .inline-msg { display: none; font-size: 13.5px; font-weight: 600; }
+  .inline-msg.is-visible { display: inline; }
+  .inline-msg.is-error { color: var(--red); }
+  .inline-msg.is-muted { color: var(--text-muted); }
+
+  .fetch-error {
+    display: none; background: var(--red-pale); border: 1px solid var(--red); color: var(--red);
+    padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; font-weight: 600;
+  }
+  .fetch-error.is-visible { display: block; }
+  .fetch-error code { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+  /* Results */
+  #js-results { display: none; }
+  #js-results.is-visible { display: block; }
+  .summary {
+    font-size: 15px; color: var(--navy); margin-bottom: 14px; line-height: 1.5;
+  }
+  .summary .big { font-weight: 800; font-size: 19px; }
+  .summary .swap { font-family: 'JetBrains Mono', monospace; font-size: 13px; background: var(--bg-soft); padding: 1px 7px; border-radius: 4px; border: 1px solid var(--rule); }
+  .breakdown { width: 100%; border-collapse: collapse; }
+  .breakdown th {
+    font-family: 'Source Sans 3', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--text-soft); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule-strong); background: var(--bg-soft);
+  }
+  .breakdown th.num, .breakdown td.num { text-align: right; }
+  .breakdown td { padding: 8px 12px; border-bottom: 1px solid var(--rule); font-size: 13.5px; }
+  .breakdown tr:last-child td { border-bottom: 0; }
+  .breakdown td.num { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--navy); }
+  .scanned { margin-top: 10px; font-size: 13.5px; color: var(--text-muted); }
+
+  /* Apply-confirm modal */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(20,32,55,0.45); display: none; align-items: center; justify-content: center; z-index: 200; }
+  .modal-backdrop.is-visible { display: flex; }
+  .modal { background: var(--bg-card); border-radius: 10px; box-shadow: 0 24px 64px -8px rgba(20,32,55,0.30); width: min(480px, 92vw); }
+  .modal-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--rule); }
+  .modal-title { font-family: 'Source Sans 3', sans-serif; font-weight: 700; font-size: 16px; color: var(--navy); }
+  .modal-body { padding: 18px; }
+  .modal-body p { margin-bottom: 10px; }
+  .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--rule); background: var(--bg-soft); }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--navy); color: #fff; padding: 10px 18px; border-radius: 6px;
+    font-family: 'Source Sans 3', sans-serif; font-weight: 600; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease; z-index: 100;
+  }
+  .toast.is-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .gate-notice { display: none; }
+  .gate-notice.is-visible { display: block; }
+  .gate-notice.halt-notice { background: var(--red-pale); border-color: var(--red); }
+  .gate-notice.halt-notice svg { color: var(--red); }
+  body.is-gated #js-tool { display: none; }
+</style>
+</head>
+<body data-help-src="../RRUniversity/administrator-start-here.html#fiscal-period" data-help-title="Correcting a period-end date">
+
+<div class="app">
+
+  <!-- Floating chrome: Home + the help "?" (injected next to it by help-sidebar.js
+       via the .topbar-home hook class). These two are the page's only chrome. -->
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <div class="toast" id="js-toast" role="status" aria-live="polite"></div>
+
+  <!-- Apply confirm -->
+  <div class="modal-backdrop" id="js-apply-modal" role="dialog" aria-modal="true" aria-labelledby="js-apply-title">
+    <div class="modal">
+      <div class="modal-head"><span class="modal-title" id="js-apply-title">Apply the correction?</span></div>
+      <div class="modal-body">
+        <p id="js-apply-body">This updates the stored period-ending date across all companies.</p>
+        <p style="color:var(--text-soft); font-size:13px;">The reports rebuild from the corrected date immediately. JD&nbsp;Edwards is not touched.</p>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-ghost" id="js-apply-cancel">Cancel</button>
+        <button type="button" class="btn btn-warn" id="js-apply-confirm">Apply correction</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="main">
+    <div class="page">
+
+      <header class="page-header">
+        <h1 class="page-title">Period-End Date Correction</h1>
+        <p class="page-lede">When a fiscal-calendar change moves a period-ending date, the reporting
+          tables keep the old date until it&rsquo;s corrected. This replaces the old date with the
+          corrected one everywhere it&rsquo;s stored, for all companies.</p>
+      </header>
+
+      <!-- Non-admin gate -->
+      <div class="note gate-notice" id="js-gate" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div>This is an administrator function. <b>Contact your administrator</b> to correct a period-ending date.</div>
+      </div>
+
+      <!-- Halt states. Neither one is a permission answer: the first means a
+           required part of the page never loaded, the second means the sign-in
+           carried no answer about this user's access either way. Both close the
+           page instead of rendering the admin surface on a guess. -->
+      <div class="note gate-notice halt-notice" id="js-halt-asset" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Part of this page didn&rsquo;t load, so RapidReconciler can&rsquo;t tell what you&rsquo;re allowed to see here &mdash; nothing was loaded. Reload the page. If it happens again, <b>contact your IT department</b>.</div>
+      </div>
+
+      <div class="note gate-notice halt-notice" id="js-halt-claim" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Your sign-in didn&rsquo;t say what you&rsquo;re allowed to do here, so nothing was loaded. Reload the page. If it happens again, ask your <b>IT department</b> to check your RapidReconciler account.</div>
+      </div>
+
+      <div id="js-tool">
+
+        <div class="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+          <div><b>Use this only after a confirmed fiscal-calendar change</b> &mdash; for example, an
+            acquisition that re-bases a period boundary. Load the corrected calendar first, then run this.
+            <b>Preview</b> before you apply.</div>
+        </div>
+
+        <div class="fetch-error" id="js-fetch-error" role="alert"><span id="js-fetch-error-msg"></span></div>
+
+        <section class="card">
+          <div class="card-head"><span class="step-tag">Step 1</span><span class="card-title">Check for a mismatch</span></div>
+          <div class="card-body">
+            <p class="check-lede">Compares the latest stored period-ending date against the fiscal calendar.
+              If the stored date is no longer in the calendar, it&rsquo;s the one to correct.</p>
+            <div class="actions">
+              <button type="button" class="btn btn-primary" id="js-check">Check for mismatches</button>
+              <span class="spinner" id="js-check-spinner" hidden aria-hidden="true"></span>
+            </div>
+            <div class="check-result" id="js-check-result" role="status" aria-live="polite" hidden></div>
+          </div>
+        </section>
+
+        <section class="card is-locked" id="js-correction-card">
+          <div class="card-head"><span class="step-tag">Step 2</span><span class="card-title">The correction</span></div>
+          <div class="card-body">
+            <div class="date-row">
+              <label class="field">
+                <span class="field-label">Current (incorrect) date <span class="field-hint">as stored now</span></span>
+                <input type="date" id="js-from" disabled>
+              </label>
+              <span class="field-arrow" aria-hidden="true">&rarr;</span>
+              <label class="field">
+                <span class="field-label">Corrected date <span class="field-hint">must be a period end</span></span>
+                <input type="date" id="js-to" disabled>
+              </label>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn btn-primary" id="js-preview" disabled>Preview changes</button>
+              <span class="inline-msg" id="js-form-msg"></span>
+              <span class="inline-msg is-muted" id="js-lock-hint">Run the check above first.</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" id="js-results" aria-live="polite">
+          <div class="card-head"><span class="card-title">Preview</span></div>
+          <div class="card-body">
+            <div class="summary" id="js-summary"></div>
+            <table class="breakdown" id="js-breakdown" hidden>
+              <thead><tr><th>Report area</th><th class="num">Records to update</th></tr></thead>
+              <tbody id="js-breakdown-body"></tbody>
+            </table>
+            <div class="scanned" id="js-scanned"></div>
+            <div class="actions">
+              <button type="button" class="btn btn-warn" id="js-apply" disabled>Apply correction</button>
+              <span class="inline-msg is-muted" id="js-apply-hint"></span>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+    </div>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- rrFetch (mirrors admin-users.html routing) ----------
+  const RR_CONFIG = window.RR_CONFIG || {};
+  const URL_MODE  = new URLSearchParams(window.location.search).get('mode');
+  const MODE      = URL_MODE || RR_CONFIG.mode || 'demo';
+  const IS_DEMO   = (MODE === 'demo');
+  const _testAgentAreas    = new Set(window.RR_TEST_AGENT_AREAS || []);
+  const _testAgentPrefixes = window.RR_TEST_AGENT_PREFIXES || [];
+  const _valcPrefixes      = window.RR_VALC_PREFIXES || [];
+  function _routesToTestAgent(area) {
+    if (_testAgentAreas.has(area)) return true;
+    for (let i = 0; i < _testAgentPrefixes.length; i++) if (area.startsWith(_testAgentPrefixes[i])) return true;
+    return false;
+  }
+  function _routesToValc(area) {
+    for (let i = 0; i < _valcPrefixes.length; i++) if (area.startsWith(_valcPrefixes[i])) return true;
+    return false;
+  }
+  function prodHeaders(contentType) {
+    const h = { 'Accept': 'application/json' };
+    try { const t = localStorage.getItem('rrv8.token'); if (t) h['Authorization'] = 'Bearer ' + t; } catch (_) {}
+    if (contentType) h['Content-Type'] = contentType;
+    return h;
+  }
+  function rrFetch(area, opts) {
+    opts = opts || {};
+    let base;
+    if (_routesToValc(area)) {
+      base = RR_CONFIG.valcBase || 'http://localhost:8080';
+    } else if (_routesToTestAgent(area)) {
+      base = window.RRDB.agentBase();   // canonical active-DB agent resolver (config.js RRDB)
+    } else {
+      const sess = window.RR_SESSION;
+      const db = sess && sess.dbs && sess.dbs[sess.activeDbIndex || 0];
+      if (!db || !db.ip) return Promise.reject(new Error('No active database. Sign in first.'));
+      base = (/^(?:localhost|127\.0\.0\.1)\b/i.test(db.ip) ? 'http://' : 'https://') + db.ip;
+    }
+    const url = base + '/' + area + (opts.query ? '?' + new URLSearchParams(opts.query) : '');
+    const init = {
+      method:  opts.method || 'GET',
+      headers: prodHeaders(opts.body ? 'application/json;charset=UTF-8' : null),
+      body:    opts.body ? JSON.stringify(opts.body) : undefined
+    };
+    return fetch(url, init).then(async r => {
+      if (!r.ok) {
+        // Surface the server's message (the proc's guard text rides through as 400).
+        let detail = 'HTTP ' + r.status;
+        try { const j = await r.json(); if (j && (j.message || j.error)) detail = j.message || j.error; } catch (_) {}
+        const e = new Error(detail); e.status = r.status; throw e;
+      }
+      return r.json().catch(err => err instanceof SyntaxError ? null : Promise.reject(err));
+    });
+  }
+
+  // ---------- helpers ----------
+  function $(id) { return document.getElementById(id); }
+  function toast(msg) { const el = $('js-toast'); if (!el) return; el.textContent = msg; el.classList.add('is-visible'); setTimeout(() => el.classList.remove('is-visible'), 2600); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+  // ONE producer for the sentence: RRV8.fetchErrorMessage (sidebar.js) branches
+  // on the HTTP status so the remedy matches the failure — a 403 is an
+  // unauthenticated session, not a missing endpoint. See
+  // docs/plans/shared-state-registry.md. Falls back to the raw message only if
+  // sidebar.js is unavailable.
+  function fetchErrText(area, err) {
+    return (window.RRV8 && window.RRV8.fetchErrorMessage)
+      ? window.RRV8.fetchErrorMessage(area, err)
+      : ((err && err.message) || String(err));
+  }
+  function showFetchError(msg) { const b = $('js-fetch-error'); $('js-fetch-error-msg').textContent = msg; b.classList.add('is-visible'); }
+  function clearFetchError() { $('js-fetch-error').classList.remove('is-visible'); }
+  function nf(n) { return Number(n || 0).toLocaleString('en-US'); }
+  function fmtDate(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    return m ? (Number(m[2]) + '/' + Number(m[3]) + '/' + m[1]) : String(iso || '');
+  }
+
+  function activeDb() {
+    const s = window.RR_SESSION || {};
+    const d = Array.isArray(s.dbs) ? s.dbs : [];
+    return d[s.activeDbIndex || 0] || d[0] || null;
+  }
+  function isAdmin() { const a = activeDb(); return !!(a && a.t && a.t.adm === true); }
+  // The access claim has THREE states and each gets its own answer. `true` opens
+  // the page; `false` is a real "no" and shows the gate notice above; anything
+  // else (no session, no tab claims, an older token shape) means we were never
+  // told, so the page halts visibly instead of guessing. Guessing "false" would
+  // lock out a legitimate admin whose token carries a different shape; guessing
+  // "true" is the fail-open this replaces.
+  function admClaim() { const a = activeDb(); return (a && a.t && typeof a.t.adm === 'boolean') ? a.t.adm : null; }
+  // Close the page loudly. `id` names one of the halt notices in the markup.
+  function haltPage(id) { document.body.classList.add('is-gated'); const el = $(id); if (el) el.classList.add('is-visible'); }
+
+  // Friendly names for the persistent tables the proc touches. Finance-facing:
+  // the analyst sees "Report area", not raw table names. Falls back to the
+  // raw name if the proc ever returns one we haven't mapped.
+  const FRIENDLY = {
+    'RTransactions':                 'Transactions',
+    'RCardexLedgerCompare':          'Cardex ↔ Ledger comparison',
+    'RCardexLedgerCompare2WorkNote': 'Cardex comparison notes',
+    'RInvasOf':                      'Inventory As-Of balances',
+    'RInvAsOf_Log':                  'Inventory As-Of history',
+    'RUnpostedCardex':               'Unposted cardex',
+    'TransitWorkNote':               'In-Transit notes',
+    'Transit_Compare':               'In-Transit comparison',
+    'Transit_Compare2':              'In-Transit comparison (detail)',
+    'Transit_GL_Balance':            'In-Transit GL balance',
+    'Transit_GL_Details':            'In-Transit GL detail',
+    'Transit_Item_Details':          'In-Transit item detail',
+    'Transit_Item_Details_CDX':      'In-Transit item detail (cardex)'
+  };
+  function friendly(name) { return FRIENDLY[name] || name; }
+
+  // ---------- state ----------
+  let _previewKey = null;   // 'from|to' the current preview is valid for
+  let _previewTotal = 0;
+
+  function dates() { return { from: $('js-from').value, to: $('js-to').value }; }
+  function formMsg(text, isError) {
+    const el = $('js-form-msg');
+    el.textContent = text || '';
+    el.classList.toggle('is-visible', !!text);
+    el.classList.toggle('is-error', !!isError);
+  }
+  function invalidatePreview() {
+    _previewKey = null; _previewTotal = 0;
+    $('js-results').classList.remove('is-visible');
+    $('js-apply').disabled = true;
+  }
+
+  // Step 2 stays locked until Step 1 finds a mismatch. The endpoints are also
+  // admin-gated server-side, so this is UX guidance, not the security boundary.
+  function setLocked(locked) {
+    $('js-correction-card').classList.toggle('is-locked', locked);
+    $('js-from').disabled = locked;
+    $('js-to').disabled = locked;
+    $('js-preview').disabled = locked;
+    $('js-lock-hint').classList.toggle('is-visible', locked);
+    if (locked) invalidatePreview();
+  }
+
+  function doCheck() {
+    clearFetchError(); formMsg('');
+    const btn = $('js-check'), sp = $('js-check-spinner'), result = $('js-check-result');
+    btn.disabled = true; sp.hidden = false; result.hidden = true;
+    rrFetch('inventory/fiscal-period-end-detect', { method: 'GET' })
+      .then(res => {
+        // A reply we can't read is NOT a clean result. res comes back null on an
+        // empty 2xx body, and a payload without `mismatchFound` tells us nothing —
+        // both used to fall into the else below and announce "No mismatch found",
+        // which is the page's whole answer. Treat it as a failed check instead.
+        if (!res || typeof res !== 'object' || res.mismatchFound == null) {
+          setLocked(true);
+          console.error('[fiscal period] period-end check returned no usable answer:', res);
+          showFetchError('The period-end check didn’t come back with an answer, so this isn’t a clean result. Use Check again in a moment; if it keeps happening, ask your IT department to confirm RapidReconciler’s data service is running.');
+          return;
+        }
+        if (res.mismatchFound) {
+          $('js-from').value = res.incorrectDate || '';
+          $('js-to').value   = res.correctedDate || '';
+          setLocked(false);
+          result.className = 'check-result is-found';
+          result.innerHTML = 'Found a mismatch. The latest stored period-end <b>' +
+            esc(fmtDate(res.incorrectDate)) + '</b> is no longer in the fiscal calendar; the ' +
+            'calendar&rsquo;s current period ends <b>' + esc(fmtDate(res.correctedDate)) + '</b>. ' +
+            'The correction below is prefilled &mdash; review it, preview, then apply.';
+        } else {
+          $('js-from').value = ''; $('js-to').value = '';
+          setLocked(true);
+          result.className = 'check-result is-clean';
+          const cal = res && res.calendarMax ? fmtDate(res.calendarMax) : '';
+          result.innerHTML = 'No mismatch found. The latest stored period-end matches the fiscal calendar' +
+            (cal ? ' (current period ends <b>' + esc(cal) + '</b>)' : '') + '. Nothing to correct.';
+        }
+        result.hidden = false;
+      })
+      .catch(err => {
+        setLocked(true);
+        showFetchError('The period-end check failed. ' +
+          fetchErrText('inventory/fiscal-period-end-detect', err));
+      })
+      .finally(() => { btn.disabled = false; sp.hidden = true; });
+  }
+
+  function doPreview() {
+    clearFetchError();
+    const { from, to } = dates();
+    if (!from || !to) { formMsg('Enter both dates.', true); return; }
+    if (from === to)  { formMsg('The two dates are the same.', true); return; }
+    formMsg('');
+    const btn = $('js-preview'); btn.disabled = true; btn.textContent = 'Checking…';
+    rrFetch('inventory/fiscal-period-end-preview', { method: 'POST', body: { fromDate: from, toDate: to } })
+      .then(res => { renderPreview(res, from, to); })
+      .catch(err => {
+        invalidatePreview();
+        if (err && err.status === 400) formMsg(err.message, true);
+        else showFetchError('The preview failed. ' +
+          fetchErrText('inventory/fiscal-period-end-preview', err));
+      })
+      .finally(() => { btn.disabled = false; btn.textContent = 'Preview changes'; });
+  }
+
+  function renderPreview(res, from, to) {
+    const tables = Array.isArray(res && res.tables) ? res.tables : [];
+    const total  = Number(res && res.totalRows || 0);
+    _previewKey = from + '|' + to; _previewTotal = total;
+
+    const affected = tables
+      .filter(t => Number(t.RowsAffected || 0) > 0)
+      .sort((a, b) => Number(b.RowsAffected) - Number(a.RowsAffected));
+
+    const swap = '<span class="swap">' + esc(from) + '</span> &rarr; <span class="swap">' + esc(to) + '</span>';
+    const body = $('js-breakdown-body');
+    const table = $('js-breakdown');
+
+    if (total === 0) {
+      $('js-summary').innerHTML = 'No stored records carry ' + swap + '. There is nothing to correct.';
+      table.hidden = true; body.innerHTML = '';
+      $('js-apply').disabled = true;
+      $('js-apply-hint').textContent = '';
+    } else {
+      $('js-summary').innerHTML =
+        '<span class="big">' + nf(total) + '</span> record' + (total === 1 ? '' : 's') +
+        ' across <b>' + affected.length + '</b> report area' + (affected.length === 1 ? '' : 's') +
+        ' will move ' + swap + ', for all companies.';
+      body.innerHTML = affected.map(t =>
+        '<tr><td>' + esc(friendly(t.TableName)) + '</td><td class="num">' + nf(t.RowsAffected) + '</td></tr>').join('');
+      table.hidden = false;
+      $('js-apply').disabled = false;
+      $('js-apply-hint').textContent = '';
+    }
+    $('js-scanned').textContent = tables.length + ' report areas checked.';
+    $('js-results').classList.add('is-visible');
+  }
+
+  function openApplyModal() {
+    const { from, to } = dates();
+    if (_previewKey !== from + '|' + to || _previewTotal <= 0) { toast('Preview first'); return; }
+    $('js-apply-body').innerHTML = 'This updates <b>' + nf(_previewTotal) + '</b> record' +
+      (_previewTotal === 1 ? '' : 's') + ' from <b>' + esc(from) + '</b> to <b>' + esc(to) +
+      '</b>, across all companies.';
+    $('js-apply-modal').classList.add('is-visible');
+    setTimeout(() => $('js-apply-confirm').focus(), 0);
+  }
+  function closeApplyModal() { $('js-apply-modal').classList.remove('is-visible'); }
+
+  function confirmApply() {
+    const { from, to } = dates();
+    const btn = $('js-apply-confirm'); btn.disabled = true; btn.textContent = 'Applying…';
+    rrFetch('inventory/fiscal-period-end-apply', { method: 'POST', body: { fromDate: from, toDate: to } })
+      .then(res => {
+        closeApplyModal();
+        const moved = Number(res && res.totalRows || 0);
+        toast('Corrected ' + nf(moved) + ' record' + (moved === 1 ? '' : 's'));
+        $('js-summary').innerHTML = '✓ <b>' + nf(moved) + '</b> record' + (moved === 1 ? '' : 's') +
+          ' updated to <span class="swap">' + esc(to) + '</span>.';
+        $('js-breakdown').hidden = true;
+        $('js-apply').disabled = true;
+        $('js-apply-hint').textContent = 'Done. Reports now reflect the corrected date.';
+        invalidatePreview();
+      })
+      .catch(err => {
+        closeApplyModal();
+        if (err && err.status === 400) formMsg(err.message, true);
+        else showFetchError('The correction did not apply. ' +
+          fetchErrText('inventory/fiscal-period-end-apply', err));
+      })
+      .finally(() => { btn.disabled = false; btn.textContent = 'Apply correction'; });
+  }
+
+  // ---------- boot ----------
+  // Run once the session is hydrated from the stored token (sidebar.js owns
+  // hydration; reading RR_SESSION before it resolves leaves the topbar db blank
+  // and the admin gate bypassed — same trap as the other admin pages).
+  function startWithSession() {
+    const a = activeDb();
+    // Topbar/footer chrome was retired (admin-page standard); this element write
+    // is now a guarded no-op that stays harmless if the id is absent.
+    const dbEl = $('js-topbar-db');
+    if (dbEl && a && a.n) dbEl.textContent = a.n;
+
+    // Client gate. The endpoints are also admin-gated server-side (403), so this
+    // is UX, not the security boundary.
+    const _adm = admClaim();
+    if (_adm === false) {
+      document.body.classList.add('is-gated');
+      $('js-gate').classList.add('is-visible');
+      return;
+    }
+    if (_adm !== true) { haltPage('js-halt-claim'); return; }
+
+    $('js-check').addEventListener('click', doCheck);
+    $('js-preview').addEventListener('click', doPreview);
+    $('js-from').addEventListener('change', invalidatePreview);
+    $('js-to').addEventListener('change', invalidatePreview);
+    $('js-apply').addEventListener('click', openApplyModal);
+    $('js-apply-cancel').addEventListener('click', closeApplyModal);
+    $('js-apply-confirm').addEventListener('click', confirmApply);
+    $('js-apply-modal').addEventListener('click', e => { if (e.target === $('js-apply-modal')) closeApplyModal(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeApplyModal(); });
+
+    setLocked(true);   // Step 2 opens only after Step 1 finds a mismatch
+    // Run the check automatically on load so Step 1 lands already resolved —
+    // green (no mismatch) or amber with the incorrect date prefilled — instead
+    // of waiting for the user to click Check. The Check button stays as a manual
+    // re-run. Same detect call Home's band-open dot uses, so they agree.
+    if (!IS_DEMO) doCheck();
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const ver = $('js-app-ver');
+    if (ver) ver.textContent = (RR_CONFIG.release || 'v8') + (RR_CONFIG.buildStamp ? ' · ' + RR_CONFIG.buildStamp : '');
+    if (window.RRV8 && typeof window.RRV8.hydrateSession === 'function') {
+      window.RRV8.hydrateSession().then(startWithSession).catch(startWithSession);
+    } else {
+      // sidebar.js owns session hydration. If it did not load there is no session
+      // to read, so close the page and say so -- never render admin controls on a
+      // blind guess. (This branch used to boot the page wide open.)
+      haltPage('js-halt-asset');
+    }
+  });
+})();
+</script>
+</body>
+</html>
+

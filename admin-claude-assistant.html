@@ -1,0 +1,656 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Administrator > System Health — AI Assistant (opt-in). File kept as
+  admin-claude-assistant.html (internal id); the user-facing label is "AI Assistant".
+  =============================================================================
+  The per-feature AI opt-in surface. Each AI feature has its own data-exposure
+  level (Off / Basic / Enhanced / Full), so a client can enable harmless
+  docs help while leaving data-sending features off. The key never reaches the
+  browser: V8 calls a VALC endpoint, VALC calls Anthropic (see
+  docs/plans/claude-sonnet-integration.md).
+
+  STATUS: UI scaffold. Live calls + the server-side per-(client,feature) flag are
+  pending the Sonnet API key + the VALC AiController. Preferences chosen here are
+  held locally for now and clearly marked "pending"; they bind to the server flag
+  when the backend lands. Nothing on this page sends customer data yet.
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Assistant &mdash; RapidReconciler Admin</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="sidebar.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<style>
+  /* Shared admin-page chrome (palette, wash, Home button, page shell, cards)
+     lives in admin-chrome.css, linked above. Only page-specific rules below.
+     .page-header is overridden here (flex row for the AI orb + title). */
+  .page-header { display:flex; align-items:flex-start; gap:14px; margin-bottom:18px; }
+  .page-header-text { min-width:0; }
+  /* AI identity orb — same blue gradient + pulse as home.html's assistant hero,
+     so this page wears the product's AI mark instead of a bare heading. */
+  .ai-orb { position:relative; flex-shrink:0; width:40px; height:40px; border-radius:50%; display:grid; place-items:center; color:#fff; background:linear-gradient(140deg,#2c4a8c,#3f74e8); margin-top:2px; }
+  .ai-orb svg { position:relative; z-index:1; width:20px; height:20px; }
+  .ai-orb-pulse { position:absolute; inset:0; border-radius:50%; animation:ai-orb-pulse 2.6s ease-out infinite; }
+  @keyframes ai-orb-pulse { 0% { box-shadow:0 0 0 0 rgba(63,116,232,.42); } 70% { box-shadow:0 0 0 11px rgba(63,116,232,0); } 100% { box-shadow:0 0 0 0 rgba(63,116,232,0); } }
+  @media (prefers-reduced-motion: reduce) { .ai-orb-pulse { animation:none; } }
+
+  /* .card-head overridden here (flex layout for collapsible summaries).
+     .card / .card-title / .card-body come from admin-chrome.css. */
+  .card-head { padding:14px 18px; border-bottom:1px solid var(--rule); background:var(--bg-soft); display:flex; align-items:center; gap:10px; }
+  /* Collapsible cards — native <details>; the head is the toggle (home-style). */
+  details.card > summary.card-head { cursor:pointer; list-style:none; user-select:none; }
+  details.card > summary.card-head::-webkit-details-marker { display:none; }
+  details.card:not([open]) > summary.card-head { border-bottom:none; }
+  .card-chev { margin-left:auto; width:16px; height:16px; color:var(--text-muted); transition:transform .15s ease; flex-shrink:0; }
+  details.card[open] > summary.card-head .card-chev { transform:rotate(180deg); }
+  @media (prefers-reduced-motion: reduce) { .card-chev { transition:none; } }
+  /* Your Plan greens when the live "AI, are you here?" check gets a reply. */
+  #js-plan-card.is-green { border-left:4px solid var(--green); }
+  #js-plan-card.is-green > .card-head { background:var(--green-pale); }
+
+  .note { display:flex; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); margin-bottom:18px; }
+  .note svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .note b { color:var(--navy); }
+
+  /* Connection status */
+  .conn { display:flex; align-items:center; gap:12px; }
+  .conn-dot { width:12px; height:12px; border-radius:50%; background:var(--text-muted); flex-shrink:0; }
+  .conn-dot.green { background:var(--green); } .conn-dot.amber { background:var(--orange); } .conn-dot.red { background:var(--red); }
+  .conn-text { flex:1; min-width:0; display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; } .conn-text b { color:var(--navy); }
+  .conn-sub { font-size:13.5px; color:var(--text-muted); }
+
+  /* Your Plan — purchased tier is promoted into the card title as
+     "Your Plan: <tier>", colored by level. Upgrade (sales) sits at the right
+     of the card head. */
+  #js-plan-title-tier[data-tier="off"]      { color:var(--text-muted); }
+  #js-plan-title-tier[data-tier="docs"]     { color:var(--blue); }
+  #js-plan-title-tier[data-tier="scrubbed"] { color:var(--orange); }
+  #js-plan-title-tier[data-tier="full"]     { color:var(--blue); }
+  #js-plan-upgrade { margin-left:auto; flex-shrink:0; }
+  /* Quiet plan lines under the title: current tier (always shown) + a one-line
+     self-service-vs-billing clarifier. */
+  .plan-status { font-family:'Source Sans 3',sans-serif; font-size:15px; color:var(--text-soft); }
+  .plan-help { font-size:13.5px; color:var(--text-muted); margin-top:6px; margin-bottom:14px; }
+
+  /* Live-connection collapsible — collapsed by default to trim vertical scroll.
+     A green plan-card border still signals a live round-trip while collapsed. */
+  details.conn-collapse { border:1px solid var(--rule); border-radius:8px; background:var(--bg-soft); overflow:hidden; }
+  details.conn-collapse > summary.conn-summary { display:flex; align-items:center; gap:10px; padding:11px 14px; cursor:pointer; list-style:none; user-select:none; font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:13.5px; color:var(--navy); }
+  details.conn-collapse > summary.conn-summary::-webkit-details-marker { display:none; }
+  details.conn-collapse[open] > summary.conn-summary { border-bottom:1px solid var(--rule); }
+  details.conn-collapse[open] > summary.conn-summary .card-chev { transform:rotate(180deg); }
+  .conn-collapse-body { padding:14px; background:var(--bg-card); }
+
+  /* Per-feature opt-in rows — title + description on the left, the control
+     (level select + "What's sent?") in a FIXED-WIDTH right column so the
+     selects line up flush down the column across every row. */
+  .feat { display:grid; grid-template-columns:1fr 148px; column-gap:24px; row-gap:4px; align-items:start; padding:16px 0; border-bottom:1px solid var(--rule); }
+  .feat:last-child { border-bottom:none; }
+  .feat-name { grid-column:1; grid-row:1; font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:15px; color:var(--navy); }
+  .feat-sub { grid-column:1; grid-row:2; font-size:14px; color:var(--text-soft); line-height:1.5; }
+  .feat-ctl { grid-column:2; grid-row:1 / span 2; display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+  .feat .preview-box { grid-column:1 / -1; }
+  .lvl-select { font-family:'Open Sans',sans-serif; font-size:13px; padding:7px 30px 7px 11px; border:1px solid var(--rule-strong); border-radius:6px; background:var(--bg-card) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%234a5468' stroke-width='2'><polyline points='4 6 8 10 12 6'/></svg>") no-repeat right 9px center; appearance:none; -webkit-appearance:none; color:var(--navy); cursor:pointer; width:100%; box-sizing:border-box; }
+  .feat-preview { font-size:12px; color:var(--blue); font-weight:600; cursor:pointer; background:none; border:none; padding:0; }
+  .feat-preview:hover { text-decoration:underline; }
+
+  /* Review reminder band (no attestation) — mirrors the Review Job Schedule /
+     Complex Passwords pattern. 30/60/Never greens the band, via
+     rrv8.aiReview.<db> + RRV8.aiReviewState. It used to green a matching dot on
+     Home too; that dot was deleted 2026-08-25 (UI-146) because the element it
+     painted had not existed since the instance-health rebuild. This page is the
+     only surface for the reminder now. */
+  .review-band { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; border:1px solid var(--rule); border-left:4px solid var(--rule-strong); border-radius:10px; background:var(--bg-card); box-shadow:var(--shadow-sm); padding:12px 16px; margin-bottom:18px; }
+  .review-band[data-state="ok"] { border-left-color:var(--green); background:var(--green-pale); }
+  .review-band[data-state="todo"] { border-left-color:var(--orange); background:var(--orange-pale); }
+  .review-main { display:flex; align-items:center; gap:9px; min-width:240px; }
+  .review-dot { width:9px; height:9px; border-radius:50%; background:var(--text-muted); flex-shrink:0; }
+  .review-band[data-state="ok"] .review-dot { background:var(--green); }
+  .review-band[data-state="todo"] .review-dot { background:var(--orange); }
+  .review-text { font-size:13px; color:var(--text-soft); }
+  .review-text b { color:var(--navy); }
+  .review-action { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .review-label { font-size:12.5px; font-weight:600; color:var(--text-soft); }
+  .review-btn { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:12.5px; border:1px solid var(--rule-strong); background:var(--bg-card); color:var(--navy); border-radius:100px; padding:5px 11px; cursor:pointer; }
+  .review-btn:hover { border-color:var(--green); color:var(--green); }
+  .review-never:hover { border-color:var(--text-muted); color:var(--text-muted); }
+
+  .btn { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:13.5px; border-radius:6px; padding:9px 18px; cursor:pointer; border:1px solid transparent; }
+  .btn-primary { color:#fff; background:var(--blue); border-color:var(--blue); }
+  .btn-primary:hover:not(:disabled) { filter:brightness(1.06); }
+  .btn-ghost { color:var(--text-soft); background:var(--bg-card); border-color:var(--rule-strong); }
+  .btn-ghost:hover { color:var(--navy); border-color:var(--text-muted); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; filter:none; }
+  .actions { margin-top:18px; display:flex; gap:10px; align-items:center; justify-content:flex-end; }
+
+  /* "What's sent" preview drawer */
+  .preview-box { display:none; margin-top:12px; padding:13px 15px; border-radius:8px; background:var(--bg-soft); border:1px solid var(--rule); font-size:13px; color:var(--text-soft); }
+  .preview-box.is-open { display:block; }
+  .preview-box b { color:var(--navy); }
+  .preview-box pre { margin-top:8px; padding:10px 12px; background:var(--bg-card); border:1px solid var(--rule); border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:12px; white-space:pre-wrap; color:var(--text); }
+
+  .gate-notice { display:none; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); }
+  .gate-notice svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .gate-notice.is-visible { display:flex; }
+  .gate-notice.halt-notice { background:var(--red-pale); border-color:var(--red); }
+  .gate-notice.halt-notice svg { color:var(--red); }
+  body.is-gated #js-tool { display:none; }
+
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--navy); color:#fff; padding:10px 18px; border-radius:6px; font-family:'Source Sans 3',sans-serif; font-weight:600; font-size:13px; opacity:0; pointer-events:none; transition:opacity .2s ease,transform .2s ease; z-index:100; }
+  .toast.is-visible { opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body data-help-src="../RRUniversity/administrator-start-here.html#ai-assistant" data-help-title="AI Assistant &amp; Your Data">
+
+<div class="app">
+
+  <!-- Floating chrome: Home + the help "?" (injected next to it by help-sidebar.js
+       via the .topbar-home hook class). These two are the page's only chrome. -->
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <div class="toast" id="js-toast" role="status" aria-live="polite"></div>
+
+  <main class="main">
+    <div class="page">
+
+      <header class="page-header">
+        <span class="ai-orb" aria-hidden="true">
+          <span class="ai-orb-pulse"></span>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1.6l1.9 5.1a5 5 0 0 0 2.9 2.9l5.1 1.9-5.1 1.9a5 5 0 0 0-2.9 2.9L12 21.4l-1.9-5.1a5 5 0 0 0-2.9-2.9L2.1 11.5l5.1-1.9a5 5 0 0 0 2.9-2.9z"/></svg>
+        </span>
+        <div class="page-header-text">
+          <h1 class="page-title">AI Assistant</h1>
+        </div>
+      </header>
+
+      <!-- Non-admin gate -->
+      <div class="note gate-notice" id="js-gate" role="alert" style="margin-bottom:18px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div>This is an administrator function. <b>Contact your administrator</b> to change AI settings.</div>
+      </div>
+
+      <!-- Halt states. Neither one is a permission answer: the first means a
+           required part of the page never loaded, the second means the sign-in
+           carried no answer about this user's access either way. Both close the
+           page instead of rendering the admin surface on a guess. -->
+      <div class="note gate-notice halt-notice" id="js-halt-asset" role="alert" style="margin-bottom:18px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Part of this page didn&rsquo;t load, so RapidReconciler can&rsquo;t tell what you&rsquo;re allowed to see here &mdash; nothing was loaded. Reload the page. If it happens again, <b>contact your IT department</b>.</div>
+      </div>
+
+      <div class="note gate-notice halt-notice" id="js-halt-claim" role="alert" style="margin-bottom:18px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Your sign-in didn&rsquo;t say what you&rsquo;re allowed to do here, so nothing was loaded. Reload the page. If it happens again, ask your <b>IT department</b> to check your RapidReconciler account.</div>
+      </div>
+
+      <div id="js-tool">
+
+        <!-- Review reminder (top): acknowledge the assistant setup so the Home
+             "AI Assistant" dot greens. Amber until you set a reminder; green once
+             set (or Never). 30 / 60 / Never, client-side. -->
+        <div class="review-band" id="js-ai-review" role="status">
+          <div class="review-main">
+            <span class="review-dot" id="js-ai-review-dot" aria-hidden="true"></span>
+            <span class="review-text" id="js-ai-review-text"></span>
+          </div>
+          <div class="review-action">
+            <span class="review-label">Remind me in</span>
+            <button type="button" class="review-btn" data-days="30">30 days</button>
+            <button type="button" class="review-btn" data-days="60">60 days</button>
+            <button type="button" class="review-btn review-never" data-never="1">Never</button>
+          </div>
+        </div>
+
+        <!-- Your Plan — purchased tier (promoted to the headline) + live connection state.
+             The button sends a hard-coded "AI, are you here?" through the gateway and shows
+             the reply; a real reply greens this bar. -->
+        <div class="card" id="js-plan-card">
+          <div class="card-head">
+            <span class="card-title">Your Plan<span id="js-plan-title-tier" data-tier=""></span></span>
+            <a class="btn btn-ghost" id="js-plan-upgrade" href="mailto:gsisales@getgsi.com" hidden>Upgrade</a>
+          </div>
+          <div class="card-body">
+            <!-- Always-on plan line: the plan reads as managed at every tier,
+                 including Full (where the change-plan action stays a downgrade
+                 path, not hidden). -->
+            <p class="plan-status" id="js-plan-status"></p>
+            <p class="plan-help">To use less, set each feature below. To change your purchased tier, contact GSI.</p>
+            <!-- Live connection — collapsed by default. Expand to see the status
+                 line and ping the gateway. The plan card border greens on a live
+                 round-trip, so connectivity is glanceable even while collapsed. -->
+            <details class="conn-collapse">
+              <summary class="conn-summary">Connection
+                <svg class="card-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+              </summary>
+              <div class="conn-collapse-body">
+                <div class="conn">
+                  <span class="conn-dot" id="js-conn-dot"></span>
+                  <div class="conn-text">
+                    <b id="js-conn-state">Checking availability&hellip;</b>
+                    <div class="conn-sub" id="js-conn-sub"></div>
+                  </div>
+                  <button class="btn btn-ghost" id="js-conn-test" type="button">Ping the assistant</button>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <!-- Set Features — per-feature opt-in. Open by default: this is the
+             actionable part of the page, so lead with it. -->
+        <details class="card" open>
+          <summary class="card-head"><span class="card-title">Set Features</span>
+            <svg class="card-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="card-body" id="js-feats">
+            <!-- rows injected by JS from FEATURES[] -->
+          </div>
+        </details>
+
+        <div class="actions">
+          <button class="btn btn-primary" id="js-save" type="button">Save</button>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- rrFetch (mirrors admin-reload-gl.html) ----------
+  const RR_CONFIG = window.RR_CONFIG || {};
+  const URL_MODE  = new URLSearchParams(window.location.search).get('mode');
+  const MODE      = URL_MODE || RR_CONFIG.mode || 'demo';
+  const IS_DEMO   = (MODE === 'demo');
+  const _testAgentAreas    = new Set(window.RR_TEST_AGENT_AREAS || []);
+  const _testAgentPrefixes = window.RR_TEST_AGENT_PREFIXES || [];
+  const _valcPrefixes      = window.RR_VALC_PREFIXES || [];
+  function _routesToTestAgent(area) {
+    if (_testAgentAreas.has(area)) return true;
+    for (let i = 0; i < _testAgentPrefixes.length; i++) if (area.startsWith(_testAgentPrefixes[i])) return true;
+    return false;
+  }
+  function _routesToValc(area) {
+    for (let i = 0; i < _valcPrefixes.length; i++) if (area.startsWith(_valcPrefixes[i])) return true;
+    return false;
+  }
+  function prodHeaders(contentType) {
+    const h = { 'Accept': 'application/json' };
+    try { const t = localStorage.getItem('rrv8.token'); if (t) h['Authorization'] = 'Bearer ' + t; } catch (_) {}
+    if (contentType) h['Content-Type'] = contentType;
+    return h;
+  }
+  function rrFetch(area, opts) {
+    opts = opts || {};
+    let base;
+    if (_routesToValc(area)) {
+      base = RR_CONFIG.valcBase || 'http://localhost:8080';
+    } else if (_routesToTestAgent(area)) {
+      base = window.RRDB.agentBase();   // canonical active-DB agent resolver (config.js RRDB)
+    } else {
+      const sess = window.RR_SESSION;
+      const db = sess && sess.dbs && sess.dbs[sess.activeDbIndex || 0];
+      if (!db || !db.ip) return Promise.reject(new Error('No active database. Sign in first.'));
+      base = (/^(?:localhost|127\.0\.0\.1)\b/i.test(db.ip) ? 'http://' : 'https://') + db.ip;
+    }
+    const url = base + '/' + area + (opts.query ? '?' + new URLSearchParams(opts.query) : '');
+    const init = {
+      method:  opts.method || 'GET',
+      headers: prodHeaders(opts.body ? 'application/json;charset=UTF-8' : null),
+      body:    opts.body ? JSON.stringify(opts.body) : undefined
+    };
+    return fetch(url, init).then(async r => {
+      if (!r.ok) {
+        let detail = 'HTTP ' + r.status;
+        try { const j = await r.json(); if (j && (j.message || j.error)) detail = j.message || j.error; } catch (_) {}
+        const e = new Error(detail); e.status = r.status; throw e;
+      }
+      return r.json().catch(err => err instanceof SyntaxError ? null : Promise.reject(err));
+    });
+  }
+
+  // ---------- helpers ----------
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function toast(msg) { const el = $('js-toast'); if (!el) return; el.textContent = msg; el.classList.add('is-visible'); setTimeout(() => el.classList.remove('is-visible'), 2800); }
+  function activeDb() { const s = window.RR_SESSION || {}; const d = Array.isArray(s.dbs) ? s.dbs : []; return d[s.activeDbIndex || 0] || d[0] || null; }
+  function isAdmin() { const a = activeDb(); return !!(a && a.t && a.t.adm === true); }
+  // The access claim has THREE states and each gets its own answer. `true` opens
+  // the page; `false` is a real "no" and shows the gate notice above; anything
+  // else (no session, no tab claims, an older token shape) means we were never
+  // told, so the page halts visibly instead of guessing. Guessing "false" would
+  // lock out a legitimate admin whose token carries a different shape; guessing
+  // "true" is the fail-open this replaces.
+  function admClaim() { const a = activeDb(); return (a && a.t && typeof a.t.adm === 'boolean') ? a.t.adm : null; }
+  // Close the page loudly. `id` names one of the halt notices in the markup.
+  function haltPage(id) { document.body.classList.add('is-gated'); const el = $(id); if (el) el.classList.add('is-visible'); }
+
+  // ---------- features + the levels each one offers ----------
+  // levels are a subset of the exposure ladder appropriate to the feature:
+  //   off | docs | scrubbed | full
+  const LEVEL_LABEL = { off:'Off', docs:'Basic', scrubbed:'Enhanced', full:'Full' };
+  const FEATURES = [
+    { key:'variance', name:'Explain a variance',
+      sub:'On a reconciliation finding, get a plain-English read: what it is, the likely cause, and the fix.',
+      levels:['off','scrubbed','full'],
+      sample:{ scrubbed:'the finding\'s pattern and amount — a GL-class change offset of -$1,240.50 in May 2026 — with the account masked to a role, not the number.',
+               full:'the whole finding: the pattern, the account 5000.140000, the amount -$1,240.50, and the period (May 2026).' } },
+    { key:'recsummary', name:'Summarize a reconciliation',
+      sub:'A few bullets: what&rsquo;s clean, what needs attention, what&rsquo;s material.',
+      levels:['off','scrubbed','full'],
+      sample:{ scrubbed:'the tallies only — 412 clean, 7 need attention, 2 material — with no account numbers or names attached.',
+               full:'those tallies plus the specific accounts involved, so the summary can name them.' } },
+    { key:'help', name:'Help &amp; how-to',
+      sub:'Ask &ldquo;where do I start&rdquo; questions, answered from the public RapidReconciler help library only.',
+      levels:['off','docs'],
+      sample:{ docs:'Your question text only. No data of yours is sent — answers are grounded in public help docs.' } }
+  ];
+
+  // Purchased tier (entitlement) from VALC — caps the per-feature pickers.
+  // _tierKnown separates "we read your plan and AI isn't in it" from "we couldn't
+  // read your plan". Both cap the pickers to Off (the safe direction), but only the
+  // first is an entitlement FACT, and the page states it as one.
+  var _maxLevel = 'off';
+  var _tierKnown = false;
+  function rankLvl(l) { return ({ off: 0, docs: 1, scrubbed: 2, full: 3 })[l] || 0; }
+  const TIER_LABEL = { off: 'Not included', docs: 'Basic', scrubbed: 'Enhanced', full: 'Full' };
+
+  function prefsKey() { const a = activeDb() || {}; return 'rrv8.ai.prefs.' + (a.n || 'default'); }
+  function loadPrefs() { try { return JSON.parse(localStorage.getItem(prefsKey()) || '{}') || {}; } catch (_) { return {}; } }
+  function savePrefs(p) { try { localStorage.setItem(prefsKey(), JSON.stringify(p)); } catch (_) {} }
+
+  function renderFeatures() {
+    const prefs = loadPrefs();
+    const wrap = $('js-feats');
+    wrap.innerHTML = FEATURES.map(function (f) {
+      let cur = prefs[f.key] || 'off';
+      if (rankLvl(cur) > rankLvl(_maxLevel)) cur = 'off';   // clamp a saved pref above the purchased tier
+      const opts = f.levels.map(function (l) {
+        const locked = rankLvl(l) > rankLvl(_maxLevel);     // above the purchased tier → disabled
+        return '<option value="' + l + '"' + (l === cur ? ' selected' : '') + (locked ? ' disabled' : '')
+          + '>' + LEVEL_LABEL[l] + '</option>';
+      }).join('');
+      return '<div class="feat" data-feat="' + f.key + '">'
+        + '<div class="feat-name">' + f.name + '</div>'
+        + '<div class="feat-sub">' + f.sub + '</div>'
+        + '<div class="feat-ctl">'
+        +   '<select class="lvl-select js-lvl">' + opts + '</select>'
+        +   '<button type="button" class="feat-preview js-preview">What&rsquo;s sent?</button>'
+        + '</div>'
+        + '<div class="preview-box" data-preview="' + f.key + '"></div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function previewText(f, level) {
+    if (level === 'off') return '<b>Off.</b> This feature is hidden and sends nothing.';
+    const s = (f.sample && f.sample[level]) || '';
+    if (level === 'docs') return '<b>Basic.</b> ' + esc(s);
+    const lead = level === 'scrubbed'
+      ? '<b>Enhanced.</b> Names and account numbers are masked first — what goes is '
+      : '<b>Full.</b> Your real figures go, so the answer can be specific — what goes is ';
+    return lead + esc(s);
+  }
+
+  // ---------- connection + entitlement ----------
+  function setConn(kind, state, sub) {
+    $('js-conn-dot').className = 'conn-dot' + (kind ? ' ' + kind : '');
+    $('js-conn-state').textContent = state;
+    $('js-conn-sub').textContent = sub;
+  }
+  // Paint the tier into the title, the always-on plan status line, and the
+  // tier-adaptive change-plan action. Separate from the connection ping so the
+  // tier never gets overwritten by a live-check result.
+  function paintPlanTier() {
+    var el = $('js-plan-title-tier');
+    if (el) {
+      el.setAttribute('data-tier', _tierKnown ? _maxLevel : '');
+      el.textContent = !_tierKnown ? ''
+        : (_maxLevel && _maxLevel !== 'off') ? ': ' + (TIER_LABEL[_maxLevel] || _maxLevel)
+        : ': Not included';
+    }
+    var st = $('js-plan-status'); if (st) st.textContent = planStatusText();
+
+    // Change-plan affordance is always visible so a customer can request up OR
+    // down from one place. Label + prefilled mailto adapt to the current tier.
+    // Hidden while the tier is unknown: "Add AI Assistant" is the wrong ask to put
+    // in front of a customer who may already own the top tier.
+    var up = $('js-plan-upgrade'); if (!up) return;
+    if (!_tierKnown) { up.hidden = true; return; }
+    up.hidden = false;
+    var tierName = TIER_LABEL[_maxLevel] || _maxLevel;
+    var label, subject, body;
+    if (_maxLevel === 'off') {
+      label = 'Add AI Assistant';
+      subject = 'RapidReconciler AI Assistant — add to our plan';
+      body = 'We’d like to add the AI Assistant to our RapidReconciler plan.';
+    } else if (rankLvl(_maxLevel) >= rankLvl('full')) {
+      label = 'Change plan';
+      subject = 'RapidReconciler AI Assistant — change our AI tier (currently ' + tierName + ')';
+      body = 'We’d like to change our RapidReconciler AI Assistant tier (currently ' + tierName + ').';
+    } else {
+      label = 'Upgrade';
+      subject = 'RapidReconciler AI Assistant — upgrade our tier (currently ' + tierName + ')';
+      body = 'We’d like to upgrade our RapidReconciler AI Assistant tier (currently ' + tierName + ').';
+    }
+    up.textContent = label;
+    up.href = 'mailto:gsisales@getgsi.com?subject=' + encodeURIComponent(subject)
+      + '&body=' + encodeURIComponent(body + '\n\nPlease send options and pricing.\n');
+  }
+  // Always-on, tier-adaptive plan status line (shown even at the top tier so the
+  // plan reads as managed rather than silent).
+  function planStatusText() {
+    if (!_tierKnown) return 'Couldn’t read your plan just now, so the settings below are held at Off. This isn’t a sign the AI Assistant is missing from your plan — reopen this page in a moment.';
+    if (_maxLevel === 'off') return 'AI Assistant isn’t part of your plan yet.';
+    if (rankLvl(_maxLevel) >= rankLvl('full')) return 'You’re on ' + (TIER_LABEL[_maxLevel] || 'Full') + ', our top tier.';
+    return 'You’re on ' + (TIER_LABEL[_maxLevel] || _maxLevel) + '.';
+  }
+  function applyEntitlement() {
+    // Resolve the plan by the ACTIVE DATABASE's client. Without `db`,
+    // AiController.health falls back to the caller's own tier and answers
+    // maxLevel:"off" — and a customer admin is not a client-scoped user, so the
+    // fallback is 'off' for everyone who opens this page. MEASURED 2026-08-25 on
+    // Demo1 as an admin: GET api/v1/ai/health (no query) -> {"maxLevel":"off"},
+    // so the page read "Your Plan: Not included", "AI Assistant isn't part of
+    // your plan yet" and held all three features at Off, while the same instance
+    // answers maxLevel:"full" for ?db=RapidReconciler_Demo1. This page is where
+    // an admin decides what the AI may see, so reading the wrong answer tells
+    // them there is nothing to decide. home.html:5523 already passes `db` and
+    // says why in its own comment; this was the second of two callers.
+    var dbn = (activeDb() && activeDb().n) || '';
+    return rrFetch('api/v1/ai/health', dbn ? { query: { db: dbn } } : undefined).then(function (r) {
+      // A reply carrying no maxLevel tells us nothing about the plan — don't read it
+      // as 'off'. Only a maxLevel we actually received makes the tier KNOWN.
+      var lvl = (r && r.maxLevel != null) ? String(r.maxLevel) : null;
+      _tierKnown = (lvl !== null);
+      _maxLevel = _tierKnown ? lvl : 'off';
+      if (!_tierKnown) console.error('[AI assistant] plan reply carried no maxLevel:', r);
+      renderFeatures();
+      paintPlanTier();
+      if (!_tierKnown) {
+        setConn('', 'Plan unknown', 'Couldn’t read which AI tier you’re on, so the settings are held at Off for now.');
+      } else if (_maxLevel === 'off') {
+        setConn('', 'Not included', 'The AI Assistant isn’t part of your plan yet — contact GSI to add it.');
+      } else {
+        setConn('green', 'Available', 'Ping the assistant to check the live connection.');
+      }
+    }).catch(function (e) {
+      // Unreachable: cap the pickers to Off (safe), but never state that as an
+      // entitlement. This branch used to leave the card reading ": Not included" /
+      // "AI Assistant isn't part of your plan yet." off a failed call, which is a
+      // sales fact the page had no basis for.
+      console.error('[AI assistant] plan read failed:', e);
+      _tierKnown = false; _maxLevel = 'off'; renderFeatures(); paintPlanTier();
+      setConn('', 'Not connected', 'Couldn’t reach the AI service — options are capped to Off until it’s reachable. This isn’t a sign the AI Assistant is missing from your plan.');
+    });
+  }
+  // Live connection check: send a hard-coded "AI, are you here?" through the VALC
+  // gateway and show the assistant's actual reply. A real reply greens the bar —
+  // proof the key + gateway round-trip works, not just that a key is present.
+  function testConnection() {
+    const btn = $('js-conn-test'); btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Asking…';
+    const plan = $('js-plan-card'); if (plan) plan.classList.remove('is-green');
+    setConn('amber', 'Asking the assistant…', '“AI, are you here?”');
+    rrFetch('api/v1/ai/explain', { method: 'POST', body: { prompt: 'AI, are you here?' } })
+      .then(function (r) {
+        const reply = (r && r.text) ? String(r.text).trim() : '';
+        if (reply) {
+          setConn('green', 'Connected', '“AI, are you here?” → “' + reply + '”');
+          if (plan) plan.classList.add('is-green');
+        } else {
+          setConn('amber', 'No response', 'The assistant returned an empty reply — try again.');
+        }
+      })
+      .catch(function (e) {
+        setConn('red', 'Not connected', (e && e.message) ? e.message : 'The assistant didn’t respond.');
+      })
+      .then(function () { btn.disabled = false; btn.textContent = orig; });
+  }
+
+  // ---------- review reminder (30/60/Never) ----------
+  // No attestation, client-side, same pattern as Review Job Schedule. Amber until
+  // the admin sets a reminder; green once set (or Never). Key rrv8.aiReview.<db>
+  // + RRV8.aiReviewState. This is the ONLY surface for it: Home's matching dot
+  // was deleted 2026-08-25 (UI-146), so nothing here has to stay in step with a
+  // second painter.
+  function fmtDate(iso) { try { return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); } catch (_) { return iso; } }
+  function aiReviewKey() { const a = activeDb() || {}; return 'rrv8.aiReview.' + (a.n || 'default'); }
+  // Server ack (kind 'ai-review') is the source of truth — recorded per database
+  // by the agent and shared with the Home dot via GET /admin/acks. localStorage
+  // is a write-through fallback for databases whose ack table predates this build.
+  var _aiAck = null;
+  function loadAiAck() {
+    if (!isAdmin()) return Promise.resolve();
+    return rrFetch('admin/acks').then(function (rows) {
+      _aiAck = null; (rows || []).forEach(function (r) { if (r && r.kind === 'ai-review') _aiAck = r; });
+    }).catch(function () { _aiAck = null; });
+  }
+  function aiReviewVal() {
+    var v = (_aiAck && window.RRV8 && window.RRV8.ackToReviewValue) ? window.RRV8.ackToReviewValue(_aiAck) : '';
+    if (!v) { try { v = localStorage.getItem(aiReviewKey()) || ''; } catch (_) {} }
+    return v;
+  }
+  function renderAiReview() {
+    const band = $('js-ai-review'); if (!band) return;
+    let val = aiReviewVal();
+    const today = new Date().toISOString().slice(0, 10);
+    const state = (window.RRV8 && window.RRV8.aiReviewState) ? window.RRV8.aiReviewState(val, today) : 'todo';
+    band.setAttribute('data-state', state);
+    const txt = $('js-ai-review-text');
+    if (val === 'never')      txt.innerHTML = 'Assistant-review reminders are <b>off</b>. You can set one anytime.';
+    else if (state === 'ok')  txt.innerHTML = 'Reviewed &mdash; we&rsquo;ll remind you on <b>' + esc(fmtDate(val)) + '</b>.';
+    else                      txt.innerHTML = 'Review your AI assistant settings, then set a reminder to mark it done.';
+  }
+  function wireAiReview() {
+    const band = $('js-ai-review'); if (!band) return;
+    band.querySelectorAll('.review-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        let val, cadenceDays = null, never = false;
+        if (btn.dataset.never) { never = true; val = 'never'; }
+        else { cadenceDays = parseInt(btn.dataset.days, 10) || 30; const d = new Date(); d.setDate(d.getDate() + cadenceDays); val = d.toISOString().slice(0, 10); }
+        rrFetch('admin/activity/ack', { method: 'POST', body: { kind: 'ai-review', cadenceDays: cadenceDays, never: never } })
+          .then(function (ack) { if (ack) _aiAck = ack; })
+          .catch(function () { /* no ack table on this DB — localStorage fallback below */ })
+          .then(function () { try { localStorage.setItem(aiReviewKey(), val); } catch (_) {} renderAiReview(); });
+        toast(val === 'never' ? 'Reminders turned off.' : 'Reminder set for ' + fmtDate(val) + '.');
+      });
+    });
+  }
+
+  // ---------- boot ----------
+  // sidebar.js owns session hydration (decodes localStorage.rrv8.token into
+  // RR_SESSION). Hydrate FIRST so activeDb() resolves the real database name —
+  // otherwise the reminder key falls back to 'default' and Home (which hydrates)
+  // reads a different key and never greens. Same pattern as Review Job Schedule.
+  function startWithSession() {
+    const ver = $('js-app-ver');
+    if (ver) ver.textContent = (RR_CONFIG.release || 'v8') + (RR_CONFIG.buildStamp ? ' · ' + RR_CONFIG.buildStamp : '');
+
+    const _adm = admClaim();
+    if (_adm === false) {
+      document.body.classList.add('is-gated');
+      $('js-gate').classList.add('is-visible');
+      return;
+    }
+    if (_adm !== true) { haltPage('js-halt-claim'); return; }
+
+    renderFeatures();        // immediate paint (capped to Off) …
+    // … refine from the purchased tier, THEN do a real availability ping so the bar
+    // reflects a live round-trip (green), not just "a key is present". Skipped when
+    // AI isn't in the plan (tier 'off'). The ping sends only the fixed
+    // "AI, are you here?" string — no customer data — so it's a connectivity check,
+    // distinct from the per-feature data-sending the rest of the page gates.
+    applyEntitlement().then(function () {
+      if (_maxLevel && _maxLevel !== 'off') testConnection();
+    });
+    renderAiReview();        // immediate paint from localStorage fallback …
+    loadAiAck().then(renderAiReview);   // … then refine from the server ack
+    wireAiReview();
+
+    // Preview toggles + level changes
+    $('js-feats').addEventListener('click', function (e) {
+      const btn = e.target.closest && e.target.closest('.js-preview');
+      if (!btn) return;
+      const row = btn.closest('.feat'); const key = row.getAttribute('data-feat');
+      const f = FEATURES.find(x => x.key === key);
+      const box = row.querySelector('.preview-box');
+      const sel = row.querySelector('.js-lvl');
+      box.innerHTML = previewText(f, sel.value);
+      box.classList.toggle('is-open');
+    });
+    $('js-feats').addEventListener('change', function (e) {
+      if (!e.target.classList || !e.target.classList.contains('js-lvl')) return;
+      const row = e.target.closest('.feat');
+      const box = row.querySelector('.preview-box');
+      if (box.classList.contains('is-open')) {
+        const f = FEATURES.find(x => x.key === row.getAttribute('data-feat'));
+        box.innerHTML = previewText(f, e.target.value);
+      }
+    });
+
+    $('js-conn-test').addEventListener('click', testConnection);
+
+    $('js-save').addEventListener('click', function () {
+      const prefs = {};
+      Array.prototype.forEach.call(document.querySelectorAll('.feat'), function (row) {
+        prefs[row.getAttribute('data-feat')] = row.querySelector('.js-lvl').value;
+      });
+      savePrefs(prefs);
+      // When the backend lands, this also POSTs to the per-(client,feature) flag:
+      //   rrFetch('ai/preferences', { method:'POST', body: prefs })  // VALC, server-side
+      toast('Preferences saved. They apply once the assistant is enabled.');
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.RRV8 && typeof window.RRV8.hydrateSession === 'function') {
+      window.RRV8.hydrateSession().then(startWithSession).catch(startWithSession);
+    } else {
+      // sidebar.js owns session hydration. If it did not load there is no session
+      // to read, so close the page and say so -- never render admin controls on a
+      // blind guess. (This branch used to boot the page wide open.)
+      haltPage('js-halt-asset');
+    }
+  });
+})();
+</script>
+</body>
+</html>
+

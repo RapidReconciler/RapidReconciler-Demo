@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RapidReconciler AI &mdash; Administrator walk (Golden Harvest)</title>
+<style>
+  :root{
+    --navy:#1f2d4a; --navy-deep:#16223b; --ink:#1d2431; --muted:#5b6472;
+    --card:#ffffff; --orange:#f08a24; --orange-deep:#d97316;
+    --on-dark:#f2f6fd; --on-dark-muted:#c9d4e8;
+    --line-dark:rgba(255,255,255,.14);
+    --shadow:0 2px 6px rgba(0,0,0,.20), 0 14px 40px rgba(0,0,0,.28);
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --rail-w:400px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0; height:100%}
+  body{font-family:var(--sans); color:var(--on-dark); -webkit-font-smoothing:antialiased;
+    display:flex; height:100vh; overflow:hidden;
+    background:
+      linear-gradient(rgba(16,26,46,.55), rgba(16,26,46,.80)),
+      #0f1c33 url("assets/meeting-bg.png") center top / cover no-repeat fixed;
+  }
+  .spark{display:inline-block; color:var(--orange)}
+  .spark svg{width:.78em; height:.78em; margin-left:.1em; filter:drop-shadow(0 0 6px rgba(240,138,36,.5))}
+
+  /* ===================== PRESENTER RAIL ===================== */
+  .rail{flex:0 0 var(--rail-w); width:var(--rail-w); height:100%; display:flex; flex-direction:column;
+    background:rgba(16,26,46,.62); border-right:1px solid var(--line-dark);
+    -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+    transition:flex-basis .22s ease, width .22s ease;}
+  body.rail-collapsed .rail{flex-basis:0; width:0; border-right:0; overflow:hidden}
+
+  .rail-top{display:flex; align-items:center; gap:12px; padding:20px 22px 14px; border-bottom:1px solid var(--line-dark)}
+  .wordmark{font-weight:800; font-size:18px; color:#fff; white-space:nowrap}
+  .role-tag{font-size:11.5px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; color:var(--orange);
+    border:1px solid rgba(240,138,36,.5); border-radius:999px; padding:4px 10px; white-space:nowrap}
+  .rail-exit{margin-left:auto; color:var(--on-dark-muted); font-weight:700; font-size:13.5px; text-decoration:none; white-space:nowrap}
+  .rail-exit:hover{color:#fff}
+
+  /* progress */
+  .progress{padding:12px 22px 4px}
+  .rail-kicker{font-size:12.5px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:var(--on-dark-muted); margin-bottom:10px}
+  /* Persistent workflow map: the 3 responsibilities. Current lit, past done,
+     each clickable to jump. This is the progress indicator AND the nav. */
+  .wf{display:flex; flex-direction:column; gap:6px}
+  .wf-item{display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer;
+    font-family:inherit; background:transparent; border:1px solid transparent; border-radius:10px;
+    padding:7px 11px; transition:background .12s, border-color .12s}
+  .wf-item:hover{background:rgba(255,255,255,.06)}
+  .wf-num{flex:0 0 27px; width:27px; height:27px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:13.5px; font-weight:800; color:var(--on-dark-muted); background:rgba(255,255,255,.10); border:1px solid var(--line-dark)}
+  .wf-body{display:flex; flex-direction:column; min-width:0}
+  .wf-label{font-size:16px; font-weight:700; color:var(--on-dark-muted); line-height:1.25}
+  .wf-tag{font-size:12px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--on-dark-muted); opacity:.65}
+  .wf-item.is-on{background:rgba(240,138,36,.14); border-color:rgba(240,138,36,.45)}
+  .wf-item.is-on .wf-num{background:var(--orange); color:#fff; border-color:var(--orange)}
+  .wf-item.is-on .wf-label{color:#fff}
+  .wf-item.is-on .wf-tag{color:var(--orange); opacity:1}
+  .wf-item.is-done .wf-num{background:rgba(240,138,36,.55); color:#fff; border-color:transparent}
+  .wf-item.is-done .wf-label{color:var(--on-dark)}
+  .wf-rule{height:1px; background:var(--line-dark); margin:10px 0}
+  /* detail fills the rest so the kicker can bottom-anchor within it */
+  .detail{display:flex; flex-direction:column; flex:1; min-height:0}
+
+  /* step body (scrolls) */
+  .rail-body{flex:1; overflow-y:auto; padding:10px 22px 8px; display:flex; flex-direction:column}
+  .eyebrow{font-size:15.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--orange); margin:2px 0 8px}
+  .rail-body h1{font-size:31px; line-height:1.16; letter-spacing:-.01em; margin:0 0 18px; color:#fff}
+
+  /* Presenter flow: an intro line, the points, then a value/segue kicker. Reads
+     as Bud's spoken script AND fills the rail with substance the prospect scans. */
+  .intro{font-size:20px; line-height:1.45; color:var(--on-dark); margin:0 0 12px; font-weight:500}
+  .points{list-style:none; margin:0 0 12px; padding:0}
+  .points li{position:relative; padding:9px 0 9px 26px; font-size:18.5px; line-height:1.4; color:var(--on-dark)}
+  .points li + li{border-top:1px solid rgba(255,255,255,.08)}
+  .points li::before{content:""; position:absolute; left:3px; top:20px; width:9px; height:9px; border-radius:50%; background:var(--orange)}
+  /* Kicker sits at the BOTTOM of the rail (margin-top:auto in the flex column),
+     right above Back/Next -- fills the empty space and puts the segue by the button. */
+  .kicker{font-size:18px; line-height:1.45; color:var(--on-dark-muted); font-style:italic; margin:auto 0 0; padding-top:12px}
+  .kicker b{color:#fff}
+
+  /* contextual controls (tier ladder + ask buttons) */
+  .controls{border-top:1px solid var(--line-dark); padding-top:15px; margin-top:4px}
+  .controls[hidden]{display:none}
+  .controls-label{display:block; font-size:11.5px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; color:var(--on-dark-muted); margin-bottom:10px}
+
+  .ask-row{display:flex; flex-direction:column; gap:8px; margin-bottom:16px}
+  .ask-btn{font-family:inherit; text-align:left; font-size:15px; font-weight:600; color:#eaf1ff;
+    background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.22); border-radius:10px;
+    padding:11px 14px; cursor:pointer; line-height:1.35; transition:background .12s, border-color .12s}
+  .ask-btn:hover{background:rgba(255,255,255,.18); border-color:rgba(255,255,255,.42)}
+  .ask-btn::before{content:"Ask \2192  "; color:var(--orange); font-weight:800}
+
+  /* tier ladder */
+  .tier-wrap{margin-bottom:8px}
+  .tier-seg{display:flex; gap:6px; background:rgba(0,0,0,.22); border:1px solid var(--line-dark); border-radius:12px; padding:6px}
+  .tier-opt{flex:1; font-family:inherit; font-size:15px; font-weight:700; color:var(--on-dark-muted);
+    background:transparent; border:0; border-radius:8px; padding:11px 6px; cursor:pointer; transition:background .12s, color .12s}
+  .tier-opt:hover{color:#fff}
+  .tier-opt.is-active{background:var(--orange); color:#fff}
+  .tier-blurb{font-size:14.5px; line-height:1.45; color:var(--on-dark); margin:11px 2px 0; min-height:42px}
+  .tier-blurb b{color:#fff}
+
+  /* nav */
+  .rail-nav{display:flex; align-items:center; gap:12px; padding:14px 22px 18px; border-top:1px solid var(--line-dark)}
+  .btn{border:0; border-radius:11px; font-family:inherit; font-weight:700; font-size:17px; padding:13px 20px; cursor:pointer}
+  .btn.prev{background:rgba(255,255,255,.10); color:var(--on-dark)}
+  .btn.prev:hover{background:rgba(255,255,255,.18)}
+  .btn.prev[disabled]{opacity:.35; cursor:default}
+  .btn.next{background:var(--orange); color:#fff}
+  .btn.next:hover{background:var(--orange-deep)}
+  /* Exit sits beside Next/Restart (margin-left:auto pushes the pair right); a
+     bordered ghost so it reads prominent but secondary to the orange action. */
+  .btn.exit{margin-left:auto; background:transparent; color:var(--on-dark); border:1px solid rgba(255,255,255,.30); padding:12px 20px}
+  .btn.exit:hover{background:rgba(255,255,255,.10); border-color:rgba(255,255,255,.5)}
+
+  /* ===================== STAGE (live product) ===================== */
+  .stage{flex:1; height:100%; display:flex; flex-direction:column; min-width:0; padding:14px 14px 14px 0}
+  body.rail-collapsed .stage{padding-left:14px}
+  .stage-head{display:flex; align-items:center; gap:12px; padding:0 4px 12px}
+  .rail-toggle{display:inline-flex; align-items:center; gap:8px; font-family:inherit; font-size:13.5px; font-weight:700;
+    color:var(--on-dark); background:rgba(255,255,255,.10); border:1px solid var(--line-dark); border-radius:999px;
+    padding:8px 14px; cursor:pointer}
+  .rail-toggle:hover{background:rgba(255,255,255,.18)}
+  .live-ribbon{display:inline-flex; align-items:center; gap:8px; font-size:12.5px; font-weight:800; letter-spacing:.05em;
+    text-transform:uppercase; color:#eafff2; background:rgba(46,138,85,.28); border:1px solid rgba(46,138,85,.55);
+    border-radius:999px; padding:6px 13px}
+  .live-dot{width:8px; height:8px; border-radius:50%; background:#3ddc84; box-shadow:0 0 0 3px rgba(61,220,132,.25)}
+  .stage-caption{font-size:13.5px; color:var(--on-dark-muted); margin-left:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+  .frame-wrap{flex:1; min-height:0; border-radius:14px; overflow:hidden; background:#f4f6fb; box-shadow:var(--shadow); position:relative}
+  iframe#stageFrame{width:100%; height:100%; border:0; display:block; background:#fff}
+  .frame-loading{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--muted); font-size:15px; background:#f4f6fb; transition:opacity .3s; pointer-events:none}
+  .frame-loading[hidden]{opacity:0}
+
+  @media (max-width:1180px){
+    :root{--rail-w:360px}
+    .rail-body h1{font-size:27px}
+    .intro{font-size:18px}
+    .points li{font-size:16.5px}
+  }
+</style>
+</head>
+<body>
+
+<!-- Seed the offline session BEFORE the product iframe boots. Same origin as the
+     bundled product, so localStorage is shared. The product runs in staging mode
+     (real request paths) and the replay shim answers every call from the recording;
+     this synthetic session just tells the product WHICH database + role to render.
+
+     The seed itself lives in tour-seed.js -- ONE table and ONE seeder shared by the
+     front door and all nine role x archetype pages. This page is Golden Harvest
+     Foods Ltd. -- RapidReconciler_Demo3, companies 30001 / 30002, spine 30001,
+     Services port 37384. The nine pages each carry their
+     own beats; none of them carries its own copy of the database wiring, because a
+     page that disagreed with its neighbour rendered one dataset's numbers under
+     another's label. The token carries ALL THREE demo databases with this one
+     active, so the product's DB switcher works offline (docs/architecture.md). -->
+<script src="tour-seed.js"></script>
+<script>
+window.__rrSeedReady = RRTour.seed('golden', 'administrator');
+</script>
+
+<!-- ===================== PRESENTER RAIL ===================== -->
+<aside class="rail" id="rail">
+  <div class="rail-top">
+    <span class="wordmark">RapidReconciler AI<span class="spark"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6l1.9 5.1a5 5 0 0 0 2.9 2.9l5.1 1.9-5.1 1.9a5 5 0 0 0-2.9 2.9L12 21.4l-1.9-5.1a5 5 0 0 0-2.9-2.9L2.1 11.5l5.1-1.9a5 5 0 0 0 2.9-2.9z"/></svg></span></span>
+    <span class="role-tag">Administrator</span>
+  </div>
+
+  <div class="progress">
+    <div class="rail-kicker">Guided tour</div>
+  </div>
+
+  <div class="rail-body" id="railBody"><!-- filled by render() --></div>
+
+  <div class="rail-nav">
+    <button class="btn prev" id="prev" disabled>&larr; Back</button>
+    <button class="btn exit" id="exitBtn" type="button">Exit</button>
+    <button class="btn next" id="next">Next &rarr;</button>
+  </div>
+</aside>
+
+<!-- ===================== STAGE ===================== -->
+<main class="stage">
+  <div class="stage-head">
+    <button class="rail-toggle" id="railToggle" title="Show or hide the guide">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+      <span id="railToggleLabel">Hide guide</span>
+    </button>
+    <span class="stage-caption" id="stageCaption">Administrator home</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame-loading" id="frameLoading">Loading the live product&hellip;</div>
+    <iframe id="stageFrame" title="RapidReconciler live product"></iframe>
+  </div>
+</main>
+
+<script>
+(function(){
+  'use strict';
+
+  // ---- the walk definition -------------------------------------------------
+  // Each step drives the REAL bundled admin product in the iframe. `frame` loads
+  // a bundled page (null = keep the current one).
+  //
+  // `onEnter` runs an action inside the iframe (fire a pill, open the help panel,
+  // flip a tier) once it's ready. It was a TRAP until 2026-08-26: all three
+  // administrator rails documented it and none of them invoked it, so a beat that
+  // declared one silently did nothing and the presenter got copy describing a panel
+  // that never opened. render()'s loadFrame callback now calls it, matching the six
+  // analyst and accountant rails. No beat here declares one yet -- the presenter
+  // clicks the spotlit control himself -- but declaring one now works.
+  var HOME = 'home.html';
+  // The four rail rows -- the desk, the two things you keep running, who gets in,
+  // and the hand-off -- as a persistent workflow map shown on EVERY beat: the
+  // current one lit, past ones done, each clickable to jump.
+  //
+  // `jump` and `last` are BOTH indices into `steps`, not row numbers. This rail has
+  // SIX beats (0..5), so row 2 spans steps 2-3 and the last row's `last` is 5. Get
+  // one wrong and the map lights the wrong row while the beat is on screen.
+  var WORKFLOW = [
+    { id:'desk',    n:'1', label:'See the desk',        tag:'Admin home',           jump:0, last:1 },
+    { id:'run',     n:'2', label:'Keep it running',     tag:'Licence &amp; health', jump:2, last:3 },
+    { id:'team',    n:'3', label:'Control who gets in', tag:'Team &amp; access',    jump:4, last:4 },
+    { id:'handoff', n:'4', label:'Wrap up',             tag:'Next role',            jump:5, last:5 }
+  ];
+
+  // SIX beats, all of them ON home.html. Every spotlight selector below was read
+  // out of the bundled home.html admin lane (#view-admin) before it was written
+  // here: .role-hero-item[data-role="admin"], .admin-ask-pill, #licRow, #svcRow,
+  // #teamRow. Nothing is spotlit that the lane does not render for viewRole=admin.
+  //
+  // NOTHING IN THIS COPY STATES A FIGURE. No expiry date, no seat count, no user
+  // count, no uptime. The lane paints all of those live from the recording, and a
+  // number typed into a presenter rail goes stale the moment the recording is
+  // re-walked -- so the beats point at what is on screen and let the screen say it.
+  // All three TODO(verify) notes were closed 2026-08-25 by walking this rail on
+  // :8770 -- the Licensing and Team & Access figures are now in the copy, and the
+  // Report Engine beat deliberately still names no number (its memory and uptime
+  // are this dev box, captured; see that beat comment).
+  //
+  // No beat performs a write. The lane offers a Report Engine Restart and a New
+  // Team Member form; both replay as canned successes, so the walk describes them
+  // and never clicks them.
+  var steps = [
+    {
+      key:'desk', flow:'desk', caption:'Administrator home', frame:HOME,
+      spot:'.role-hero-item[data-role="admin"]',
+      eyebrow:'A different desk',
+      intro:'You sign in as the administrator for <b>Golden Harvest Foods Ltd.</b> &mdash; and land somewhere else entirely.',
+      points:[
+        'No reconciliation tabs. The books are not your job.',
+        'Users, licensing, instance health &mdash; that is the whole role.',
+        'Four cards you act on, and a row of questions above them.'
+      ],
+      kicker:'The questions first &mdash; hit <b>Next</b>.'
+    },
+    {
+      key:'ask', flow:'desk', caption:'Administrator home', frame:HOME,
+      spot:'.admin-ask-pill',
+      eyebrow:'Ask, do not hunt',
+      intro:'Click the glowing question &mdash; the answer comes from this instance, not a manual.',
+      points:[
+        'Six questions, ready to click. There is no box to type in.',
+        'The first one triages: what needs you now, what can wait.',
+        'The other five cover the licence, sign-ins, adding people, health, and the log.',
+        'The <b>AI plan</b> link above sets what the AI may see &mdash; feature by feature.'
+      ],
+      kicker:'The answer lands under the pills. Next &mdash; the licence.'
+    },
+    {
+      key:'licence', flow:'run', caption:'Administrator home', frame:HOME,
+      spot:'#licRow',
+      eyebrow:'Keep it running',
+      intro:'The Licensing card carries the whole entitlement &mdash; no ticket, no spreadsheet.',
+      points:[
+        'A status line leads; the renewal date and seat usage sit under it.',
+        'It reads <b>Active</b>, renewal due <b>Oct 31, 2026</b>, and <b>all 12 company licences in use</b> &mdash; the whole entitlement in three lines.',
+        'All twelve in use is worth saying out loud: the next company needs a licence before it can be added, and that is a conversation, not an error.',
+        'Renewal is one note to GSI Sales. We do the rest.'
+      ],
+      // VERIFIED 2026-08-25 by walking this rail on :8770. #licRow renders
+      // "Licensing / Active / Renewal due Oct 31, 2026 / All 12 company licenses in
+      // use / Manage". Those three figures are now in the copy above; if a
+      // re-record changes them, change the copy in the same commit or the narration
+      // starts contradicting the screen.
+      //
+      // The DOT is the trustworthy signal: paintLicenseHealth() feeds it the
+      // worst-of expLevel / seatLevel through RRV8.setDotState(). The card TINT is
+      // not -- the same function picks its class with
+      // (expLevel === 'red' ? ... : expLevel === 'green' ? ... : 'lic-soon') while
+      // expLevel only ever holds 'ok' / 'watch' / 'attention', so a card with a
+      // known expiry always lands on lic-soon. Do not build presenter copy on the
+      // card's colour, and do not "fix" this rail if the tint looks wrong: the
+      // mismatch is in the product's home.html, not here.
+      kicker:'Nothing to file, nothing to chase. Next &mdash; is anything degrading?'
+    },
+    {
+      key:'health', flow:'run', caption:'Administrator home', frame:HOME,
+      spot:'#svcRow',
+      eyebrow:'Is anything degrading?',
+      intro:'The Report Engine card is this instance&rsquo;s pulse.',
+      points:[
+        'It reads <b>Running normally</b>, with the engine&rsquo;s own memory against what it is allowed, the server&rsquo;s memory beside it, and how long it has been up.',
+        'Beside it the Activity Log carries the recent system events &mdash; engine restarts, the last export &mdash; so a question about &ldquo;what happened yesterday&rdquo; has an answer on screen.',
+        'Fixes, upgrades and escalations stay with GSI &mdash; you watch, we work.'
+      ],
+      // VERIFIED 2026-08-25 by walking this rail on :8770. Both meters paint:
+      // #svcRow renders "Report Engine / Running normally / <engine> MB of <cap> MB
+      // allocated (n%) / Server memory <used> of <total> in use (n%) / Running for
+      // <uptime> / Restart", and #activityRow lists real events ("Report engine
+      // started x2 just now", "Period Activity exported just now", "See full log").
+      //
+      // THE COPY DELIBERATELY NAMES NO NUMBER HERE, and that is not an oversight.
+      // The memory and uptime figures are THIS DEV BOX (measured: 22,710 MB of
+      // 32,712 MB in use, up 3d 6h) captured into the recording. They are plausible
+      // but they are an artifact of where the capture ran, not a fact about a
+      // customer, and a presenter script that reads them aloud is quoting our
+      // hardware to a prospect. Point at the card; let it show its own numbers.
+      kicker:'Next &mdash; who gets in.'
+    },
+    {
+      key:'team', flow:'team', caption:'Administrator home', frame:HOME,
+      spot:'#teamRow',
+      eyebrow:'Control who gets in',
+      intro:'Team &amp; Access is three rows: users and roles, the access review, and password policy.',
+      points:[
+        'Today it reads <b>3 members, 3 roles</b>, the access review <b>Reviewed</b> with the next one due <b>October 18, 2026</b>, and password policy <b>Complex</b>.',
+        'It also flags <b>1 member inactive 30+ days</b> &mdash; do not skip past that, it is the card doing its job. Turn Active off and their history stays intact.',
+        'Adding someone is one role and a tick per database, and they set their own password from a single-use emailed link &mdash; you never issue one.'
+      ],
+      // VERIFIED 2026-08-25 by walking this rail on :8770. #teamRow renders
+      // "Team & Access / 3 members * 3 roles / Reviewed * next due October 18, 2026
+      // * 1 inactive 30+ days / Complex passwords".
+      //
+      // The "1 inactive 30+ days" flag IS on screen, so the copy names it rather
+      // than letting a prospect spot it first and ask what it means. That was the
+      // open question the authoring pass could not answer without the lane.
+      kicker:'That is the desk. Next &mdash; wrap up.'
+    },
+    {
+      key:'handoff', flow:'handoff', caption:'Administrator home', frame:HOME,
+      spot:null,
+      eyebrow:'That is the role',
+      intro:'Three jobs, and none of them heavy.',
+      points:[
+        'The licence, the people, the instance &mdash; the administrator&rsquo;s whole desk.',
+        'The AI answers all of it off this instance, on demand.',
+        'Name an administrator before go-live and Golden Harvest starts clean.'
+      ],
+      kicker:'<b>Andy</b> and <b>Angie</b> work the books &mdash; hit <b>Exit</b> to pick who walks next.'
+    }
+  ];
+
+  var TIER_BLURB = {
+    grounded: '<b>Basic.</b> The AI sees only the figures already on your screen &mdash; nothing else leaves the page.',
+    scrubbed: '<b>Enhanced.</b> The AI sees fuller detail, but names and accounts are masked to roles first.',
+    full:     '<b>Full.</b> The AI uses your real data &mdash; actual names, accounts, and dates.'
+  };
+  var TIER_LABEL = { grounded:'Basic', scrubbed:'Enhanced', full:'Full' };
+
+  // ---- element handles -----------------------------------------------------
+  var frame     = document.getElementById('stageFrame');
+  var frameLoad = document.getElementById('frameLoading');
+  var railBody  = document.getElementById('railBody');
+  var prevBtn   = document.getElementById('prev');
+  var nextBtn   = document.getElementById('next');
+  var caption   = document.getElementById('stageCaption');
+
+  var i = 0;
+  var currentFrameSrc = '';
+
+  // ---- iframe helpers ------------------------------------------------------
+  function fwin(){ try { return frame.contentWindow; } catch(e){ return null; } }
+  function fdoc(){ try { return frame.contentDocument || (fwin() && fwin().document); } catch(e){ return null; } }
+
+  // Run fn once the iframe's product has booted (admin pills present, or a short
+  // grace period for non-home pages). Polls briefly; never throws.
+  function whenReady(fn, tries){
+    tries = tries || 0;
+    var d = fdoc();
+    var ready = d && d.body && (d.querySelector('.admin-ask-pill') || d.querySelector('.topbar-help') || tries > 12);
+    if (ready) { try { fn(); } catch(e){} return; }
+    if (tries > 40) return;
+    setTimeout(function(){ whenReady(fn, tries + 1); }, 150);
+  }
+
+  function loadFrame(src, after){
+    // Compare the step's target page to the page ACTUALLY loaded -- Bud may have
+    // navigated the iframe himself (e.g. clicking the Manage link), so the tracked
+    // src can be stale. Without this, a later Home step would skip the reload and
+    // show wherever Bud left the iframe.
+    var actual = '';
+    try { actual = (frame.contentWindow.location.pathname.split('/').pop() || ''); } catch(e){}
+    var want = src ? src.split('/').pop() : '';
+    if (src && actual !== want){
+      currentFrameSrc = src;
+      frameLoad.hidden = false;
+      // One-shot: null it after firing so a later navigation Bud makes himself
+      // (e.g. clicking the product Home link) doesn't re-run this step's stale
+      // callback -- onIframeNav (a persistent listener) handles his navigation.
+      frame.onload = function(){ frame.onload = null; frameLoad.hidden = true; whenReady(after || function(){}); };
+      frame.src = src;
+    } else {
+      whenReady(after || function(){});
+    }
+  }
+
+  // ---- demo layer: a transient spotlight injected INTO the product iframe ----
+  // NOT part of the product. The tour paints a glow ring on a target element (by
+  // selector) and wipes it on the next step; the product's source is untouched,
+  // so demo == product still holds. Selectors couple to product markup -- if one
+  // no longer matches, the spotlight silently no-ops (never crashes).
+  function clearSpotlight(){
+    var d = fdoc(); if (!d) return;
+    var el = d.querySelector('[data-demo-spot]');
+    if (el) el.removeAttribute('data-demo-spot');
+  }
+  function spotlight(selector){
+    whenReady(function(){
+      var d = fdoc(); if (!d) return;
+      if (!d.getElementById('demo-spot-style')){
+        var st = d.createElement('style');
+        st.id = 'demo-spot-style';
+        st.textContent = '[data-demo-spot]{outline:3px solid #f08a24 !important; outline-offset:3px; border-radius:8px !important;'
+          + ' box-shadow:0 0 0 6px rgba(240,138,36,.28), 0 0 22px rgba(240,138,36,.6) !important;'
+          + ' animation:demoSpotPulse 1.6s ease-in-out infinite !important}'
+          + '@keyframes demoSpotPulse{0%,100%{box-shadow:0 0 0 6px rgba(240,138,36,.22),0 0 18px rgba(240,138,36,.5)}'
+          + '50%{box-shadow:0 0 0 9px rgba(240,138,36,.36),0 0 30px rgba(240,138,36,.8)}}';
+        (d.head || d.body).appendChild(st);
+      }
+      clearSpotlight();
+      var t = d.querySelector(selector);
+      if (t){
+        t.setAttribute('data-demo-spot', '');
+        t.scrollIntoView({behavior:'smooth', block:'center'});
+        // Clicking the spotlit element IS the action -- clear its glow on click so
+        // the highlight doesn't linger after Bud acts on it. It only returns if the
+        // tour re-applies it (next step / restart). One-shot: the listener self-removes.
+        t.addEventListener('click', function(){ clearSpotlight(); }, { once:true });
+      }
+    });
+  }
+
+  // ---- demo layer: hide DEV-only product controls a customer never sees --------
+  // The Off/Basic/Enhanced/Full AI data-tier switcher ships in the product for QA
+  // but is never shown to a customer/Bud. Mask it in the demo (product untouched);
+  // idempotent per document, re-applied on every iframe load.
+  function maskDevControls(){
+    whenReady(function(){
+      var d = fdoc(); if (!d) return;
+      if (d.getElementById('demo-mask-style')) return;
+      var st = d.createElement('style'); st.id = 'demo-mask-style';
+      st.textContent = '#rrai-dock{display:none !important}';   // sidebar.js dev-only AI tier dock
+      (d.head || d.body).appendChild(st);
+    });
+  }
+
+  // ---- demo layer: never open an email client. The product keeps its mailto:
+  // links (correct for a live customer); the demo intercepts the click, blocks
+  // the email client, and shows a brief confirmation instead. Wired once per
+  // document. preventDefault only (NOT stopPropagation) so a spotlit link still
+  // clears its glow on the same click.
+  function neutralizeMailto(){
+    whenReady(function(){
+      var d = fdoc(), w = fwin(); if (!d || !w) return;
+      if (w.__demoMailtoWired) return; w.__demoMailtoWired = true;
+      d.addEventListener('click', function(e){
+        var a = e.target && e.target.closest && e.target.closest('a[href^="mailto:"]');
+        if (!a) return;
+        e.preventDefault();
+        if (a.id === 'js-lic-invoice'){ _invoiceModal(d); }   // licensing beat: a modal, not a toast
+        else { _demoToast(d, 'Request sent to GSI.'); }
+      }, true);
+    });
+  }
+  function _demoToast(d, msg){
+    var t = d.getElementById('demo-toast');
+    if (!t){
+      t = d.createElement('div'); t.id = 'demo-toast';
+      t.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);'
+        + 'background:#1f2d4a;color:#fff;padding:10px 18px;border-radius:8px;'
+        + 'font-family:"Source Sans 3",sans-serif;font-size:13.5px;font-weight:600;'
+        + 'box-shadow:0 8px 24px -6px rgba(8,18,38,.5);z-index:9999;opacity:0;'
+        + 'transition:opacity .18s ease;pointer-events:none;max-width:80vw;text-align:center;';
+      (d.body || d.documentElement).appendChild(t);
+    }
+    t.textContent = msg; t.style.opacity = '1';
+    var w = fwin() || window;
+    if (t._h) w.clearTimeout(t._h);
+    t._h = w.setTimeout(function(){ t.style.opacity = '0'; }, 2600);
+  }
+  // Kept as a SAFETY NET, not as a beat. No beat on this rail opens
+  // admin-companies.html, so this only fires if the presenter clicks Manage on the
+  // Licensing card off-script and then Request an invoice -- which would otherwise
+  // launch his real email client mid-demo. The modal stands in for that, and
+  // closing it spotlights the product Home button so he can get back to the walk.
+  // It does NOT advance the tour: Summit's 'licensing' branch in onIframeNav is
+  // gone, and Back / Next are the only things that move a beat here.
+  function _invoiceModal(d){
+    if (d.getElementById('demo-modal')) return;
+    var wrap = d.createElement('div'); wrap.id = 'demo-modal';
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:9998;display:flex;align-items:center;'
+      + 'justify-content:center;background:rgba(16,26,46,.5);-webkit-backdrop-filter:blur(2px);'
+      + 'backdrop-filter:blur(2px);opacity:0;transition:opacity .18s ease;font-family:"Source Sans 3",sans-serif;';
+    wrap.innerHTML =
+      '<div style="background:#fff;color:#243049;max-width:380px;width:88%;border-radius:14px;'
+      + 'box-shadow:0 24px 60px -12px rgba(8,18,38,.5);padding:26px 26px 20px;text-align:center;">'
+      +   '<div style="width:46px;height:46px;border-radius:50%;background:#e7f3ec;color:#2e8a55;'
+      +     'display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">'
+      +     '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" '
+      +     'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></div>'
+      +   '<div style="font-size:18px;font-weight:800;color:#1f2d4a;margin-bottom:6px;">Request an invoice</div>'
+      +   '<p style="font-size:14.5px;color:#4a5468;line-height:1.5;margin:0 0 20px;">An email will be sent to GSI accounting.</p>'
+      +   '<button type="button" id="demo-modal-close" style="border:0;border-radius:8px;'
+      +     'background:#1f2d4a;color:#fff;font-family:inherit;font-weight:700;font-size:14px;padding:10px 22px;cursor:pointer;">Close</button>'
+      + '</div>';
+    (d.body || d.documentElement).appendChild(wrap);
+    requestAnimationFrame(function(){ wrap.style.opacity = '1'; });
+    function close(){
+      var m = d.getElementById('demo-modal'); if (m && m.parentNode) m.parentNode.removeChild(m);
+      spotlight('.topbar-home');   // guide Bud back Home -> advances to the Team step
+    }
+    d.getElementById('demo-modal-close').addEventListener('click', close);
+    wrap.addEventListener('click', function(ev){ if (ev.target === wrap) close(); });
+  }
+
+  // Which product page the iframe currently shows (filename only).
+  function iframePage(){ try { return (frame.contentWindow.location.pathname.split('/').pop() || ''); } catch(e){ return ''; } }
+
+  // THIS RAIL NEVER LEAVES home.html, and that is a recording constraint, not a
+  // style choice. The Summit walk drove Bud out to admin-claude-assistant.html /
+  // admin-companies.html / admin-users.html and followed his navigation back.
+  // recording-demo3.json carries the Home-lane admin reads -- /admin/service-health,
+  // /admin/acks, /admin/activity, /api/v1/admin/users,
+  // /api/v1/admin/clients/current/access-reviews,
+  // /api/v1/admin/clients/license-usage?database=RapidReconciler_Demo3,
+  // /inventory/integrity/purge-info, /inventory/fiscal-period-end-detect -- and NOT
+  // the extra reads those three pages issue (admin/companies/unlicensed,
+  // api/v1/admin/clients/current, .../contacts). Sending the presenter there
+  // replays as misses, on camera.
+  //
+  // So Summit's guided-navigation flags (_visitedPlan / _visitedLic / _visitedTeam)
+  // are gone with the beats that used them. The generic subPage / pageSpot path in
+  // setupBeat below is still live for the day those pages are captured.
+
+  // ---- demo layer: BEAT SETUP (part A -- idempotent) -----------------------
+  // Apply the current step's SUB-PAGE spotlight + interaction listeners for the
+  // page the iframe is showing RIGHT NOW (`pg` = filename). Split out of
+  // onIframeNav so it runs from BOTH the iframe `load` event AND the end of
+  // render() -- a step that renders while the iframe is already on its page
+  // fires no `load`, so without this the beat would never wire (no spotlight, no
+  // cancel->Home listener) and the step would look dead ("go directly to it then
+  // nothing"). Idempotent: spotlight() already clears+reapplies, and every
+  // listener attach is guarded by a data-demo-wired tag so a double call (load
+  // AND render against the same live DOM) can't stack duplicate handlers. This
+  // does NOT contain any advance-on-navigation (part B) -- that stays load-only
+  // in onIframeNav so a render() can never trigger an advance loop.
+  function setupBeat(pg){
+    var s = steps[i]; if (!s) return;
+    // No per-key branches on this rail. Summit had three (aiplan / licensing /
+    // team), each keyed to a sub-page it drove Bud out to; every beat here is on
+    // home.html, so a branch naming a key `steps` no longer defines would be dead
+    // code that reads as a beat somebody forgot to finish.
+    //
+    // The generic pattern below is all that is left, and it no-ops for every
+    // current beat (none declares subPage / pageSpot). It stays so a future beat
+    // that DOES open a captured sub-page gets its spotlight for free.
+    if (s.subPage && s.pageSpot && pg === s.subPage){ spotlight(s.pageSpot); }
+  }
+
+  function onIframeNav(){
+    maskDevControls();                    // re-apply the dev-control mask on every load
+    neutralizeMailto();                   // block email-client links in the demo
+    var pg = iframePage();
+    // NO ADVANCE-ON-NAVIGATION on this rail. Summit advanced the tour when Bud
+    // came back Home from a beat's sub-page. Every beat here is already on
+    // home.html, so there is nothing to come back from -- an advance rule keyed on
+    // "now showing home.html" would fire on the very first load and skip beat 1.
+    // Beats move on Back / Next (and on a workflow-map click) only.
+    setupBeat(pg);
+  }
+
+  function firePill(idx){
+    whenReady(function(){
+      var d = fdoc(); if (!d) return;
+      var pills = d.querySelectorAll('.admin-ask-pill');
+      if (pills[idx]){ pills[idx].click(); pills[idx].scrollIntoView({behavior:'smooth', block:'center'}); }
+    });
+  }
+  function setTier(tier){
+    var w = fwin(), d = fdoc();
+    if (!w || !w.RRAI) return;
+    if (tier === 'full'){
+      // RECORDING REALITY FOR GOLDEN HARVEST, measured in recording-demo3.json
+      // 2026-08-25: all six admin pills were captured at ONE tier only -- every
+      // entry's aiKey reads "tier=grounded|q=..." -- so a re-fire at ANY other tier
+      // is a replay MISS ("No answer came back"). tour-seed.js pins
+      // localStorage['rrv8.aiTier'] to 'grounded' for exactly this reason (the
+      // product's own default is 'full'), and NO beat on this rail flips the tier.
+      // The guard stays because the dev tier dock can still be reached by hand:
+      // flip to Full for the data-exposure story if you must, but clear the
+      // on-screen answer first so a prospect never sees a miss.
+      var dm = d && d.getElementById('adminAnsDismiss');
+      if (dm) dm.click();
+      w.RRAI.set('full');
+    } else {
+      w.RRAI.set(tier);                                   // re-fires the active pill at the new level
+      var panel = d && d.getElementById('adminAnsPanel'); // if the panel was cleared (returning from Full), re-ask
+      if (panel && panel.hidden) firePill(0);
+    }
+  }
+  function openHelp(){
+    whenReady(function(){
+      var d = fdoc(); if (!d) return;
+      var b = d.querySelector('.topbar-help');
+      if (b) b.click();
+    });
+  }
+
+  // ---- render --------------------------------------------------------------
+  function render(){
+    var s = steps[i];
+
+    caption.textContent = (s.caption || '').replace(/&middot;/g,'·').replace(/&amp;/g,'&');
+
+    var html = '';
+    // Persistent workflow map: the 3 responsibilities; current lit, past done, clickable.
+    html += '<div class="wf">';
+    WORKFLOW.forEach(function(w){
+      var state = (s.flow === w.id) ? 'on' : (i > w.last ? 'done' : 'todo');
+      html += '<button type="button" class="wf-item is-' + state + '" data-step="' + w.jump + '">'
+            + '<span class="wf-num">' + w.n + '</span>'
+            + '<span class="wf-body"><span class="wf-label">' + w.label + '</span>'
+            + '<span class="wf-tag">' + w.tag + '</span></span></button>';
+    });
+    html += '</div><div class="wf-rule"></div>';
+    // Page detail below the workflow; the kicker bottom-anchors within it.
+    html += '<div class="detail">';
+    html += '<div class="eyebrow">' + s.eyebrow + '</div>';
+    if (s.intro){ html += '<p class="intro">' + s.intro + '</p>'; }
+    if (s.points && s.points.length){
+      html += '<ul class="points">';
+      s.points.forEach(function(p){ html += '<li>' + p + '</li>'; });
+      html += '</ul>';
+    }
+    if (s.kicker){ html += '<p class="kicker">' + s.kicker + '</p>'; }
+    html += '</div>';
+    railBody.innerHTML = html;
+    railBody.scrollTop = 0;
+
+    // clicking a workflow item jumps to that responsibility's page
+    railBody.querySelectorAll('[data-step]').forEach(function(b){
+      b.addEventListener('click', function(){ i = parseInt(b.getAttribute('data-step'), 10); render(); });
+    });
+
+    // nav state
+    prevBtn.disabled = (i === 0);
+    nextBtn.textContent = (i === steps.length - 1) ? 'Restart ↺' : 'Next →';
+
+    loadFrame(s.frame, function(){
+      maskDevControls();
+      neutralizeMailto();
+      // Home-page spotlight is render's job (one source of truth for the Home
+      // beat); setupBeat owns the SUB-PAGE beats. They can't collide: every step
+      // frame is Home, so iframePage() here is home.html and setupBeat no-ops on
+      // it -- but if a page is ever restored on a sub-page without firing `load`,
+      // this still wires that beat (belt-and-suspenders alongside the load event).
+      if (s.spot) spotlight(s.spot); else clearSpotlight();
+      setupBeat(iframePage());
+      if (s.onEnter) s.onEnter();
+    });
+  }
+
+  // The exact pill text — must match the product's data-q verbatim (it is the
+  // capture key). Kept here only for the presenter buttons' labels.
+  var PILL_TEXT = [
+    'What needs my attention right now?',
+    'When does our license expire, and what is the renewal step?',
+    'Who has not signed in lately, and should I remove them?',
+    'How do I add a new team member?',
+    'Is the instance healthy, or is anything starting to degrade?',
+    'What does the activity log tell me?'
+  ];
+
+  // Follow Bud's own navigation inside the product (drives the guided AI loop).
+  frame.addEventListener('load', onIframeNav);
+
+  // ---- nav -----------------------------------------------------------------
+  nextBtn.addEventListener('click', function(){
+    if (i < steps.length - 1){ i++; render(); }
+    else { i = 0; render(); }
+  });
+  prevBtn.addEventListener('click', function(){ if (i > 0){ i--; render(); } });
+  // Exit -> the front door at the role cards, with the next persona (Andy the
+  // Analyst) recommended. index.html reads these on load.
+  var exitBtn = document.getElementById('exitBtn');
+  if (exitBtn) exitBtn.addEventListener('click', function(){
+    try { sessionStorage.setItem('rrdemo.stage', 'roles'); sessionStorage.setItem('rrdemo.recRole', 'analyst'); } catch(e){}
+    window.location.href = 'index.html';
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowRight'){ nextBtn.click(); }
+    else if (e.key === 'ArrowLeft'){ prevBtn.click(); }
+  });
+
+  // rail collapse (give the product full width when demonstrating)
+  var toggle = document.getElementById('railToggle');
+  var toggleLbl = document.getElementById('railToggleLabel');
+  toggle.addEventListener('click', function(){
+    document.body.classList.toggle('rail-collapsed');
+    toggleLbl.textContent = document.body.classList.contains('rail-collapsed') ? 'Show guide' : 'Hide guide';
+  });
+
+  // Wait for the async session seed (dynamic port resolution) to write the token
+  // before loading the first frame, so the product boots authenticated.
+  (window.__rrSeedReady || Promise.resolve()).then(render);
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,575 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="google" content="notranslate">
+<title>Variance source &middot; RapidReconciler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&family=Source+Sans+3:wght@600;700;800&display=swap" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="sidebar.js"></script>
+<script src="variance-sources.js"></script>
+<script src="vendor/xlsx-js-style.min.js"></script>
+<script src="export-guard.js"></script>
+<script src="../Tools/audit-workbook.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<style>
+  /* Shared chrome (canonical palette, command-center wash, corner-chrome Home
+     button) lives in admin-chrome.css, linked above. Only page-specific rules
+     below (all palette tokens this page uses are defined there). */
+  *{box-sizing:border-box}
+  h1,h2,h3{font-family:'Source Sans 3',sans-serif;color:var(--navy);margin:0}
+  .app{min-height:100vh;display:flex;flex-direction:column}
+  /* Wide grid container kept at its own width (NOT the admin 880px shell); top
+     padding bumped to clear the fixed corner-chrome Home button. */
+  .main{flex:1;padding:64px 22px 60px}
+  .page{max-width:1180px;margin:0 auto}
+  .page-title{font-size:30px;font-weight:800;letter-spacing:-.01em;display:flex;align-items:center;gap:12px}
+  .src-dot{width:12px;height:12px;border-radius:50%;background:var(--text-muted);flex-shrink:0}
+  .src-dot.green{background:var(--green)}.src-dot.amber{background:var(--orange)}.src-dot.red{background:var(--red)}
+  .page-lede{font-size:15px;color:var(--text-soft);max-width:760px;margin:8px 0 0}
+  .facts{display:flex;flex-wrap:wrap;gap:26px;margin:18px 0 20px;padding:16px 20px;background:var(--bg-card);border:1px solid var(--rule);border-radius:12px;box-shadow:var(--shadow-sm)}
+  .fact-k{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted)}
+  .fact-v{font-size:19px;font-weight:800;color:var(--navy);margin-top:2px}
+  /* No colour for a negative figure (UI-88): sign is not severity. fmtMoney()
+     and fmtNum() already wrap a negative in accounting parentheses. */
+  .fact-who{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);background:var(--bg);border:1px solid var(--rule);border-radius:100px;padding:2px 9px;display:inline-block;margin-top:6px}
+  /* #js-action ships hidden and is filled only when there is an action to name. The
+     inline-block above beat [hidden], so an empty pill outline rendered instead. UI-159. */
+  .fact-who[hidden]{display:none}
+  .grid-card{background:var(--bg-card);border:1px solid var(--rule);border-radius:14px;box-shadow:var(--shadow-md);overflow:hidden}
+  .grid-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--rule)}
+  .grid-title{font-size:15px;font-weight:800;color:var(--navy)}
+  .grid-tools{display:flex;align-items:center;gap:10px}
+  .grid-search{border:1px solid var(--rule-strong);border-radius:8px;padding:7px 11px;font:inherit;font-size:13px;min-width:200px}
+  .btn-sm{border:1px solid var(--rule-strong);background:var(--bg-card);border-radius:7px;padding:7px 13px;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit;color:var(--navy);display:inline-flex;align-items:center;gap:6px}
+  .btn-sm:hover{border-color:var(--blue);color:var(--blue)}
+  .btn-sm svg{width:14px;height:14px}
+  .grid-scroll{overflow:auto;max-height:62vh}
+  table.grid{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.grid thead th{position:sticky;top:0;background:#f0f4f9;color:var(--navy);font-family:'Source Sans 3';font-weight:700;font-size:11px;letter-spacing:.03em;text-transform:uppercase;text-align:left;padding:10px 12px;white-space:nowrap;cursor:pointer;border-bottom:1px solid var(--rule-strong);user-select:none}
+  table.grid thead th.num,table.grid thead th.qty{text-align:right}
+  table.grid thead th .sort-ind{color:var(--blue);margin-left:4px}
+  table.grid tbody td{padding:8px 12px;border-top:1px solid var(--rule);white-space:nowrap}
+  table.grid tbody tr:nth-child(even){background:#f8fafc}
+  td.mono{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--navy-soft,#2c3e63)}
+  td.num,td.qty{text-align:right;font-variant-numeric:tabular-nums}
+  tfoot td{padding:10px 12px;border-top:2px solid var(--rule-strong);font-weight:800;color:var(--navy);text-align:right}
+  .grid-empty,.grid-loading{padding:34px 20px;text-align:center;color:var(--text-muted);font-size:14px}
+  .reset-banner{margin:0;padding:11px 20px;background:#fef5e7;border-bottom:1px solid #f0d2a8;color:var(--orange-deep);font-size:13px;font-weight:600}
+  .fetch-error{margin:0 0 16px;padding:12px 16px;background:#fbe6e6;border:1px solid #f1c9c3;border-radius:10px;color:var(--red);font-size:13.5px;display:none}
+  .fetch-error.is-on{display:block}
+</style>
+</head>
+<body data-help-src="../RRUniversity/getting-started-with-rapidreconciler.html" data-help-title="Variance source">
+
+<div class="app">
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <div class="toast" id="js-toast" role="status" aria-live="polite"></div>
+
+  <main class="main">
+    <div class="page">
+      <header class="page-header">
+        <h1 class="page-title"><span class="src-dot" id="js-src-dot"></span><span id="js-title">Variance source</span></h1>
+        <p class="page-lede" id="js-lede"></p>
+      </header>
+
+      <div class="fetch-error" id="js-fetch-error" role="alert">Couldn&rsquo;t reach the data service &mdash; <span id="js-fetch-error-msg"></span></div>
+
+      <div class="facts">
+        <div><div class="fact-k">This source</div><div class="fact-v amount" id="js-amount">&mdash;</div></div>
+        <div><div class="fact-k">Working period</div><div class="fact-v" id="js-period">&mdash;</div></div>
+        <div><div class="fact-k">Companies</div><div class="fact-v" id="js-companies">&mdash;</div></div>
+        <div><div class="fact-k">Owner</div><div class="fact-v" id="js-owner" style="font-size:13px;font-weight:700">&mdash;</div><span class="fact-who" id="js-action" hidden></span></div>
+      </div>
+
+      <div class="grid-card">
+        <div class="grid-head">
+          <span class="grid-title" id="js-grid-title">Detail</span>
+          <div class="grid-tools">
+            <input class="grid-search" id="js-search" type="search" placeholder="Filter rows&hellip;" aria-label="Filter rows">
+            <button class="btn-sm" id="js-export" type="button" title="Export to Excel">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export
+            </button>
+          </div>
+        </div>
+        <div class="reset-banner" id="js-reset-banner" hidden></div>
+        <div class="grid-scroll">
+          <div class="grid-loading" id="js-loading">Loading&hellip;</div>
+          <table class="grid" id="js-grid" hidden>
+            <thead><tr id="js-grid-head"></tr></thead>
+            <tbody id="js-grid-body"></tbody>
+            <tfoot id="js-grid-foot"></tfoot>
+          </table>
+          <div class="grid-empty" id="js-empty" hidden>No rows for this source in the current scope.</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var RR_CONFIG = window.RR_CONFIG || {};
+  var MODE = new URLSearchParams(location.search).get('mode') || RR_CONFIG.mode || 'demo';
+  var IS_DEMO = (MODE === 'demo');
+  var SOURCES = window.RR_VARIANCE_SOURCES || {};
+
+  // ---- which source ----
+  var key = new URLSearchParams(location.search).get('source') || '';
+  var cfg = SOURCES[key];
+  // Transactions has its own dedicated page (fetch:'page') — bounce there.
+  // Carry forward IS rendered here now (fetch:'priorPeriodBreakdown' + columns).
+  // Strip the leading delimiter with the key, then repair a now-leading '&' into '?'
+  // — the old pattern left the delimiter behind and produced '?&company=…' (or a bare
+  // dangling '?'), so the forwarded scope arrived malformed. Same shape as the
+  // roll-forward link below; keep the two identical.
+  if (cfg && cfg.fetch === 'page') {
+    var _fwd = location.search ? location.search.replace(/[?&]source=[^&]*/, '').replace(/^&/, '?') : '';
+    location.replace(cfg.href + (_fwd === '?' ? '' : _fwd));
+    return;
+  }
+  if (!cfg || !Array.isArray(cfg.columns)) {
+    document.getElementById('js-title').textContent = 'Unknown variance source';
+    document.getElementById('js-lede').textContent = 'Open this page from a source card on the Reconciliation page.';
+    document.getElementById('js-loading').hidden = true;
+    return;
+  }
+
+  // Help panel: title per source (help-sidebar.js reads these; this runs before the deferred script).
+  try { document.body.setAttribute('data-help-title', cfg.label + ' — variance source'); } catch (_) {}
+
+  // ---- header copy ----
+  document.title = cfg.label + ' · RapidReconciler';
+  document.getElementById('js-title').textContent = cfg.label;
+  // Breadcrumb retired (product-page standard); guard the removed node.
+  var bcSource = document.getElementById('js-bc-source');
+  if (bcSource) bcSource.textContent = cfg.label;
+  document.getElementById('js-lede').textContent = cfg.lede || '';
+  document.getElementById('js-grid-title').textContent = cfg.label + ' detail';
+  document.getElementById('js-owner').textContent = cfg.action || '';
+  var ownerTag = document.getElementById('js-action');
+  if (cfg.owner) { ownerTag.textContent = cfg.owner; ownerTag.hidden = false; }
+  var reconLink = document.getElementById('js-recon-link');
+  if (reconLink) reconLink.href = 'inventory-account-rollforward.html' + (location.search ? location.search.replace(/[?&]source=[^&]*/, '').replace(/^&/, '?') : '');
+
+  // ---- routing / fetch (mirrors the recon page) ----
+  var _testAgentAreas = new Set(window.RR_TEST_AGENT_AREAS || []);
+  var _testAgentPrefixes = window.RR_TEST_AGENT_PREFIXES || [];
+  var _valcPrefixes = window.RR_VALC_PREFIXES || [];
+  function _routesToTestAgent(a){ if(_testAgentAreas.has(a))return true; for(var i=0;i<_testAgentPrefixes.length;i++) if(a.indexOf(_testAgentPrefixes[i])===0)return true; return false; }
+  function _routesToValc(a){ for(var i=0;i<_valcPrefixes.length;i++) if(a.indexOf(_valcPrefixes[i])===0)return true; return false; }
+  function prodHeaders(ct){ var h={'Accept':'application/json'}; try{var t=localStorage.getItem('rrv8.token'); if(t)h['Authorization']='Bearer '+t;}catch(_){} if(ct)h['Content-Type']=ct; return h; }
+  function rrFetch(area, opts){
+    opts = opts || {};
+    if (IS_DEMO) {
+      return fetch((RR_CONFIG.dataPath||'data/')+(opts.demoFile||area)+'.json',{cache:'no-store'}).then(function(r){ if(!r.ok)throw new Error('HTTP '+r.status); return r.json(); });
+    }
+    var base = _routesToValc(area) ? (RR_CONFIG.valcBase||'http://localhost:8080')
+             : window.RRDB.agentBase();   // canonical active-DB agent resolver (config.js RRDB)
+    var url = base + '/' + area;
+    return fetch(url, { method: opts.method||'GET', headers: prodHeaders(opts.body?'application/json;charset=UTF-8':null), body: opts.body?JSON.stringify(opts.body):undefined })
+      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status+' on '+area); return r.json().catch(function(e){ if(e instanceof SyntaxError) return null; throw e; }); });
+  }
+
+  // ---- scope (reuse the shared session scope; honor working companies) ----
+  function workingCompanies(){ try{ if(window.RRV8&&window.RRV8.readSessionScope){ var a=window.RRV8.readSessionScope().activeCompanies||[]; return a.slice(); } }catch(_){} return []; }
+  function fmtMoney(v){ if(v==null||isNaN(v))return '—'; var n=Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); return (v<0?'(':'')+n+(v<0?')':''); }
+  function fmtNum(v,dp){ if(v==null||v==='')return ''; var n=Number(v); if(isNaN(n))return String(v); return (n<0?'(':'')+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:dp,maximumFractionDigits:dp})+(n<0?')':''); }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(m){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m];}); }
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fmtPeriodLabel(p){ if(!p) return ''; var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(p); return m ? (MONTHS[+m[2]-1]+' '+ +m[3]+', '+m[1]) : p; }
+
+  // ---- state ----
+  var ROWS = [];               // normalized rows
+  var sortKey = null, sortDir = 1;
+  var search = '';
+  // Carry forward only: the grid lists the prior period's 6 variance components,
+  // but the authoritative "this source" total is that period's unreconciledVariance
+  // (a server field; the components carry sign conventions and don't plainly sum).
+  var _carryTotal = null;
+  // TRUE once a load has failed. Without this, the failure path (ROWS=[] then
+  // render()) drew the page's whole verdict as CLEAN: the "This source" figure summed
+  // an empty array to 0.00, the status dot went GREEN because |0| < 0.005, and the
+  // grid read "No rows for this source in the current scope." A fetch failure and a
+  // reconciled source rendered identically.
+  var _loadFailed = false;
+  // TRUE when the authoritative total for this source could not be determined (carry
+  // forward whose prior-period unreconciledVariance the server didn't send).
+  var _totalUnknown = false;
+  // The empty-state sentence for a SUCCESSFUL load with no rows. Captured from the
+  // markup so the failure copy below can be swapped in and back out without the
+  // "no rows in scope" wording leaking onto a failure (or vice versa). The
+  // carry-forward branch overwrites it deliberately for the earliest-period case.
+  var _emptyMsg = (document.getElementById('js-empty') || {}).textContent || '';
+  function setEmptyMsg(t){ _emptyMsg = t; }
+
+  function showError(msg){ var b=document.getElementById('js-fetch-error'); document.getElementById('js-fetch-error-msg').textContent=msg||''; b.classList.add('is-on'); }
+  function setScopeFacts(){
+    var cos = workingCompanies();
+    document.getElementById('js-companies').textContent = cos.length ? (cos.length+' selected') : 'All';
+    var per = '—';
+    try{ if(window.RRV8&&window.RRV8.readCurrentPeriod){ var p=window.RRV8.readCurrentPeriod(); if(p){ var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(p); per = m ? (['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m[2]-1]+' '+ +m[3]+', '+m[1]) : p; } } }catch(_){}
+    document.getElementById('js-period').textContent = cfg.requirePeriod===false ? 'Current' : per;
+    var db = (window.RRDB && window.RRDB.name && window.RRDB.name()) || '';
+    // Topbar retired (product-page standard); guard the removed node.
+    var dbEl = document.getElementById('js-topbar-db');
+    if (dbEl) dbEl.textContent = db || 'RapidReconciler';
+  }
+
+  // ---- normalize PascalCase view columns -> camelCase keys (mirrors recon) ----
+  function normalize(rows){
+    var fields = cfg.columns.map(function(c){return c.key;}).concat(['periodEnds']);
+    return (rows||[]).map(function(r){
+      var lc={}; Object.keys(r).forEach(function(k){ lc[k.toLowerCase()]=r[k]; });
+      var out={}; fields.forEach(function(key){ var v=lc[key.toLowerCase()]; if(v!==undefined) out[key]=v; });
+      return out;
+    });
+  }
+
+  function readCurrentPeriod(){ try{ if(window.RRV8&&window.RRV8.readCurrentPeriod) return window.RRV8.readCurrentPeriod(); }catch(_){} return null; }
+
+  // ---- fetch the source's rows ----
+  function load(){
+    if (IS_DEMO) {
+      // Demo: the recon snapshot carries the arrays; fall back to empty.
+      rrFetch('reconciliation').then(function(d){ ROWS = normalize((d && d[cfg.arrayKey]) || []); render(); })
+        .catch(function(err){ _loadFailed = true; showError((err&&err.message)||String(err)); ROWS=[]; render(); });
+      return;
+    }
+    var p;
+    if (cfg.fetch === 'integrity') {
+      p = rrFetch('inventory/integrity', { method:'POST', body:{ report: cfg.report } })
+            .then(function(resp){
+              // rrFetch turns a non-JSON 200 into null, and `|| []` turned that into
+              // "no rows in this scope" — a clean-looking answer off an unreadable
+              // response. An unrecognized shape is a failure, not an empty result.
+              if (resp && Array.isArray(resp.data)) return resp.data;
+              if (resp && Array.isArray(resp.rows)) return resp.rows;
+              throw new Error('the data service returned a response this page could not read');
+            });
+    } else if (cfg.fetch === 'priorPeriodBreakdown') {
+      // Carry forward = the PRIOR period's unreconciled variance, rolled in. Mirror
+      // the recon page's carry-forward preview: pull the cross-period history
+      // (POST /inventory/reconciliation/history, company-scoped — the pre-aggregated
+      // points can't be re-filtered client-side), find the period just before the
+      // working period, and surface that period's 6-component composition.
+      p = rrFetch('inventory/status').then(function(status){
+        var rf = (status && status.reconciliationFilter) || {};
+        var cos = workingCompanies();
+        var wrap = function(ids){ return (ids||[]).map(function(id){ return { id: id, checked: true, show: true }; }); };
+        var body = {
+          period: null,
+          currencies:    wrap(rf.currencies),
+          companies:     wrap(cos.length ? cos : rf.companies),
+          objects:       wrap(rf.objects),
+          businessUnits: wrap(rf.businessUnits),
+          subsidiaries:  wrap(rf.subsidiaries)
+        };
+        return rrFetch('inventory/reconciliation/history', { method:'POST', body: body }).then(function(resp){
+          var points  = (resp && resp.points) || [];
+          var periods = points.map(function(pt){ return pt.period; }).filter(Boolean).sort();
+          var cur = readCurrentPeriod();
+          // prior = latest period strictly before the working period (matches recon's priorPeriod()).
+          var prior = null;
+          for (var i=0;i<periods.length;i++){ if (cur && periods[i] < cur) prior = periods[i]; }
+          var curLbl = fmtPeriodLabel(cur);
+          var ledeEl = document.getElementById('js-lede');
+          if (!prior) {
+            // First period in the data — carry forward is zero by definition.
+            _carryTotal = 0;
+            if (ledeEl) ledeEl.textContent = (cfg.lede||'') + ' ' + (curLbl || 'This period') + ' is the earliest period in the data — carry forward is zero by definition.';
+            setEmptyMsg('No prior period to carry forward — ' + (curLbl || 'this period') + ' is the earliest in the data.');
+            return [];
+          }
+          var pt = points.find(function(x){ return x.period === prior; });
+          var v  = (pt && pt.variance) || {};
+          var _u = (v.unreconciledVariance != null) ? Number(v.unreconciledVariance) : NaN;
+          if (isFinite(_u)) {
+            _carryTotal = _u;
+          } else {
+            // The authoritative carry-forward figure is the prior period's
+            // unreconciledVariance. Leaving _carryTotal null fell through to summing
+            // the 6 components — a total this very code documents as NOT summable
+            // (they carry opposing sign conventions). Better to show no figure than
+            // one arrived at by a method we know is wrong.
+            _carryTotal = null; _totalUnknown = true;
+            console.error('[variance-source] carry forward: the prior period (' + prior +
+              ') returned no unreconciledVariance — refusing to sum the 6 components, which do not add up to it.');
+          }
+          if (ledeEl) ledeEl.textContent = (cfg.lede||'') + ' Composition of ' + fmtPeriodLabel(prior) +
+            (curLbl ? (', carried into ' + curLbl) : '') + '.';
+          return [
+            { component: 'Carry forward',          amount: (+v.carryForward         || 0) },
+            { component: 'GL batches',             amount: (+v.glBatches            || 0) },
+            { component: 'Orders (end of day)',    amount: (+v.endOfDay             || 0) },
+            { component: 'Transactions',           amount: (+v.transactions         || 0) },
+            { component: 'Cardex',                 amount: (+v.cardex               || 0) },
+            { component: 'Manual journal entries', amount: (+v.manualJournalEntries || 0) }
+          ];
+        });
+      });
+    } else { // variance-component
+      p = rrFetch('inventory/status').then(function(status){
+        var rf = (status && status.reconciliationFilter) || {};
+        var cos = workingCompanies();
+        // VarianceComponentRequest wants each filter as a List<Item> — a plain
+        // array of {id,checked,show}, NOT a {Item:[...]} wrapper. The wrong
+        // shape 403s (the agent rejects it); this mirrors the recon page's
+        // wrapItems() so reconciliation-filtered and variance-component agree.
+        var wrap = function(ids){ return (ids||[]).map(function(id){ return { id: id, checked: true, show: true }; }); };
+        var body = {
+          period: cfg.requirePeriod===false ? null : readCurrentPeriod() || rf.period,
+          currencies:    wrap(rf.currencies),
+          companies:     wrap(cos.length ? cos : rf.companies),
+          objects:       wrap(rf.objects),
+          businessUnits: wrap(rf.businessUnits),
+          subsidiaries:  wrap(rf.subsidiaries),
+          component: cfg.component
+        };
+        return rrFetch('inventory/variance-component', { method:'POST', body: body }).then(function(resp){
+          if (resp && Array.isArray(resp.rows)) return resp.rows;
+          throw new Error('the data service returned a response this page could not read');
+        });
+      });
+    }
+    p.then(function(rows){ ROWS = normalize(rows); render(); })
+     .catch(function(err){
+       // Flag the failure BEFORE rendering, so render() shows "unknown" rather than a
+       // green dot over a $0.00 total.
+       _loadFailed = true;
+       showError((err&&err.message)||String(err)); ROWS=[]; render();
+     });
+  }
+
+  // ---- render ----
+  function visibleRows(){
+    var rows = ROWS;
+    // Surface the cardex view's Reason='Reset:' row as a banner, not a data row.
+    var banner = document.getElementById('js-reset-banner');
+    if (cfg.report && banner) {
+      var resetRow = rows.find(function(r){ return /^reset/i.test(String(r.reason||'')); });
+      if (resetRow) { banner.textContent = 'Cardex was reset — ' + (resetRow.reason||''); banner.hidden = false; rows = rows.filter(function(r){ return r!==resetRow; }); }
+      else banner.hidden = true;
+    }
+    if (search) {
+      var q = search.toLowerCase();
+      rows = rows.filter(function(r){ return cfg.columns.some(function(c){ return String(r[c.key]==null?'':r[c.key]).toLowerCase().indexOf(q)>=0; }); });
+    }
+    if (sortKey) {
+      var col = cfg.columns.find(function(c){ return c.key===sortKey; });
+      var numeric = col && (col.kind==='num'||col.kind==='qty');
+      rows = rows.slice().sort(function(a,b){
+        var av=a[sortKey], bv=b[sortKey];
+        if (numeric){ av=Number(av)||0; bv=Number(bv)||0; return (av-bv)*sortDir; }
+        return String(av==null?'':av).localeCompare(String(bv==null?'':bv))*sortDir;
+      });
+    }
+    return rows;
+  }
+  // Short on-screen header labels so the wide source grids (cardex carries 18
+  // no-wrap columns, the rest 10) fit without horizontal scroll. Keyed by
+  // column key so the same field abbreviates consistently across every source.
+  // On-screen ONLY — the Excel export keeps the full c.label (audit quality,
+  // UI-32); the full label rides in the <th title> so a JDE-fluent analyst can
+  // hover to confirm the field. A key not in the map falls through to its own
+  // c.label, so new columns degrade safely. Only genuinely-shorter forms are
+  // listed — an abbreviation no shorter than the raw label is worse than none.
+  var COL_ABBR = {
+    companyNumber: 'Co',        longAccount: 'Account',   transactionAmount: 'Amount',
+    transactionDate: 'Txn Date', apprsts: 'Approval',     poststs: 'Posting',
+    batchNumber: 'Batch #',     branchPlant: 'Branch',    docNumber: 'Doc #',
+    periodEnds: 'Period',       username: 'User',         shortItem: 'Short',
+    itemNumber: 'Item',         thirdItem: '3rd Item',    adjAmount: 'Adj Amt'
+  };
+  function _colLabel(c){ return COL_ABBR[c.key] || c.label; }
+  function render(){
+    document.getElementById('js-loading').hidden = true;
+    setScopeFacts();
+    var amountField = cfg.amountField;
+    // Carry forward's total is the prior period's server-provided unreconciledVariance
+    // (the 6 listed components carry sign conventions and don't plainly sum); every
+    // other source's total is the sum of its own detail rows.
+    var total = (_carryTotal != null)
+      ? _carryTotal
+      : ROWS.reduce(function(s,r){ return s + (Number(r[amountField])||0); }, 0);
+    var amtEl = document.getElementById('js-amount');
+    var dot = document.getElementById('js-src-dot');
+    var grid = document.getElementById('js-grid');
+    var empty = document.getElementById('js-empty');
+    // Unknown is its own state — never zero, never green.
+    if (_loadFailed || _totalUnknown) {
+      amtEl.textContent = '—';
+      dot.className = 'src-dot';        // neutral grey; NOT the green "reconciled" dot
+      dot.title = _loadFailed
+        ? 'RapidReconciler couldn’t read this source, so it isn’t saying whether it is clean.'
+        : 'This source’s total couldn’t be determined from the data returned.';
+      grid.hidden = true;
+      empty.textContent = _loadFailed
+        ? 'This source couldn’t be read, so nothing is shown. This is not the same as “nothing to reconcile” — try again, and if it keeps happening ask your IT department to check that the data service is reachable.'
+        : 'This source’s total couldn’t be determined from the data returned. Nothing is shown rather than a figure that may be wrong.';
+      empty.hidden = false;
+      return;
+    }
+    amtEl.textContent = fmtMoney(total);
+    // UI-80 — a non-zero total was painted amber with the title stripped. You only
+    // reach this page by clicking a variance component that is already non-zero, so
+    // the dot was amber on every visit and said nothing about why. It was answering
+    // "did the page load with data", which nobody asked. Green stays for the one
+    // reading it can claim — this source nets to zero — and a non-zero total is the
+    // page's subject, not a condition, so it takes no colour. Both keep a title.
+    var netsToZero = Math.abs(total) < 0.005;
+    dot.className = 'src-dot' + (netsToZero ? ' green' : '');
+    dot.title = netsToZero
+      ? 'This source nets to zero, so it contributes nothing to the variance.'
+      : 'This is the source you opened. The rows below are what makes up its total.';
+    empty.textContent = _emptyMsg;
+
+    var rows = visibleRows();
+    if (!ROWS.length) { grid.hidden=true; empty.hidden=false; return; }
+    empty.hidden = true; grid.hidden = false;
+
+    // head
+    var head = cfg.columns.map(function(c){
+      var ind = sortKey===c.key ? '<span class="sort-ind">'+(sortDir>0?'▲':'▼')+'</span>' : '';
+      var cls = (c.kind==='num'||c.kind==='qty') ? ' class="'+c.kind+'"' : '';
+      return '<th'+cls+' data-key="'+c.key+'" title="'+esc(c.label)+'">'+esc(_colLabel(c))+ind+'</th>';
+    }).join('');
+    document.getElementById('js-grid-head').innerHTML = head;
+
+    // body
+    var body = rows.map(function(r){
+      return '<tr>'+cfg.columns.map(function(c){
+        var v = r[c.key];
+        if (c.kind==='num'){ return '<td class="num">'+esc(fmtNum(v,2))+'</td>'; }
+        if (c.kind==='qty'){ return '<td class="qty">'+esc(fmtNum(v,0))+'</td>'; }
+        if (c.kind==='mono'){ return '<td class="mono">'+esc(v==null?'':v)+'</td>'; }
+        return '<td>'+esc(v==null?'':v)+'</td>';
+      }).join('')+'</tr>';
+    }).join('');
+    document.getElementById('js-grid-body').innerHTML = body;
+
+    // foot — total on the amount column. This total must tie to the ROWS ABOVE IT.
+    // It used to print the whole-source total under a search-filtered body, so a
+    // filtered grid showed a footer figure that no visible row contributed to. The
+    // "This source" fact above stays the whole-source figure; the footer is the
+    // subtotal of what is displayed, and says so when a filter is active.
+    var footTotal, footLbl = '';
+    if (search) {
+      if (_carryTotal != null) {
+        // Carry forward's components don't sum to its authoritative total, so a
+        // filtered subtotal is not derivable. Show nothing rather than a wrong figure.
+        footTotal = null; footLbl = 'Filtered — see "This source" for the total';
+      } else {
+        footTotal = rows.reduce(function(s,r){ return s + (Number(r[amountField])||0); }, 0);
+        footLbl = 'Filtered subtotal';
+      }
+    } else {
+      footTotal = total;
+    }
+    var foot = cfg.columns.map(function(c,i){
+      if (c.key===amountField) return '<td class="num">'+(footTotal==null?'&mdash;':esc(fmtMoney(footTotal)))+'</td>';
+      if (i===0 && footLbl) return '<td style="text-align:left;font-weight:700;color:var(--text-muted);font-size:11px">'+esc(footLbl)+'</td>';
+      return '<td></td>';
+    }).join('');
+    document.getElementById('js-grid-foot').innerHTML = '<tr>'+foot+'</tr>';
+  }
+
+  // Audit-quality Excel builder: ../Tools/audit-workbook.js (UI-70). The copy
+  // that lived here was behaviourally identical to the shared one.
+
+  // ---- interactions ----
+  document.getElementById('js-grid-head').addEventListener('click', function(e){
+    var th = e.target.closest('th'); if(!th) return;
+    var k = th.getAttribute('data-key'); if(!k) return;
+    if (sortKey===k) sortDir = -sortDir; else { sortKey=k; sortDir=1; }
+    render();
+  });
+  document.getElementById('js-search').addEventListener('input', function(e){ search = e.target.value||''; render(); });
+  document.getElementById('js-export').addEventListener('click', function(){
+    if (!window.XLSX) return;
+    // Never export off a failed / undetermined load — the workbook would carry a
+    // total that RapidReconciler itself couldn't stand behind.
+    if (_loadFailed || _totalUnknown) {
+      showError(_loadFailed
+        ? 'This source couldn’t be read, so there is nothing to export.'
+        : 'This source’s total couldn’t be determined, so there is nothing to export.');
+      return;
+    }
+    var list = visibleRows();
+    if (!list.length) return;
+    var amountField = cfg.amountField;
+    // Authoritative total mirrors the on-screen footer: carry-forward uses the
+    // server-provided prior-period unreconciledVariance; every other source sums
+    // its own detail rows on the amount column.
+    var total = (_carryTotal != null)
+      ? _carryTotal
+      : list.reduce(function(s,r){ return s + (Number(r[amountField])||0); }, 0);
+    var columns = cfg.columns.map(function(c){
+      var isNum = (c.kind==='num'||c.kind==='qty');
+      var col = { label: c.label, num: isNum };
+      if (c.kind==='qty') col.fmt = '#,##0';
+      return col;
+    });
+    var rows = list.map(function(r){
+      return cfg.columns.map(function(c){
+        var v=r[c.key];
+        if (c.kind==='num'||c.kind==='qty') return Number(v)||0;
+        return v==null?'':v;
+      });
+    });
+    // Label the total for what it IS. With a search active on a carry-forward source
+    // the figure is the whole source's authoritative total, not the sum of the rows
+    // listed above it — an unlabelled total row that doesn't add up is exactly the
+    // thing an auditor stops on.
+    var totalLbl = (_carryTotal != null && search)
+      ? ('TOTAL for this source (whole source, not the ' + list.length.toLocaleString('en-US') + ' filtered rows above)')
+      : ('TOTAL — ' + list.length.toLocaleString('en-US') + ' rows');
+    var totalRow = cfg.columns.map(function(c,i){
+      if (c.key===amountField) return total;
+      if (i===0) return totalLbl;
+      return '';
+    });
+    var db  = (document.getElementById('js-topbar-db')||{}).textContent || 'RapidReconciler';
+    var cos = (document.getElementById('js-companies')||{}).textContent || 'All';
+    var per = (document.getElementById('js-period')||{}).textContent || '—';
+    buildAuditWorkbook({
+      sheetName: cfg.label.slice(0,31),
+      fileName:  RRV8.exportName({ surface: 'Variance', drill: key }),
+      titleLines: [
+        cfg.label + ' — Variance Source Detail',
+        'Database ' + db + '  ·  Companies ' + cos + '  ·  Period ' + per + (search ? ('  ·  search: "' + search + '"') : ''),
+        'Generated ' + new Date().toLocaleString('en-US') + '  ·  ' + list.length.toLocaleString('en-US') + ' rows'
+      ],
+      columns: columns,
+      rows: rows,
+      totalRow: totalRow
+    });
+  });
+
+  // ---- boot: hydrate the session (RRDB decodes the token), then load ----
+  function boot(){
+    try { if (window.RRV8 && window.RRV8.hydrateSession) window.RRV8.hydrateSession(); } catch(_){}
+    setScopeFacts();
+    load();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+</script>
+</body>
+</html>
+

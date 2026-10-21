@@ -1,0 +1,412 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Administrator > System Health — Report Engine (file id: admin-data-service.html)
+  =============================================================================
+  Status, memory headroom, and Restart for the data service (the Services jar
+  that builds reports & exports). Promoted off the Home card's System Health
+  panel to its own standard-format page. Reads GET admin/service-health (memory
+  verdict: healthy | watch | restart) and POSTs api/v1/admin/services/restart.
+  Both are admin-gated server-side; the client gate here is UX. Graceful when
+  the agent doesn't expose the health endpoint — falls back to the up/down dot.
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report Engine &mdash; RapidReconciler Admin</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="sidebar.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<style>
+  /* Shared admin-page chrome (palette, wash, Home button, page shell, cards)
+     lives in admin-chrome.css, linked above. Only page-specific rules below. */
+
+  /* Status row */
+  .svc-status { display:flex; align-items:center; gap:14px; }
+  .svc-dot { width:14px; height:14px; border-radius:50%; flex-shrink:0; background:var(--text-muted); }
+  .svc-dot.green { background:var(--green); } .svc-dot.amber { background:var(--orange); } .svc-dot.red { background:var(--red); }
+  .svc-status-main { flex:1; min-width:0; }
+  .svc-status-title { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:15px; color:var(--navy); }
+  .svc-status-sub { color:var(--text-soft); font-size:13.5px; margin-top:2px; }
+
+  /* Memory meter */
+  .svc-mem { margin-top:16px; }
+  .svc-mem-bar { height:8px; border-radius:5px; background:var(--bg-soft); border:1px solid var(--rule); overflow:hidden; }
+  .svc-mem-fill { display:block; height:100%; width:0; background:var(--green); transition:width .3s ease; }
+  .svc-mem-fill.amber { background:var(--orange); } .svc-mem-fill.red { background:var(--red); }
+  .svc-mem-cap { margin-top:8px; font-size:13px; color:var(--text-soft); }
+  .svc-mem-cap b { color:var(--navy); font-variant-numeric:tabular-nums; }
+
+  /* Restart progress — a time-based bar shown while the service bounces (~30s).
+     It's a countdown over the expected window, not true per-step progress; the
+     real status repaints from the health read when it returns. */
+  .svc-restart { margin-top:16px; display:none; }
+  .svc-restart.is-active { display:block; }
+  .svc-restart-bar { height:8px; border-radius:5px; background:var(--bg-soft); border:1px solid var(--rule); overflow:hidden; }
+  .svc-restart-fill { display:block; height:100%; width:0; background:var(--orange);
+    background-image:linear-gradient(90deg, var(--orange) 0%, var(--orange-deep) 100%); }
+  .svc-restart-label { margin-top:8px; font-size:13px; color:var(--text-soft); display:flex; align-items:center; gap:8px; }
+  .svc-restart-spin { width:13px; height:13px; border:2px solid var(--rule-strong); border-top-color:var(--orange);
+    border-radius:50%; animation:svc-spin .8s linear infinite; flex-shrink:0; }
+  @keyframes svc-spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .svc-restart-spin { animation:none; } }
+
+  .btn { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:13.5px; border-radius:6px; padding:9px 18px; cursor:pointer; border:1px solid transparent; }
+  .btn-warn { color:#fff; background:var(--orange); border-color:var(--orange); }
+  .btn-warn:hover:not(:disabled) { filter:brightness(1.06); }
+  .btn-warn.is-urgent { background:var(--red); border-color:var(--red); }
+  .btn-ghost { color:var(--text-soft); background:var(--bg-card); border-color:var(--rule-strong); }
+  .btn-ghost:hover { color:var(--navy); border-color:var(--text-muted); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; filter:none; }
+  .actions { margin-top:18px; display:flex; gap:10px; align-items:center; }
+
+  .note { display:flex; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); margin-bottom:18px; }
+  .note svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .note b { color:var(--navy); }
+
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--navy); color:#fff; padding:10px 18px; border-radius:6px; font-family:'Source Sans 3',sans-serif; font-weight:600; font-size:13px; opacity:0; pointer-events:none; transition:opacity .2s ease,transform .2s ease; z-index:100; }
+  .toast.is-visible { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  .gate-notice { display:none; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); }
+  .gate-notice svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .gate-notice.is-visible { display:flex; }
+  .gate-notice.halt-notice { background:var(--red-pale); border-color:var(--red); }
+  .gate-notice.halt-notice svg { color:var(--red); }
+  body.is-gated #js-tool { display:none; }
+</style>
+</head>
+<body data-help-src="../RRUniversity/administrator-start-here.html#system-health" data-help-title="Report Engine">
+
+<div class="app">
+
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <div class="toast" id="js-toast" role="status" aria-live="polite"></div>
+
+  <main class="main">
+    <div class="page">
+
+      <header class="page-header">
+        <h1 class="page-title">Report Engine</h1>
+        <p class="page-lede">The engine that builds your reports and exports. This shows whether it&rsquo;s running well, how much memory it has, and lets you restart it &mdash; a restart clears memory and takes about 30 seconds.</p>
+      </header>
+
+      <!-- Non-admin gate -->
+      <div class="note gate-notice" id="js-gate" role="alert" style="margin-bottom:18px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div>This is an administrator function. <b>Contact your administrator</b> to restart the data service.</div>
+      </div>
+
+      <!-- Halt states. Neither one is a permission answer: the first means a
+           required part of the page never loaded, the second means the sign-in
+           carried no answer about this user's access either way. Both close the
+           page instead of rendering the admin surface on a guess. -->
+      <div class="note gate-notice halt-notice" id="js-halt-asset" role="alert" style="margin-bottom:18px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Part of this page didn&rsquo;t load, so RapidReconciler can&rsquo;t tell what you&rsquo;re allowed to see here &mdash; nothing was loaded. Reload the page. If it happens again, <b>contact your IT department</b>.</div>
+      </div>
+
+      <div class="note gate-notice halt-notice" id="js-halt-claim" role="alert" style="margin-bottom:18px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Your sign-in didn&rsquo;t say what you&rsquo;re allowed to do here, so nothing was loaded. Reload the page. If it happens again, ask your <b>IT department</b> to check your RapidReconciler account.</div>
+      </div>
+
+      <div id="js-tool">
+        <div class="card">
+          <div class="card-head"><span class="card-title">Status</span></div>
+          <div class="card-body">
+            <div class="svc-status">
+              <span class="svc-dot green" id="js-svc-dot"></span>
+              <div class="svc-status-main">
+                <div class="svc-status-title">Report engine</div>
+                <div class="svc-status-sub" id="js-svc-sub">Checking&hellip;</div>
+              </div>
+              <button class="btn btn-warn" id="js-restart" type="button">Restart</button>
+            </div>
+
+            <!-- Memory readout — hidden until admin/service-health answers. -->
+            <div class="svc-mem" id="js-svc-mem" hidden>
+              <div class="svc-mem-bar"><span class="svc-mem-fill" id="js-mem-fill"></span></div>
+              <div class="svc-mem-cap" id="js-mem-cap"></div>
+            </div>
+
+            <!-- Restart progress — shown only while a restart is in flight. -->
+            <div class="svc-restart" id="js-svc-restart" role="status" aria-live="polite">
+              <div class="svc-restart-bar"><span class="svc-restart-fill" id="js-restart-fill"></span></div>
+              <div class="svc-restart-label"><span class="svc-restart-spin" aria-hidden="true"></span><span id="js-restart-label">Restarting the data service&hellip;</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 8v5M12 16h.01"/></svg>
+          <span><b>Restarting is safe.</b> It clears the service&rsquo;s memory and reconnects; your data isn&rsquo;t touched. Reports may pause for about 30 seconds while it comes back.</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- rrFetch (mirrors admin-reload-gl.html) ----------
+  const RR_CONFIG = window.RR_CONFIG || {};
+  const URL_MODE  = new URLSearchParams(window.location.search).get('mode');
+  const MODE      = URL_MODE || RR_CONFIG.mode || 'demo';
+  const IS_DEMO   = (MODE === 'demo');
+  const _testAgentAreas    = new Set(window.RR_TEST_AGENT_AREAS || []);
+  const _testAgentPrefixes = window.RR_TEST_AGENT_PREFIXES || [];
+  const _valcPrefixes      = window.RR_VALC_PREFIXES || [];
+  function _routesToTestAgent(area) {
+    if (_testAgentAreas.has(area)) return true;
+    for (let i = 0; i < _testAgentPrefixes.length; i++) if (area.startsWith(_testAgentPrefixes[i])) return true;
+    return false;
+  }
+  function _routesToValc(area) {
+    for (let i = 0; i < _valcPrefixes.length; i++) if (area.startsWith(_valcPrefixes[i])) return true;
+    return false;
+  }
+  function prodHeaders(contentType) {
+    const h = { 'Accept': 'application/json' };
+    try { const t = localStorage.getItem('rrv8.token'); if (t) h['Authorization'] = 'Bearer ' + t; } catch (_) {}
+    if (contentType) h['Content-Type'] = contentType;
+    return h;
+  }
+  function rrFetch(area, opts) {
+    opts = opts || {};
+    let base;
+    if (_routesToValc(area)) {
+      base = RR_CONFIG.valcBase || 'http://localhost:8080';
+    } else if (_routesToTestAgent(area)) {
+      base = window.RRDB.agentBase();   // canonical active-DB agent resolver (config.js RRDB)
+    } else {
+      const sess = window.RR_SESSION;
+      const db = sess && sess.dbs && sess.dbs[sess.activeDbIndex || 0];
+      if (!db || !db.ip) return Promise.reject(new Error('No active database. Sign in first.'));
+      base = (/^(?:localhost|127\.0\.0\.1)\b/i.test(db.ip) ? 'http://' : 'https://') + db.ip;
+    }
+    const url = base + '/' + area + (opts.query ? '?' + new URLSearchParams(opts.query) : '');
+    const init = {
+      method:  opts.method || 'GET',
+      headers: prodHeaders(opts.body ? 'application/json;charset=UTF-8' : null),
+      body:    opts.body ? JSON.stringify(opts.body) : undefined
+    };
+    return fetch(url, init).then(async r => {
+      if (!r.ok) {
+        let detail = 'HTTP ' + r.status;
+        try { const j = await r.json(); if (j && (j.message || j.error)) detail = j.message || j.error; } catch (_) {}
+        const e = new Error(detail); e.status = r.status; throw e;
+      }
+      return r.json().catch(err => err instanceof SyntaxError ? null : Promise.reject(err));
+    });
+  }
+
+  // ---------- helpers ----------
+  function $(id) { return document.getElementById(id); }
+  function toast(msg) { const el = $('js-toast'); if (!el) return; el.textContent = msg; el.classList.add('is-visible'); setTimeout(() => el.classList.remove('is-visible'), 2800); }
+  function activeDb() { const s = window.RR_SESSION || {}; const d = Array.isArray(s.dbs) ? s.dbs : []; return d[s.activeDbIndex || 0] || d[0] || null; }
+  function isAdmin() { const a = activeDb(); return !!(a && a.t && a.t.adm === true); }
+  // The access claim has THREE states and each gets its own answer. `true` opens
+  // the page; `false` is a real "no" and shows the gate notice above; anything
+  // else (no session, no tab claims, an older token shape) means we were never
+  // told, so the page halts visibly instead of guessing. Guessing "false" would
+  // lock out a legitimate admin whose token carries a different shape; guessing
+  // "true" is the fail-open this replaces.
+  function admClaim() { const a = activeDb(); return (a && a.t && typeof a.t.adm === 'boolean') ? a.t.adm : null; }
+  // Close the page loudly. `id` names one of the halt notices in the markup.
+  function haltPage(id) { document.body.classList.add('is-gated'); const el = $(id); if (el) el.classList.add('is-visible'); }
+  function mb(n) { return Number(n).toLocaleString('en-US') + ' MB'; }
+
+  // ---------- status / memory (GET admin/service-health) ----------
+  // Verdict copy mirrors the Home card: the agent owns the state, V8 owns words.
+  const SVC_COPY = {
+    healthy: { dot: 'green', sub: 'Running normally.' },
+    watch:   { dot: 'amber', sub: 'Memory is climbing under load — a restart at your next quiet moment keeps reports fast.' },
+    restart: { dot: 'red',   sub: 'Low on memory — reports may start failing. A restart now will clear it.' }
+  };
+  let _restarting = false;
+  let _restartPending = false;
+
+  // Time-based restart progress. The service bounce has no progress events, so
+  // this fills a bar over the expected ~30s window — it tells the admin it's
+  // working and roughly how long is left, then the real health read repaints
+  // the true status (and restores the memory bar) when the window elapses.
+  const RESTART_MS = 30000;
+  function showRestartProgress() {
+    const wrap = $('js-svc-restart'), fill = $('js-restart-fill'), lbl = $('js-restart-label');
+    if (!wrap || !fill) return;
+    const mem = $('js-svc-mem'); if (mem) mem.hidden = true;     // swap memory bar for progress
+    if (lbl) lbl.textContent = 'Restarting the data service — back in about 30 seconds.';
+    wrap.classList.add('is-active');
+    fill.style.transition = 'none';
+    fill.style.width = '0';
+    requestAnimationFrame(function () { requestAnimationFrame(function () {
+      fill.style.transition = 'width ' + RESTART_MS + 'ms linear';
+      fill.style.width = '92%';                                  // a healthy read fills the rest
+    }); });
+  }
+  function finishRestartProgress() {
+    const wrap = $('js-svc-restart'), fill = $('js-restart-fill');
+    if (!wrap || !fill) return;
+    fill.style.transition = 'width .3s ease';
+    fill.style.width = '100%';
+    setTimeout(function () { wrap.classList.remove('is-active'); fill.style.transition = 'none'; fill.style.width = '0'; }, 900);
+  }
+
+  function paintStatus(m) {
+    const dot = $('js-svc-dot'), sub = $('js-svc-sub'), btn = $('js-restart');
+    // No state, or a state this page doesn't recognize (a newer Services build could
+    // add one), means we do NOT know the health. This branch used to paint the dot
+    // green and say "Running normally." — a clean bill of health issued on the
+    // strength of a reply we couldn't read. Say it's unknown; the admin can still
+    // restart, which is the only action here anyway.
+    if (!m || !m.state || !SVC_COPY[m.state]) {
+      if (m && m.state) console.warn('[data service] unrecognized health state:', m.state);
+      dot.className = 'svc-dot amber';
+      sub.textContent = 'Couldn’t read the data service’s status just now, so this isn’t an all-clear. It refreshes on its own every 30 seconds.';
+      if (btn) btn.classList.remove('is-urgent');
+      $('js-svc-mem').hidden = true;
+      return;
+    }
+    const c = SVC_COPY[m.state];
+    dot.className = 'svc-dot ' + c.dot;
+    sub.textContent = c.sub;
+    if (btn) btn.classList.toggle('is-urgent', m.state === 'restart');
+    paintMem(m);
+  }
+  function paintMem(m) {
+    const wrap = $('js-svc-mem'); if (!wrap) return;
+    if (!m || !m.state) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    // "Used" is the total committed memory (heap + JVM overhead) so the figure
+    // matches what the admin sees for this process in Task Manager — heap-in-use
+    // alone reads far lower. The cap is the heap budget (-Xmx, the "2,048 MB").
+    // Bar colour comes from the verdict (post-GC floor), so health and the meter
+    // never disagree. Falls back to heap-in-use if an older agent doesn't send
+    // the committed total yet.
+    const used  = (m.processMemMb && m.processMemMb > 0) ? m.processMemMb : m.heapUsedMb;
+    const alloc = m.heapMaxMb;
+    // No usable figure -> hide the meter rather than print "NaN MB".
+    if (!(Number(used) > 0)) { wrap.hidden = true; return; }
+    const fill = $('js-mem-fill');
+    if (alloc > 0) {
+      const pct = Math.max(2, Math.min(100, Math.round(100 * used / alloc)));
+      fill.style.width = pct + '%';
+      fill.className = 'svc-mem-fill' + (m.state === 'restart' ? ' red' : m.state === 'watch' ? ' amber' : '');
+    } else {
+      fill.style.width = '0';
+    }
+    const cap = $('js-mem-cap');
+    if (alloc > 0) {
+      const pct = Math.min(100, Math.round(100 * used / alloc));
+      cap.innerHTML = 'Using <b>' + mb(used) + '</b> of <b>' + mb(alloc) + '</b> allocated (' + pct + '%)';
+    } else {
+      cap.innerHTML = 'Using <b>' + mb(used) + '</b>';
+    }
+  }
+  function loadHealth() {
+    if (IS_DEMO) { $('js-svc-sub').textContent = 'Running normally (demo).'; return; }
+    rrFetch('admin/service-health')
+      .then(function (m) { paintStatus(m); })
+      .catch(function () {
+        // Endpoint absent/unreachable — fall back to a simple reachable check.
+        rrFetch('health').then(function () {
+          $('js-svc-dot').className = 'svc-dot green';
+          $('js-svc-sub').textContent = 'Running normally.';
+        }).catch(function () {
+          $('js-svc-dot').className = 'svc-dot red';
+          $('js-svc-sub').textContent = 'Not responding — a restart usually clears it.';
+        });
+      });
+  }
+
+  function restartService() {
+    if (_restarting) return;
+    if (IS_DEMO) { toast('Restart the data service — demo mode, no agent call'); return; }
+    _restarting = true;
+    const btn = $('js-restart'); if (btn) { btn.disabled = true; btn.textContent = 'Restarting…'; }
+    const db = activeDb() || {};
+    rrFetch('api/v1/admin/services/restart', { method: 'POST', body: { database: db.n } }).then(function () {
+      toast('Restart requested — reports should work again in about 30 seconds.');
+      $('js-svc-dot').className = 'svc-dot amber';
+      $('js-svc-sub').textContent = 'Restarting — back in about 30 seconds…';
+      showRestartProgress();
+      _restartPending = true;                  // hold the button disabled for the window
+      setTimeout(function () {
+        finishRestartProgress();
+        _restartPending = false;
+        if (btn) { btn.disabled = false; btn.textContent = 'Restart'; }
+        loadHealth();                          // repaint true status + restore the memory bar
+      }, RESTART_MS + 2000);
+    }).catch(function (err) {
+      const msg = String(err && err.message || err);
+      toast(/404|405|501/.test(msg)
+        ? 'Restart control isn’t wired in VALC yet (see API.md).'
+        : 'Restart request failed: ' + msg);
+    }).then(function () {
+      _restarting = false;
+      // On success the button stays disabled until the restart window elapses
+      // (the success branch's timeout re-enables it); re-enable here only when
+      // no restart is pending — i.e. the POST itself failed.
+      if (!_restartPending && btn) { btn.disabled = false; btn.textContent = 'Restart'; }
+    });
+  }
+
+  // ---------- boot ----------
+  function startBoot() {
+    const a = activeDb();
+    // Topbar/footer chrome retired (admin-page standard); these elements no longer
+    // exist, so guard before touching them.
+    const dbEl = $('js-topbar-db');
+    if (dbEl && a && a.n) dbEl.textContent = a.n;
+    const ver = $('js-app-ver');
+    if (ver) ver.textContent = (RR_CONFIG.release || 'v8') + (RR_CONFIG.buildStamp ? ' · ' + RR_CONFIG.buildStamp : '');
+
+    // Client gate (UX only — the endpoints are admin-gated server-side too).
+    const _adm = admClaim();
+    if (_adm === false) {
+      document.body.classList.add('is-gated');
+      $('js-gate').classList.add('is-visible');
+      return;
+    }
+    if (_adm !== true) { haltPage('js-halt-claim'); return; }
+
+    $('js-restart').addEventListener('click', restartService);
+    loadHealth();
+    if (!IS_DEMO) setInterval(loadHealth, 30000);
+  }
+
+  // sidebar.js owns session hydration (decodes localStorage.rrv8.token into
+  // RR_SESSION). Hydrate FIRST so activeDb() resolves the real database name —
+  // the Restart POST sends it as { database }, and without hydration that went
+  // out empty, so VALC answered 400 "database is required". Mirrors the boot in
+  // home.html + admin-claude-assistant.html.
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.RRV8 && typeof window.RRV8.hydrateSession === 'function') {
+      window.RRV8.hydrateSession().then(startBoot).catch(startBoot);
+    } else {
+      // sidebar.js owns session hydration. If it did not load there is no session
+      // to read, so close the page and say so -- never render admin controls on a
+      // blind guess. (This branch used to boot the page wide open.)
+      haltPage('js-halt-asset');
+    }
+  });
+})();
+</script>
+</body>
+</html>
+

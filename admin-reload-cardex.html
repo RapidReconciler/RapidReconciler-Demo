@@ -1,0 +1,440 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Administrator > Utilities — Reload Cardex data
+  =============================================================================
+  Mirror of Reload GL, with one difference: the cutoff takes human judgement,
+  so the operator PICKS the date (it isn't derived). GET preview counts the
+  F4111 rows at/after it; POST execute clears rtransactions + F4111 from that
+  date. Delete-only — the next scheduled refresh re-pulls from JDE. Admin-gated
+  server-side. Admin-page standard chrome: floating Home button + help "?" circle.
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reload Cardex Data &mdash; RapidReconciler Admin</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="sidebar.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<style>
+  /* Shared admin-page chrome (palette, wash, Home button, page shell, cards)
+     lives in admin-chrome.css, linked above. Only page-specific rules below. */
+  .note { display:flex; gap:12px; padding:13px 16px; border-radius:9px; background:var(--orange-pale); border:1px solid #f0d2a8; color:var(--text); margin-bottom:18px; }
+  /* #js-job-guard is a .note, and `g.hidden = !running` could not collapse a flex box,
+     so the amber "a job is running" warning was on screen permanently — whether or not
+     a job was running. Same defect, same line, on admin-reload-gl.html. UI-159. */
+  .note[hidden] { display:none; }
+  .note svg { width:18px; height:18px; flex-shrink:0; color:var(--orange-deep); margin-top:2px; }
+  .note b { color:var(--navy); }
+  /* End-of-day check banner: amber when a reload is suggested, green when clean
+     or snoozed. The "Remind me in 30 days" button greens the Home card (a
+     client-side snooze) as an override to the suggestion. */
+  .eod-banner { display:flex; align-items:flex-start; gap:12px; padding:11px 14px; border-radius:8px; margin-bottom:16px; font-size:13px; line-height:1.5; }
+  /* Same trap as accounting-model-review's .verdict (UI-116): `display:flex` above is an
+     author rule and beats the UA's `[hidden] { display:none }`, so neither the `hidden`
+     in this banner's own markup nor `b.hidden = true` (:281) actually hid it — the
+     element held an empty box with 11px/14px padding and a 16px bottom margin above the
+     content on every load that never reached a populated state. */
+  .eod-banner[hidden] { display:none; }
+  .eod-banner.is-suggest { background:var(--orange-pale); border:1px solid #f0d2a8; color:var(--text); }
+  .eod-banner.is-clean   { background:var(--green-pale); border:1px solid #c5e6d2; color:var(--text); }
+  /* Neutral: the check couldn't answer. Deliberately NOT green — an unknown result
+     must not look like a clean one. */
+  .eod-banner.is-unknown { background:var(--bg-soft); border:1px solid var(--rule); color:var(--text-soft); }
+  .eod-banner b { color:var(--navy); }
+  .eod-banner .eod-act { margin-left:auto; flex-shrink:0; }
+  .btn-snooze { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:12.5px; border-radius:6px; padding:7px 12px; cursor:pointer; border:1px solid var(--rule-strong); background:var(--bg-card); color:var(--text-soft); white-space:nowrap; }
+  .btn-snooze:hover { color:var(--navy); border-color:var(--text-muted); }
+  .field { display:flex; flex-direction:column; gap:5px; max-width:340px; margin-bottom:16px; }
+  .field-label { font-family:'Source Sans 3',sans-serif; font-size:11px; font-weight:700; color:var(--text-soft); letter-spacing:.04em; text-transform:uppercase; }
+  .field-hint { font-weight:600; color:var(--text-muted); text-transform:none; letter-spacing:0; }
+  .field input { font-family:inherit; font-size:14px; color:var(--navy); padding:9px 11px; border:1px solid var(--rule-strong); border-radius:6px; background:var(--bg-card); }
+  .field input:focus { outline:none; border-color:var(--blue); box-shadow:0 0 0 2px var(--blue-pale); }
+  .facts { display:flex; flex-wrap:wrap; gap:14px 40px; }
+  .fact-k { font-family:'Source Sans 3',sans-serif; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--text-soft); }
+  .fact-v { font-size:20px; font-weight:800; color:var(--navy); font-variant-numeric:tabular-nums; margin-top:2px; }
+  .attest { display:flex; gap:10px; align-items:flex-start; margin:16px 0 4px; font-size:13.5px; color:var(--text-soft); cursor:pointer; }
+  .attest input { margin-top:3px; flex-shrink:0; }
+  .btn { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:13.5px; border-radius:6px; padding:9px 18px; cursor:pointer; border:1px solid transparent; }
+  .btn-warn { color:#fff; background:var(--orange); border-color:var(--orange); }
+  .btn-warn:hover:not(:disabled) { filter:brightness(1.06); }
+  .btn-ghost { color:var(--text-soft); background:var(--bg-card); border-color:var(--rule-strong); }
+  .btn-ghost:hover { color:var(--navy); border-color:var(--text-muted); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; filter:none; }
+  .actions { margin-top:18px; display:flex; gap:10px; align-items:center; }
+  .fetch-error { display:none; background:var(--red-pale); border:1px solid var(--red); color:var(--red); padding:10px 14px; border-radius:6px; margin-bottom:16px; font-size:13px; font-weight:600; }
+  .fetch-error.is-visible { display:block; }
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--navy); color:#fff; padding:10px 18px; border-radius:6px; font-family:'Source Sans 3',sans-serif; font-weight:600; font-size:13px; opacity:0; pointer-events:none; transition:opacity .2s ease,transform .2s ease; z-index:100; }
+  .toast.is-visible { opacity:1; transform:translateX(-50%) translateY(0); }
+  .gate-notice { display:none; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); }
+  .gate-notice svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .gate-notice.is-visible { display:flex; }
+  .gate-notice.halt-notice { background:var(--red-pale); border-color:var(--red); }
+  .gate-notice.halt-notice svg { color:var(--red); }
+  body.is-gated #js-tool { display:none; }
+</style>
+</head>
+<body data-help-src="../RRUniversity/administrator-start-here.html#reload-cardex" data-help-title="Reload cardex data">
+
+<div class="app">
+
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <div class="toast" id="js-toast" role="status" aria-live="polite"></div>
+
+  <main class="main">
+    <div class="page">
+
+      <header class="page-header">
+        <h1 class="page-title">Reload Cardex Data</h1>
+        <p class="page-lede">When the perpetual cardex won&rsquo;t roll cleanly and the variance won&rsquo;t clear, this clears RapidReconciler&rsquo;s copy of the cardex (F4111) and its transaction detail from a date you choose forward. JDE re-pulls it on the next scheduled refresh.</p>
+      </header>
+
+      <div class="note gate-notice" id="js-gate" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div>This is an administrator function. <b>Contact your administrator</b> to reload cardex data.</div>
+      </div>
+
+      <!-- Halt states. Neither one is a permission answer: the first means a
+           required part of the page never loaded, the second means the sign-in
+           carried no answer about this user's access either way. Both close the
+           page instead of rendering the admin surface on a guess. -->
+      <div class="note gate-notice halt-notice" id="js-halt-asset" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Part of this page didn&rsquo;t load, so RapidReconciler can&rsquo;t tell what you&rsquo;re allowed to see here &mdash; nothing was loaded. Reload the page. If it happens again, <b>contact your IT department</b>.</div>
+      </div>
+
+      <div class="note gate-notice halt-notice" id="js-halt-claim" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Your sign-in didn&rsquo;t say what you&rsquo;re allowed to do here, so nothing was loaded. Reload the page. If it happens again, ask your <b>IT department</b> to check your RapidReconciler account.</div>
+      </div>
+
+      <div id="js-tool">
+
+        <div class="fetch-error" id="js-fetch-error" role="alert">Couldn&rsquo;t reach the data service &mdash; <span id="js-fetch-error-msg"></span></div>
+
+        <!-- Job guard: a reload mid-refresh would race the load rebuilding the
+             same cardex tables. Shown + the action disabled while a data refresh
+             is running; re-enables automatically when it finishes (polled). -->
+        <div class="note" id="js-job-guard" role="status" hidden style="background:var(--orange-pale); border-color:#f0d2a8;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 7v5l3 2"/></svg>
+          <span><b>A data refresh is running.</b> Reloading now would collide with the load that&rsquo;s rebuilding the cardex, so it&rsquo;s paused until the refresh finishes. This re-enables on its own.</span>
+        </div>
+
+        <div class="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 8v5M12 16h.01"/></svg>
+          <span><b>Your JDE data is never changed, and this does not pull from JDE now.</b> It clears RapidReconciler&rsquo;s cardex copy from the date below; the cardex comes back on the next scheduled refresh. Refreshes load the JDE system, so they only run on the schedule.</span>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="card-title">Choose the cardex date to roll back to</span></div>
+          <div class="card-body">
+            <div class="eod-banner" id="js-eod-banner" hidden></div>
+            <div class="field">
+              <label class="field-label" for="js-from">Reload from <span class="field-hint">&mdash; suggested when end-of-day is detected; otherwise your call</span></label>
+              <input type="date" id="js-from">
+            </div>
+
+            <div class="facts">
+              <div><div class="fact-k">Cardex rows to reload</div><div class="fact-v" id="js-affected">&mdash;</div></div>
+            </div>
+
+            <label class="attest" id="js-attest-row">
+              <input type="checkbox" id="js-attest">
+              <span>I understand this clears RapidReconciler&rsquo;s cardex (F4111) from the date above, and it rebuilds on the next scheduled refresh.</span>
+            </label>
+
+            <div class="actions">
+              <button class="btn btn-warn" id="js-confirm" type="button" disabled>Reload cardex</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const RR_CONFIG = window.RR_CONFIG || {};
+  const URL_MODE  = new URLSearchParams(window.location.search).get('mode');
+  const MODE      = URL_MODE || RR_CONFIG.mode || 'demo';
+  const IS_DEMO   = (MODE === 'demo');
+  const _testAgentAreas    = new Set(window.RR_TEST_AGENT_AREAS || []);
+  const _testAgentPrefixes = window.RR_TEST_AGENT_PREFIXES || [];
+  const _valcPrefixes      = window.RR_VALC_PREFIXES || [];
+  function _routesToTestAgent(area) {
+    if (_testAgentAreas.has(area)) return true;
+    for (let i = 0; i < _testAgentPrefixes.length; i++) if (area.startsWith(_testAgentPrefixes[i])) return true;
+    return false;
+  }
+  function _routesToValc(area) { for (let i = 0; i < _valcPrefixes.length; i++) if (area.startsWith(_valcPrefixes[i])) return true; return false; }
+  function prodHeaders(contentType) {
+    const h = { 'Accept': 'application/json' };
+    try { const t = localStorage.getItem('rrv8.token'); if (t) h['Authorization'] = 'Bearer ' + t; } catch (_) {}
+    if (contentType) h['Content-Type'] = contentType;
+    return h;
+  }
+  function rrFetch(area, opts) {
+    opts = opts || {};
+    let base;
+    if (_routesToValc(area)) { base = RR_CONFIG.valcBase || 'http://localhost:8080'; }
+    else if (_routesToTestAgent(area)) {
+      base = window.RRDB.agentBase();   // canonical active-DB agent resolver (config.js RRDB)
+    } else {
+      const sess = window.RR_SESSION; const db = sess && sess.dbs && sess.dbs[sess.activeDbIndex || 0];
+      if (!db || !db.ip) return Promise.reject(new Error('No active database. Sign in first.'));
+      base = (/^(?:localhost|127\.0\.0\.1)\b/i.test(db.ip) ? 'http://' : 'https://') + db.ip;
+    }
+    const url = base + '/' + area + (opts.query ? '?' + new URLSearchParams(opts.query) : '');
+    const init = { method: opts.method || 'GET', headers: prodHeaders(opts.body ? 'application/json;charset=UTF-8' : null), body: opts.body ? JSON.stringify(opts.body) : undefined };
+    return fetch(url, init).then(async r => {
+      if (!r.ok) { let detail = 'HTTP ' + r.status; try { const j = await r.json(); if (j && (j.message || j.error)) detail = j.message || j.error; } catch (_) {} const e = new Error(detail); e.status = r.status; throw e; }
+      return r.json().catch(err => err instanceof SyntaxError ? null : Promise.reject(err));
+    });
+  }
+  function $(id) { return document.getElementById(id); }
+  function toast(msg) { const el = $('js-toast'); if (!el) return; el.textContent = msg; el.classList.add('is-visible'); setTimeout(() => el.classList.remove('is-visible'), 2800); }
+  function nf(n) { const x = parseInt(n, 10); return isNaN(x) ? '—' : x.toLocaleString('en-US'); }
+  // ONE producer for the sentence: RRV8.fetchErrorMessage (sidebar.js) branches
+  // on the HTTP status so the remedy matches the failure — a 403 is an
+  // unauthenticated session, not a missing endpoint. See
+  // docs/plans/shared-state-registry.md. Falls back to the raw message only if
+  // sidebar.js is unavailable.
+  function fetchErrText(area, err) {
+    return (window.RRV8 && window.RRV8.fetchErrorMessage)
+      ? window.RRV8.fetchErrorMessage(area, err)
+      : ((err && err.message) || String(err));
+  }
+  function showFetchError(msg) { const b = $('js-fetch-error'); $('js-fetch-error-msg').textContent = msg; b.classList.add('is-visible'); }
+  function clearFetchError() { $('js-fetch-error').classList.remove('is-visible'); }
+  function activeDb() { const s = window.RR_SESSION || {}; const d = Array.isArray(s.dbs) ? s.dbs : []; return d[s.activeDbIndex || 0] || d[0] || null; }
+  function isAdmin() { const a = activeDb(); return !!(a && a.t && a.t.adm === true); }
+  // The access claim has THREE states and each gets its own answer. `true` opens
+  // the page; `false` is a real "no" and shows the gate notice above; anything
+  // else (no session, no tab claims, an older token shape) means we were never
+  // told, so the page halts visibly instead of guessing. Guessing "false" would
+  // lock out a legitimate admin whose token carries a different shape; guessing
+  // "true" is the fail-open this replaces.
+  function admClaim() { const a = activeDb(); return (a && a.t && typeof a.t.adm === 'boolean') ? a.t.adm : null; }
+  // Close the page loudly. `id` names one of the halt notices in the markup.
+  function haltPage(id) { document.body.classList.add('is-gated'); const el = $(id); if (el) el.classList.add('is-visible'); }
+
+  // ---- End-of-day check + 30-day remind (override) ----
+  // eod-check derives whether the prior two periods carry end-of-day values and,
+  // if so, a suggested reload date. The "Remind me in 30 days" snooze is a
+  // client-side override (shared key with Home, so it greens the Home dot too).
+  var RCDX_SNOOZE_DAYS = 30;
+  function cardexSnoozeKey() { var a = activeDb(); return 'rrv8.cardexReloadSnooze.' + ((a && a.n) || ''); }
+  // Server ack (kind 'cardex-snooze') is the source of truth, shared with the
+  // Home dot via GET /admin/acks; localStorage is a write-through fallback for
+  // databases whose ack table predates this build.
+  var _cdxAck = null;
+  function loadCdxAck() {
+    if (!isAdmin()) return Promise.resolve();
+    return rrFetch('admin/acks').then(function (rows) {
+      _cdxAck = null; (rows || []).forEach(function (r) { if (r && r.kind === 'cardex-snooze') _cdxAck = r; });
+    }).catch(function () { _cdxAck = null; });
+  }
+  function cardexSnoozeUntil() {
+    if (_cdxAck && window.RRV8 && window.RRV8.ackToReviewValue) {
+      var v = window.RRV8.ackToReviewValue(_cdxAck);   // already the until-date (or 'never'/'' )
+      if (v === 'never') { var far = new Date(); far.setFullYear(far.getFullYear() + 50); return far; }
+      if (v) { var du = new Date(v + 'T00:00:00'); return isNaN(du.getTime()) ? null : du; }
+      return null;
+    }
+    try {
+      var iso = localStorage.getItem(cardexSnoozeKey()); if (!iso) return null;
+      var d = new Date(iso + 'T00:00:00'); if (isNaN(d.getTime())) return null;
+      d.setDate(d.getDate() + RCDX_SNOOZE_DAYS); return d;
+    } catch (_) { return null; }
+  }
+  function cardexSnoozeActive() { var u = cardexSnoozeUntil(); return !!(u && u.getTime() > Date.now()); }
+  function fmtIso(iso) { try { return new Date(iso + 'T00:00:00').toLocaleDateString(); } catch (_) { return iso; } }
+  var _eod = null;
+  var _eodFailed = false;   // the end-of-day check didn't answer — that is not "clean"
+  function renderEodBanner() {
+    var b = $('js-eod-banner'); if (!b) return;
+    if (cardexSnoozeActive()) {
+      var until = cardexSnoozeUntil().toISOString().slice(0, 10);
+      b.hidden = false; b.className = 'eod-banner is-clean';
+      b.innerHTML = '<div>End-of-day reminder set &mdash; we&rsquo;ll flag this again on <b>' + fmtIso(until) +
+        '</b>. You can still reload below if you want to.</div>' +
+        '<span class="eod-act"><button type="button" class="btn-snooze" id="js-eod-clear">Clear reminder</button></span>';
+    } else if (_eod && _eod.suggestedDate) {
+      b.hidden = false; b.className = 'eod-banner is-suggest';
+      b.innerHTML = '<div><b>End-of-day values in the prior two periods</b> (' + (_eod.eodCount || 0) +
+        ' rows). Suggested reload from <b>' + fmtIso(_eod.suggestedDate) + '</b> &mdash; prefilled below; change it if you need to.</div>' +
+        '<span class="eod-act"><button type="button" class="btn-snooze" id="js-eod-snooze">Remind me in 30 days</button></span>';
+    } else if (_eodFailed) {
+      // Distinct from the clean banner below: we asked and got no answer.
+      b.hidden = false; b.className = 'eod-banner is-unknown';
+      b.innerHTML = '<div>Couldn&rsquo;t check for end-of-day values just now, so this isn&rsquo;t a clean result. Reopen this page in a moment; if it keeps happening, ask your IT department to confirm RapidReconciler&rsquo;s data service is running.</div>';
+    } else if (_eod && _eod._answered) {
+      b.hidden = false; b.className = 'eod-banner is-clean';
+      b.innerHTML = '<div>No end-of-day values in the prior two periods &mdash; reload only if you have a specific reason.</div>';
+    } else {
+      b.hidden = true;
+    }
+  }
+  function loadEodCheck() {
+    if (IS_DEMO) return;
+    rrFetch('inventory/reload-cardex/eod-check').then(function (p) {
+      // `p || {}` used to make an empty 2xx body truthy, and the branch above then
+      // announced "No end-of-day values in the prior two periods" — an all-clear on
+      // a reply that carried nothing. Require the answer to actually be present.
+      var answered = !!(p && typeof p === 'object' && ('suggestedDate' in p || 'eodCount' in p));
+      _eod = p || {};
+      _eod._answered = answered;
+      _eodFailed = !answered;
+      if (!answered) console.error('[reload cardex] end-of-day check returned no usable answer:', p);
+      if (answered && _eod.suggestedDate && !cardexSnoozeActive() && !fromDate()) { $('js-from').value = _eod.suggestedDate; loadPreview(); }
+      renderEodBanner();
+    }).catch(function (e) {
+      // A 404 is an older Services build that doesn't have this check — nothing to
+      // report, so stay quiet. Anything else means the check failed and the admin
+      // should not read the absence of a banner as "nothing to reload".
+      if (e && e.status === 404) { console.warn('[reload cardex] end-of-day check not available on this build'); return; }
+      _eodFailed = true;
+      console.error('[reload cardex] end-of-day check failed:', e);
+      renderEodBanner();
+    });
+  }
+  // Snooze / clear live in the (re-rendered) banner, so delegate.
+  document.addEventListener('click', function (e) {
+    if (!e.target || !e.target.closest) return;
+    if (e.target.closest('#js-eod-snooze')) {
+      rrFetch('admin/activity/ack', { method: 'POST', body: { kind: 'cardex-snooze', cadenceDays: RCDX_SNOOZE_DAYS, never: false } })
+        .then(function (ack) { if (ack) _cdxAck = ack; })
+        .catch(function () { /* no ack table — localStorage fallback */ })
+        .then(function () { try { localStorage.setItem(cardexSnoozeKey(), new Date().toISOString().slice(0, 10)); } catch (_) {} renderEodBanner(); });
+      return;
+    }
+    if (e.target.closest('#js-eod-clear')) {
+      // No DELETE in the ack API — clear = a cadence-0 ack (reads as not-snoozed,
+      // i.e. the suggestion returns) while leaving an audit trail.
+      rrFetch('admin/activity/ack', { method: 'POST', body: { kind: 'cardex-snooze', cadenceDays: 0, never: false } })
+        .then(function (ack) { _cdxAck = ack || null; })
+        .catch(function () { _cdxAck = null; })
+        .then(function () { try { localStorage.removeItem(cardexSnoozeKey()); } catch (_) {} renderEodBanner(); });
+      return;
+    }
+  });
+
+  let _busy = false, _jobRunning = false;
+  function fromDate() { return ($('js-from').value || '').trim(); }
+  // Reload is allowed only with a date + attest + nothing in flight AND no data
+  // refresh running (a reload mid-refresh races the load rebuilding the cardex).
+  function refreshConfirm() { $('js-confirm').disabled = !(fromDate() && $('js-attest').checked && !_busy && !_jobRunning); }
+  function applyJobGuard(running) {
+    _jobRunning = running;
+    const g = $('js-job-guard'); if (g) g.hidden = !running;
+    const at = $('js-attest'); if (at) at.disabled = running;
+    refreshConfirm();
+  }
+  // GET /poll (same source as Home): "in progress" => guard on. Re-checks on a
+  // timer so the page re-enables itself when the refresh finishes.
+  function checkJob() {
+    rrFetch('poll').then(function (payload) {
+      const job = (payload && (payload.currentJob || payload)) || {};
+      applyJobGuard(/^in progress/i.test(String(job.jobStatus || '').trim()));
+    }).catch(function () {
+      // Fail safe to "not running", matching admin-reload-gl.html which polls the
+      // same endpoint for the same purpose. Leaving the guard as-is meant that once
+      // the "a data refresh is running" banner had been shown, a failing poll could
+      // never report not-in-progress again — so a stale banner latched permanently
+      // and blocked the reload while nothing was actually running. The reload
+      // endpoint is gated server-side; this banner is a UX hint, not the real
+      // collision guard.
+      applyJobGuard(false);
+    });
+  }
+  function loadPreview() {
+    const d = fromDate();
+    clearFetchError();
+    if (!d || IS_DEMO) { $('js-affected').textContent = '—'; refreshConfirm(); return; }
+    $('js-affected').textContent = '…';
+    rrFetch('inventory/reload-cardex/preview', { query: { fromDate: d } }).then(function (p) {
+      $('js-affected').textContent = nf(p && p.affected);
+    }).catch(function (e) {
+      $('js-affected').textContent = '—';
+      showFetchError('Could not check cardex reload. ' +
+        fetchErrText('inventory/reload-cardex/preview', e));
+    }).then(refreshConfirm);
+  }
+  function confirmReload() {
+    const d = fromDate();
+    if (_busy || !d || !$('js-attest').checked || _jobRunning) return;
+    _busy = true; $('js-confirm').disabled = true; $('js-confirm').textContent = 'Reloading…';
+    rrFetch('inventory/reload-cardex', { method: 'POST', body: { fromDate: d } })
+      .then(function (r) {
+        toast('Cardex copy cleared — ' + nf(r && r.affected) + ' rows removed. It rebuilds on the next scheduled refresh.');
+        if (window.RRV8 && RRV8.logActivity) RRV8.logActivity('Cardex reload requested', 'Perpetual cardex copy cleared from ' + d + ' — rebuilds on the next scheduled refresh (' + nf(r && r.affected) + ' rows removed)');
+        $('js-attest').checked = false;
+        loadPreview();
+      })
+      .catch(function (e) { showFetchError('Reload cardex failed. ' + fetchErrText('inventory/reload-cardex', e)); })
+      .then(function () { _busy = false; $('js-confirm').textContent = 'Reload cardex'; refreshConfirm(); });
+  }
+
+  function startBoot() {
+    const a = activeDb();
+    // Topbar/footer chrome retired (admin-page standard); these elements no longer
+    // exist, so guard before touching them.
+    const dbEl = $('js-topbar-db');
+    if (dbEl && a && a.n) dbEl.textContent = a.n;
+    const ver = $('js-app-ver');
+    if (ver) ver.textContent = (RR_CONFIG.release || 'v8') + (RR_CONFIG.buildStamp ? ' · ' + RR_CONFIG.buildStamp : '');
+    const _adm = admClaim();
+    if (_adm === false) { document.body.classList.add('is-gated'); $('js-gate').classList.add('is-visible'); return; }
+    if (_adm !== true) { haltPage('js-halt-claim'); return; }
+    $('js-from').addEventListener('change', loadPreview);
+    $('js-attest').addEventListener('change', refreshConfirm);
+    $('js-confirm').addEventListener('click', confirmReload);
+    // Pre-seed the date from the Home end-of-day suggestion (?from=yyyy-MM-dd).
+    // Still fully editable — it just saves retyping the suggested date.
+    try {
+      var from = new URLSearchParams(window.location.search).get('from');
+      if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) { $('js-from').value = from; loadPreview(); }
+    } catch (_) {}
+    // Run the end-of-day check so this page shows the suggestion + remind option
+    // on its own (not only when reached via the Home link). Load the server snooze
+    // ack first so the banner reflects a reminder set on any browser.
+    loadCdxAck().then(renderEodBanner);
+    loadEodCheck();
+    // Guard against running a reload while a data refresh is in progress.
+    if (!IS_DEMO) { checkJob(); setInterval(checkJob, 12000); }
+  }
+
+  // Hydrate the session FIRST (this minimal-topbar page doesn't mount the
+  // workbar that would auto-hydrate), so loadEodCheck()/checkJob() reach the
+  // right database instead of racing an empty session.
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.RRV8 && typeof window.RRV8.hydrateSession === 'function') {
+      window.RRV8.hydrateSession().then(startBoot).catch(startBoot);
+    } else {
+      // sidebar.js owns session hydration. If it did not load there is no session
+      // to read, so close the page and say so -- never render admin controls on a
+      // blind guess. (This branch used to boot the page wide open.)
+      haltPage('js-halt-asset');
+    }
+  });
+})();
+</script>
+</body>
+</html>
+

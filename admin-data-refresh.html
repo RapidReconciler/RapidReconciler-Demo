@@ -1,0 +1,278 @@
+﻿<!DOCTYPE html>
+<!--
+  =============================================================================
+  Administrator > Data Management — Data refresh (manual JDE pull)
+  =============================================================================
+  A refresh loads the JDE system, so it normally runs only on the nightly
+  schedule. This page lets an admin kick one off on demand (POST
+  jobs/refresh/start) and guards against a second launch while one is running
+  (409 from the agent). Surfaces the SQL Server Agent-stopped fix. Admin-gated
+  server-side. Admin-page standard chrome: floating Home button + help "?" circle.
+  =============================================================================
+-->
+<html lang="en">
+<head><script src="/date-freeze.js"></script><script src="/request-signature.js"></script><script src="/replay-shim.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Refresh &mdash; RapidReconciler Admin</title>
+<link href="fonts/fonts.css" rel="stylesheet">
+<link href="admin-chrome.css" rel="stylesheet">
+<link href="sidebar.css" rel="stylesheet">
+<link href="../Tools/help-sidebar.css" rel="stylesheet">
+<script src="config.js"></script>
+<script src="sidebar.js"></script>
+<script defer src="../Tools/help-sidebar.js"></script>
+<style>
+  /* Shared admin-page chrome (palette, wash, Home button, page shell, cards)
+     lives in admin-chrome.css, linked above. Only page-specific rules below. */
+  .note { display:flex; gap:12px; padding:13px 16px; border-radius:9px; background:var(--orange-pale); border:1px solid #f0d2a8; color:var(--text); margin-bottom:18px; }
+  .note svg { width:18px; height:18px; flex-shrink:0; color:var(--orange-deep); margin-top:2px; }
+  .note b { color:var(--navy); }
+  .btn { font-family:'Source Sans 3',sans-serif; font-weight:700; font-size:13.5px; border-radius:6px; padding:9px 18px; cursor:pointer; border:1px solid transparent; }
+  .btn-primary { color:#fff; background:var(--blue); border-color:var(--blue); }
+  .btn-primary:hover:not(:disabled) { filter:brightness(1.07); }
+  .btn-ghost { color:var(--text-soft); background:var(--bg-card); border-color:var(--rule-strong); }
+  .btn-ghost:hover { color:var(--navy); border-color:var(--text-muted); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; filter:none; }
+  .actions { margin-top:4px; display:flex; gap:10px; align-items:center; }
+  .run-state { font-size:13.5px; color:var(--text-soft); margin-bottom:14px; }
+  .run-state b { color:var(--navy); }
+  .fetch-error { display:none; background:var(--red-pale); border:1px solid var(--red); color:var(--red); padding:10px 14px; border-radius:6px; margin-bottom:16px; font-size:13px; font-weight:600; }
+  .fetch-error.is-visible { display:block; }
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--navy); color:#fff; padding:10px 18px; border-radius:6px; font-family:'Source Sans 3',sans-serif; font-weight:600; font-size:13px; opacity:0; pointer-events:none; transition:opacity .2s ease,transform .2s ease; z-index:100; }
+  .toast.is-visible { opacity:1; transform:translateX(-50%) translateY(0); }
+  .gate-notice { display:none; gap:12px; padding:13px 16px; border-radius:9px; background:var(--blue-pale); border:1px solid #c2d8ef; color:var(--text); }
+  .gate-notice svg { width:18px; height:18px; flex-shrink:0; color:var(--blue); margin-top:2px; }
+  .gate-notice.is-visible { display:flex; }
+  .gate-notice.halt-notice { background:var(--red-pale); border-color:var(--red); }
+  .gate-notice.halt-notice svg { color:var(--red); }
+  body.is-gated #js-tool { display:none; }
+</style>
+</head>
+<body data-help-src="../RRUniversity/administrator-start-here.html#data" data-help-title="Data refresh">
+
+<div class="app">
+
+  <!-- Floating chrome: Home + the help "?" (injected next to it by help-sidebar.js
+       via the .topbar-home hook class). These two are the page's only chrome. -->
+  <div class="corner-chrome">
+    <a class="home-fab topbar-home" href="home.html" title="Back to Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      Home
+    </a>
+  </div>
+
+  <div class="toast" id="js-toast" role="status" aria-live="polite"></div>
+
+  <main class="main">
+    <div class="page">
+
+      <header class="page-header">
+        <h1 class="page-title">Data Refresh</h1>
+        <p class="page-lede">Your data refreshes automatically every night. You can also pull an intraday refresh here &mdash; for example, during period close when you want the latest from JD&nbsp;Edwards before reconciling.</p>
+      </header>
+
+      <div class="note gate-notice" id="js-gate" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div>This is an administrator function. <b>Contact your administrator</b> to refresh data.</div>
+      </div>
+
+      <!-- Halt states. Neither one is a permission answer: the first means a
+           required part of the page never loaded, the second means the sign-in
+           carried no answer about this user's access either way. Both close the
+           page instead of rendering the admin surface on a guess. -->
+      <div class="note gate-notice halt-notice" id="js-halt-asset" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Part of this page didn&rsquo;t load, so RapidReconciler can&rsquo;t tell what you&rsquo;re allowed to see here &mdash; nothing was loaded. Reload the page. If it happens again, <b>contact your IT department</b>.</div>
+      </div>
+
+      <div class="note gate-notice halt-notice" id="js-halt-claim" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>Your sign-in didn&rsquo;t say what you&rsquo;re allowed to do here, so nothing was loaded. Reload the page. If it happens again, ask your <b>IT department</b> to check your RapidReconciler account.</div>
+      </div>
+
+      <div id="js-tool">
+
+        <div class="fetch-error" id="js-fetch-error" role="alert">Couldn&rsquo;t reach the data service &mdash; <span id="js-fetch-error-msg"></span></div>
+
+        <div class="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 8v5M12 16h.01"/></svg>
+          <span>A refresh pulls from the live JD&nbsp;Edwards system, so it normally runs on the schedule. Start one on demand only when you need fresh data now &mdash; and let it finish before starting another.</span>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="card-title">Refresh now</span></div>
+          <div class="card-body">
+            <div class="run-state" id="js-run-state">Starts a one-time pull from JD&nbsp;Edwards into RapidReconciler.</div>
+            <div class="actions">
+              <button class="btn btn-primary" id="js-refresh" type="button">Refresh now</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const RR_CONFIG = window.RR_CONFIG || {};
+  const URL_MODE  = new URLSearchParams(window.location.search).get('mode');
+  const MODE      = URL_MODE || RR_CONFIG.mode || 'demo';
+  const IS_DEMO   = (MODE === 'demo');
+  const _testAgentAreas    = new Set(window.RR_TEST_AGENT_AREAS || []);
+  const _testAgentPrefixes = window.RR_TEST_AGENT_PREFIXES || [];
+  const _valcPrefixes      = window.RR_VALC_PREFIXES || [];
+  function _routesToTestAgent(area) {
+    if (_testAgentAreas.has(area)) return true;
+    for (let i = 0; i < _testAgentPrefixes.length; i++) if (area.startsWith(_testAgentPrefixes[i])) return true;
+    return false;
+  }
+  function _routesToValc(area) { for (let i = 0; i < _valcPrefixes.length; i++) if (area.startsWith(_valcPrefixes[i])) return true; return false; }
+  function prodHeaders(contentType) {
+    const h = { 'Accept': 'application/json' };
+    try { const t = localStorage.getItem('rrv8.token'); if (t) h['Authorization'] = 'Bearer ' + t; } catch (_) {}
+    if (contentType) h['Content-Type'] = contentType;
+    return h;
+  }
+  function rrFetch(area, opts) {
+    opts = opts || {};
+    let base;
+    if (_routesToValc(area)) { base = RR_CONFIG.valcBase || 'http://localhost:8080'; }
+    else if (_routesToTestAgent(area)) {
+      base = window.RRDB.agentBase();   // canonical active-DB agent resolver (config.js RRDB)
+    } else {
+      const sess = window.RR_SESSION; const db = sess && sess.dbs && sess.dbs[sess.activeDbIndex || 0];
+      if (!db || !db.ip) return Promise.reject(new Error('No active database. Sign in first.'));
+      base = (/^(?:localhost|127\.0\.0\.1)\b/i.test(db.ip) ? 'http://' : 'https://') + db.ip;
+    }
+    const url = base + '/' + area + (opts.query ? '?' + new URLSearchParams(opts.query) : '');
+    const init = { method: opts.method || 'GET', headers: prodHeaders(opts.body ? 'application/json;charset=UTF-8' : null), body: opts.body ? JSON.stringify(opts.body) : undefined };
+    return fetch(url, init).then(async r => {
+      if (!r.ok) { let detail = 'HTTP ' + r.status; try { const j = await r.json(); if (j && (j.message || j.error)) detail = j.message || j.error; } catch (_) {} const e = new Error(detail); e.status = r.status; throw e; }
+      return r.json().catch(err => err instanceof SyntaxError ? null : Promise.reject(err));
+    });
+  }
+  function $(id) { return document.getElementById(id); }
+  function toast(msg) { const el = $('js-toast'); if (!el) return; el.textContent = msg; el.classList.add('is-visible'); setTimeout(() => el.classList.remove('is-visible'), 3000); }
+  // ONE producer for the sentence: RRV8.fetchErrorMessage (sidebar.js) branches
+  // on the HTTP status so the remedy matches the failure — a 403 is an
+  // unauthenticated session, not a missing endpoint. See
+  // docs/plans/shared-state-registry.md. Falls back to the raw message only if
+  // sidebar.js is unavailable.
+  function fetchErrText(area, err) {
+    return (window.RRV8 && window.RRV8.fetchErrorMessage)
+      ? window.RRV8.fetchErrorMessage(area, err)
+      : ((err && err.message) || String(err));
+  }
+  function showFetchError(msg) { const b = $('js-fetch-error'); $('js-fetch-error-msg').textContent = msg; b.classList.add('is-visible'); }
+  function clearFetchError() { $('js-fetch-error').classList.remove('is-visible'); }
+  function activeDb() { const s = window.RR_SESSION || {}; const d = Array.isArray(s.dbs) ? s.dbs : []; return d[s.activeDbIndex || 0] || d[0] || null; }
+  function isAdmin() { const a = activeDb(); return !!(a && a.t && a.t.adm === true); }
+  // The access claim has THREE states and each gets its own answer. `true` opens
+  // the page; `false` is a real "no" and shows the gate notice above; anything
+  // else (no session, no tab claims, an older token shape) means we were never
+  // told, so the page halts visibly instead of guessing. Guessing "false" would
+  // lock out a legitimate admin whose token carries a different shape; guessing
+  // "true" is the fail-open this replaces.
+  function admClaim() { const a = activeDb(); return (a && a.t && typeof a.t.adm === 'boolean') ? a.t.adm : null; }
+  // Close the page loudly. `id` names one of the halt notices in the markup.
+  function haltPage(id) { document.body.classList.add('is-gated'); const el = $(id); if (el) el.classList.add('is-visible'); }
+
+  let _running = false;
+  function setRunning(on) {
+    _running = on;
+    const btn = $('js-refresh');
+    btn.disabled = on;
+    btn.textContent = on ? 'Running…' : 'Refresh now';
+    $('js-run-state').innerHTML = on
+      ? '<b>A refresh is running.</b> Let it finish before starting another.'
+      : 'Starts a one-time pull from JD&nbsp;Edwards into RapidReconciler.';
+  }
+  // "A refresh is running" was set optimistically on the POST and then never
+  // re-checked, so the page went on asserting it for the rest of the session — and
+  // on a fresh load it claimed the opposite ("starts a one-time pull") while a
+  // nightly refresh was mid-flight. Poll the job state, same endpoint and same
+  // reading as the Reload GL / Reload Cardex pages, so the sentence is true.
+  let _starting = false;   // a start POST is in flight — don't let a poll race it
+  function checkJob() {
+    if (IS_DEMO || _starting) return;
+    rrFetch('poll').then(function (payload) {
+      if (_starting) return;
+      const job = (payload && (payload.currentJob || payload)) || {};
+      setRunning(/^in progress/i.test(String(job.jobStatus || '').trim()));
+    }).catch(function () {
+      // Fail safe to "not running": a failing poll must not latch the button
+      // disabled forever. The start endpoint answers 409 if one is already running,
+      // and that message is handled below — the server is the real guard.
+      setRunning(false);
+    });
+  }
+  function doRefresh() {
+    if (_running) { toast('A refresh is already running — let it finish first.'); return; }
+    if (IS_DEMO) { toast('Data refresh — demo mode, no agent call'); return; }
+    clearFetchError();
+    _starting = true;
+    setRunning(true);
+    toast('Starting data refresh…');
+    rrFetch('jobs/refresh/start', { method: 'POST' })
+      .then(function () {
+        toast('Data refresh started. It runs in the background.');
+        if (window.RRV8 && RRV8.logActivity) RRV8.logActivity('Data refresh started', 'One-time JD Edwards data pull started from the Data Refresh page');
+        // Let the job register in SQL Agent, then hand the state back to the poll so
+        // the "a refresh is running" line reflects the job, not our optimism.
+        setTimeout(function () { _starting = false; checkJob(); }, 4000);
+      })
+      .catch(function (err) {
+        const msg = String(err && err.message || err);
+        if (/SQLServerAgent is not currently running|Agent service.*not.*running/i.test(msg)) {
+          showFetchError('Can’t start the refresh — SQL Server Agent is stopped on the database server. Ask IT to start the SQL Server Agent service, then try again.');
+        } else if (err && err.status === 409) {
+          // Escalation points at the customer's own IT department: both causes here
+          // (a refresh already in flight, or a missing SQL Agent job) live on their
+          // database server and are theirs to check.
+          showFetchError('Can’t start now — a refresh is already running, or the nightly refresh job hasn’t been set up yet. If this keeps happening, ask your IT department to check the RapidReconciler refresh job on the database server.');
+        } else {
+          showFetchError('Data refresh failed. ' + fetchErrText('jobs/refresh/start', err));
+        }
+        _starting = false;
+        setRunning(false);
+      });
+  }
+
+  function startBoot() {
+    const a = activeDb();
+    // Topbar/footer chrome was retired (admin-page standard); these element
+    // writes are now guarded no-ops that stay harmless if the ids are absent.
+    const dbEl = $('js-topbar-db');
+    if (dbEl && a && a.n) dbEl.textContent = a.n;
+    const ver = $('js-app-ver');
+    if (ver) ver.textContent = (RR_CONFIG.release || 'v8') + (RR_CONFIG.buildStamp ? ' · ' + RR_CONFIG.buildStamp : '');
+    const _adm = admClaim();
+    if (_adm === false) { document.body.classList.add('is-gated'); $('js-gate').classList.add('is-visible'); return; }
+    if (_adm !== true) { haltPage('js-halt-claim'); return; }
+    $('js-refresh').addEventListener('click', doRefresh);
+    checkJob();
+    if (!IS_DEMO) setInterval(checkJob, 15000);
+  }
+
+  // Hydrate the session FIRST (minimal-topbar page, no workbar auto-hydrate) so
+  // activeDb() resolves for the topbar + the refresh POST carries the database.
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.RRV8 && typeof window.RRV8.hydrateSession === 'function') {
+      window.RRV8.hydrateSession().then(startBoot).catch(startBoot);
+    } else {
+      // sidebar.js owns session hydration. If it did not load there is no session
+      // to read, so close the page and say so -- never render admin controls on a
+      // blind guess. (This branch used to boot the page wide open.)
+      haltPage('js-halt-asset');
+    }
+  });
+})();
+</script>
+</body>
+</html>
+
